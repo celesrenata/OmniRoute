@@ -14,12 +14,12 @@ import { fileURLToPath } from "node:url";
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
 
-const providerTopologySrc = read("../../src/app/(dashboard)/home/ProviderTopology.tsx");
+// OR-ATOM-001 (M1): getProviderConfig lives in the 2D renderer, not the renderer host.
+const providerTopologySrc = read("../../src/app/(dashboard)/home/ProviderTopology2D.tsx");
 
 test("getFallbackProviderColor gives two different custom provider ids distinct colors", async () => {
-  const { getFallbackProviderColor } = await import(
-    "../../src/shared/utils/providerFallbackColor.ts"
-  );
+  const { getFallbackProviderColor } =
+    await import("../../src/shared/utils/providerFallbackColor.ts");
   const colorAlpha = getFallbackProviderColor("openai-compatible-my-custom-alpha-node");
   const colorBeta = getFallbackProviderColor("openai-compatible-my-custom-beta-node");
   assert.notEqual(
@@ -30,18 +30,16 @@ test("getFallbackProviderColor gives two different custom provider ids distinct 
 });
 
 test("getFallbackProviderColor is deterministic for the same id", async () => {
-  const { getFallbackProviderColor } = await import(
-    "../../src/shared/utils/providerFallbackColor.ts"
-  );
+  const { getFallbackProviderColor } =
+    await import("../../src/shared/utils/providerFallbackColor.ts");
   const first = getFallbackProviderColor("anthropic-compatible-my-node-abc123");
   const second = getFallbackProviderColor("anthropic-compatible-my-node-abc123");
   assert.equal(first, second, "the same provider id must always resolve to the same color");
 });
 
 test("getFallbackProviderColor spreads ids across more than one palette entry", async () => {
-  const { getFallbackProviderColor, FALLBACK_COLOR_PALETTE } = await import(
-    "../../src/shared/utils/providerFallbackColor.ts"
-  );
+  const { getFallbackProviderColor, FALLBACK_COLOR_PALETTE } =
+    await import("../../src/shared/utils/providerFallbackColor.ts");
   assert.ok(
     FALLBACK_COLOR_PALETTE.length > 1,
     "the fallback palette must offer more than one distinguishable color"

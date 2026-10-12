@@ -80,7 +80,7 @@ test("withProviderNodeEntries does not duplicate a node already present by prefi
     NODES
   );
   assert.equal(byPrefix.filter((e) => e.provider.toLowerCase() === "arc-embed").length, 1);
-  const byIdInput = { id: ARC_KOKORO_ID, provider: ARC_KOKORO_ID, status: "active" };
+  const byIdInput: TopologyEntry = { id: ARC_KOKORO_ID, provider: ARC_KOKORO_ID, status: "active" };
   const byId = withProviderNodeEntries([byIdInput], NODES);
   assert.ok(!byId.some((e) => e.provider === "arc-kokoro"));
   // The connection-backed entry gains the node prefix as an alias, so live events
@@ -132,15 +132,56 @@ test("isTopologyEntryInSet matches Arc nodes by prefix, by node-id alias, case-i
   assert.equal(isTopologyEntryInSet(get("arc-embed"), new Set(["openai", "arc"])), false);
 });
 
-test("ProviderTopology uses alias-aware matching for active/last/error", () => {
-  const src = readFileSync(
-    fileURLToPath(new URL("../../src/app/(dashboard)/home/ProviderTopology.tsx", import.meta.url)),
+test("ProviderTopology uses alias-aware matching for active/last/error", async () => {
+  // OR-ATOM-001 (M1): the renderer host owns no rendering. The alias-aware matching
+  // (isTopologyEntryInSet over active/last/error sets) now lives in the 2D renderer
+  // (verbatim from the old component) and in the renderer-neutral normalizer that
+  // builds the snapshot the host hands to the renderer plugin.
+  const src2d = readFileSync(
+    fileURLToPath(
+      new URL("../../src/app/(dashboard)/home/ProviderTopology2D.tsx", import.meta.url)
+    ),
     "utf8"
   );
-  assert.match(src, /isTopologyEntryInSet\(p, activeSet\)/);
-  assert.match(src, /isTopologyEntryInSet\(p, lastSet\)/);
-  assert.match(src, /isTopologyEntryInSet\(p, errorSet\)/);
-  assert.doesNotMatch(src, /activeSet\.has\(/);
+  const normalizeSrc = readFileSync(
+    fileURLToPath(
+      new URL("../../src/shared/topology/domain/normalizeTopology.ts", import.meta.url)
+    ),
+    "utf8"
+  );
+  // 2D renderer keeps the legacy local sets (variable `p`) verbatim from the old component.
+  assert.match(src2d, /isTopologyEntryInSet\(p, activeSet\)/);
+  assert.match(src2d, /isTopologyEntryInSet\(p, lastSet\)/);
+  assert.match(src2d, /isTopologyEntryInSet\(p, errorSet\)/);
+  assert.doesNotMatch(src2d, /activeSet\.has\(/);
+
+  // The renderer-neutral normalizer applies the same alias-aware matching to each entry.
+  assert.match(normalizeSrc, /isTopologyEntryInSet\(entry, activeSet\)/);
+  assert.match(normalizeSrc, /isTopologyEntryInSet\(entry, lastSet\)/);
+  assert.match(normalizeSrc, /isTopologyEntryInSet\(entry, errorSet\)/);
+  assert.doesNotMatch(normalizeSrc, /activeSet\.has\(/);
+
+  // Behavioural: the snapshot carries the alias-aware matching result, so Arc
+  // prefix keys resolve active/last/error traffic through their node-id aliases.
+  const { normalizeTopology } =
+    await import("../../src/shared/topology/domain/normalizeTopology.ts");
+  const snapshot = normalizeTopology({
+    providers: [
+      { provider: "arc-embed", status: "active", aliases: [ARC_EMBED_ID] },
+      { provider: "arc-kokoro", status: "active", aliases: [ARC_KOKORO_ID] },
+      { provider: "arc-whisper", status: "active", aliases: [ARC_WHISPER_ID] },
+      { provider: "ovms-arc", status: "idle", aliases: [OVMS_ARC_ID] },
+    ],
+    activeRequests: [{ provider: ARC_EMBED_ID }, { provider: "ARC-EMBED" }],
+    lastProvider: "arc-kokoro",
+    errorProvider: "arc-whisper",
+  });
+  const traffic = (providerId: string) =>
+    snapshot.nodes.find((n) => n.providerId === providerId)?.traffic ?? "missing";
+  assert.equal(traffic("arc-embed"), "active", "alias + case-insensitive match = active");
+  assert.equal(traffic("arc-kokoro"), "recent", "last-routed without live traffic = recent");
+  assert.equal(traffic("arc-whisper"), "idle", "error without live traffic = idle");
+  assert.equal(traffic("ovms-arc"), "idle", "unrelated provider stays idle");
 });
 
 test("HomePageClient merges provider-nodes into the topology list", () => {

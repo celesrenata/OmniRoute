@@ -1,0 +1,305 @@
+/**
+ * OmniRoute adapter tests (T005 / M2): works from fixtures only (AC2),
+ * normalizes without fabricating — token counts never become tok/s,
+ * GPU fields are always null with unavailable semantics, queued/active
+ * jobs come from real counts (AC3/AC5).
+ */
+
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import {
+  ACTIVE_JOBS_BASIS,
+  GPU_UNAVAILABLE_BASIS,
+  QUEUED_JOBS_BASIS,
+  buildOmnirouteTelemetryProvider,
+  type OmnirouteCallLogRow,
+  type OmnirouteProducers,
+} from "../../../src/shared/topology/telemetry/providers/omniroute";
+import type { FleetResourceObservation } from "../../../src/shared/topology/telemetry/types";
+
+const NOW = 1_700_000_000_000;
+
+type BreakerEntry = { name: string; state: string };
+
+interface FixtureParts {
+  connections?: Array<{ id: string; provider: string }>;
+  breakers?: BreakerEntry[] | Record<string, { state: string }>;
+  rateLimits?: Record<string, { queued: number; running: number; executing: number }>;
+  inflight?: number;
+  rows?: OmnirouteCallLogRow[];
+}
+
+function makeProducers(parts: FixtureParts = {}): OmnirouteProducers {
+  return {
+    now: () => NOW,
+    providerConnections: async () =>
+      parts.connections ?? [
+        { id: "c1", provider: "openai" },
+        { id: "c2", provider: "anthropic" },
+      ],
+    circuitBreakerStatuses: async () => parts.breakers ?? [],
+    rateLimitStatus: async () => parts.rateLimits ?? {},
+    inflightRequestCount: async () => parts.inflight ?? 0,
+    callLogRows: async () => parts.rows ?? [],
+  };
+}
+
+function snapshotFor(
+  resources: FleetResourceObservation[],
+  providerKey: string
+): FleetResourceObservation {
+  const match = resources.find((r) => r.resourceId === `provider:${providerKey}`);
+  assert.ok(match, `expected resource provider:${providerKey}`);
+  return match;
+}
+
+describe("omniroute adapter: fixture-only, no live infrastructure", () => {
+  it("produces a provider row per provider key with canonical ids (join-by-id)", async () => {
+    const provider = buildOmnirouteTelemetryProvider(makeProducers());
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    assert.equal(snap.schemaVersion, 1);
+    assert.equal(snap.capturedAt, NOW);
+    assert.equal(snap.resources.length, 2);
+    const ids = snap.resources.map((r) => r.resourceId).sort();
+    assert.deepEqual(ids, ["provider:anthropic", "provider:openai"]);
+    for (const r of snap.resources) {
+      assert.equal(r.kind, "provider");
+      assert.equal(r.providerId, r.resourceId.slice("provider:".length));
+    }
+  });
+
+  it("one snapshot carries device + runtime + omniroute facts without browser fan-out (AC1)", async () => {
+    // The adapter is the sole provider; the gateway/merge path joins whatever
+    // snapshots exist by id — here we prove the omniroute facts sit alongside
+    // device facts in a single merged resource set.
+    const { mergeSnapshots } =
+      await import("../../../src/shared/topology/telemetry/mergeSnapshots");
+    const provider = buildOmnirouteTelemetryProvider(makeProducers({ inflight: 3 }));
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    const deviceSnap = {
+      schemaVersion: 1,
+      capturedAt: NOW,
+      resources: [
+        {
+          resourceId: "gpu:h1:gpu-uuid",
+          kind: "gpu" as const,
+          hostId: "h1",
+          deviceUuid: "gpu-uuid",
+          utilizationPercent: {
+            value: 80,
+            source: "prometheus" as const,
+            sampledAt: NOW,
+          },
+        },
+      ],
+    };
+    const merged = mergeSnapshots([deviceSnap, snap], NOW);
+    const kinds = merged.snapshot.resources.map((r) => r.kind).sort();
+    assert.deepEqual(kinds, ["gpu", "provider", "provider"]);
+  });
+});
+
+describe("omniroute adapter: counts vs tok/s (AC3)", () => {
+  it("derives tok/s ONLY from TTFT-excluded call-log data, with windowMs + basis", async () => {
+    // duration 1000ms, ttft 400ms → generation 600ms; 120 tokens → 200 tok/s
+    const provider = buildOmnirouteTelemetryProvider(
+      makeProducers({
+        rows: [{ provider: "openai", model: "gpt-4o", duration: 1000, ttft: 400, tokensOut: 120 }],
+      })
+    );
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    const row = snapshotFor(snap.resources, "openai");
+    assert.equal(row.outputTokensPerSecond?.value, 200);
+    assert.equal(row.outputTokensPerSecond?.source, "omniroute-call-log");
+    assert.equal(row.outputTokensPerSecond?.windowMs, 60_000);
+    assert.equal(row.outputTokensPerSecond?.basis, "call-logs:max-ttft-excluded:1of1");
+  });
+
+  it("keeps tok/s null when TTFT is unknown — token counts are NOT labeled tok/s", async () => {
+    // Non-streaming row: duration known, ttft null → no derivable generation
+    // window. The token COUNT must not be reported as a rate.
+    const provider = buildOmnirouteTelemetryProvider(
+      makeProducers({
+        rows: [{ provider: "openai", duration: 1000, ttft: null, tokensOut: 120 }],
+      })
+    );
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    const row = snapshotFor(snap.resources, "openai");
+    assert.equal(row.outputTokensPerSecond?.value, null);
+    assert.equal(row.outputTokensPerSecond?.basis, "call-logs:max-ttft-excluded:0of1");
+  });
+
+  it("picks the max derivable rate across rows in the window", async () => {
+    const provider = buildOmnirouteTelemetryProvider(
+      makeProducers({
+        rows: [
+          { provider: "openai", duration: 1000, ttft: 500, tokensOut: 50 }, // 100 tok/s
+          { provider: "openai", duration: 2000, ttft: 500, tokensOut: 900 }, // 600 tok/s
+        ],
+      })
+    );
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    const row = snapshotFor(snap.resources, "openai");
+    assert.equal(row.outputTokensPerSecond?.value, 600);
+  });
+
+  it("tolerates only the query window for rows (producer contract)", async () => {
+    let requestedWindow: number | null = null;
+    const provider = buildOmnirouteTelemetryProvider({
+      ...makeProducers(),
+      callLogRows: async (w) => {
+        requestedWindow = w;
+        return [];
+      },
+    });
+    await provider.snapshot({ windowMs: 12_345 });
+    assert.equal(requestedWindow, 12_345);
+  });
+});
+
+describe("omniroute adapter: jobs come from real counts", () => {
+  it("queuedJobs sums the limiter QUEUED buckets for the provider key (0 when none)", async () => {
+    const provider = buildOmnirouteTelemetryProvider(
+      makeProducers({
+        rateLimits: {
+          "openai:conn-a": { queued: 2, running: 1, executing: 1 },
+          "openai:conn-b": { queued: 3, running: 1, executing: 1 },
+          "anthropic:conn-c": { queued: 7, running: 1, executing: 1 },
+        },
+      })
+    );
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    const openai = snapshotFor(snap.resources, "openai");
+    const anthropic = snapshotFor(snap.resources, "anthropic");
+    assert.equal(openai.queuedJobs?.value, 5);
+    assert.equal(openai.queuedJobs?.basis, QUEUED_JOBS_BASIS);
+    assert.equal(anthropic.queuedJobs?.value, 7);
+  });
+
+  it("activeJobs uses the process-wide in-flight count with a documenting basis", async () => {
+    const provider = buildOmnirouteTelemetryProvider(makeProducers({ inflight: 9 }));
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    const row = snapshotFor(snap.resources, "openai");
+    assert.equal(row.activeJobs?.value, 9);
+    assert.equal(row.activeJobs?.basis, ACTIVE_JOBS_BASIS);
+    assert.equal(row.activeJobs?.source, "omniroute-live");
+  });
+
+  it("0 in-flight is reported as 0 (distinct from missing)", async () => {
+    const provider = buildOmnirouteTelemetryProvider(makeProducers({ inflight: 0 }));
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    const row = snapshotFor(snap.resources, "openai");
+    assert.ok(row.activeJobs !== undefined);
+    assert.equal(row.activeJobs?.value, 0);
+  });
+});
+
+describe("omniroute adapter: GPU fields are ALWAYS null, no fabrication (AC5)", () => {
+  it("every gpu-backed field is null with unavailable provenance", async () => {
+    const provider = buildOmnirouteTelemetryProvider(makeProducers());
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    for (const row of snap.resources) {
+      for (const field of [
+        "utilizationPercent",
+        "vramUsedBytes",
+        "vramTotalBytes",
+        "temperatureC",
+        "powerWatts",
+      ] as const) {
+        const o = row[field];
+        assert.ok(
+          o !== undefined,
+          `${field} must be present (not missing) with unavailable semantics`
+        );
+        assert.equal(o.value, null);
+        assert.equal(o.basis, GPU_UNAVAILABLE_BASIS);
+      }
+    }
+  });
+});
+
+describe("omniroute adapter: breaker state + model facts", () => {
+  it("surfaces non-closed breaker state via basis (bounded, non-PII tag)", async () => {
+    const provider = buildOmnirouteTelemetryProvider(
+      makeProducers({
+        breakers: [
+          { name: "openai", state: "OPEN" },
+          { name: "anthropic", state: "CLOSED" },
+        ],
+        inflight: 4,
+      })
+    );
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    const openai = snapshotFor(snap.resources, "openai");
+    const anthropic = snapshotFor(snap.resources, "anthropic");
+    assert.match(openai.activeJobs?.basis ?? "", /breakers:open/);
+    assert.equal(anthropic.activeJobs?.basis, ACTIVE_JOBS_BASIS); // closed → untouched
+  });
+
+  it("accepts record-form breaker statuses too", async () => {
+    const provider = buildOmnirouteTelemetryProvider(
+      makeProducers({ breakers: { openai: { state: "DEGRADED" } }, inflight: 1 })
+    );
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    assert.match(
+      snapshotFor(snap.resources, "openai").activeJobs?.basis ?? "",
+      /breakers:degraded/
+    );
+  });
+
+  it("enriches modelId from call-log rows (stable fact, no PII)", async () => {
+    const provider = buildOmnirouteTelemetryProvider(
+      makeProducers({ rows: [{ provider: "openai", model: "gpt-4o" }] })
+    );
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    assert.equal(snapshotFor(snap.resources, "openai").modelId, "gpt-4o");
+  });
+});
+
+describe("omniroute adapter: probe + abort + identity hygiene", () => {
+  it("probe reports availability from the producer", async () => {
+    const provider = buildOmnirouteTelemetryProvider(makeProducers());
+    const status = await provider.probe();
+    assert.equal(status.available, true);
+    assert.equal(status.checkedAt, NOW);
+  });
+
+  it("probe reports unavailable with the producer error message", async () => {
+    const provider = buildOmnirouteTelemetryProvider({
+      ...makeProducers(),
+      providerConnections: async () => {
+        throw new Error("db offline");
+      },
+    });
+    const status = await provider.probe();
+    assert.equal(status.available, false);
+    assert.equal(status.message, "db offline");
+  });
+
+  it("aborted signal: probe reports aborted, snapshot rejects", async () => {
+    const provider = buildOmnirouteTelemetryProvider(makeProducers());
+    const ac = new AbortController();
+    ac.abort();
+    const status = await provider.probe(ac.signal);
+    assert.equal(status.available, false);
+    assert.equal(status.message, "aborted");
+    await assert.rejects(() => provider.snapshot({ windowMs: 60_000 }, ac.signal), /aborted/);
+  });
+
+  it("skips connection rows with unusable provider keys (no partial ids leak)", async () => {
+    const provider = buildOmnirouteTelemetryProvider(
+      makeProducers({
+        connections: [
+          { id: "ok", provider: "openai" },
+          { id: "bad1", provider: "" }, // empty key
+          { id: "bad2", provider: "bad:key" }, // would break canonical shape
+          { id: "dup", provider: "openai" }, // duplicate key
+        ],
+      })
+    );
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    assert.equal(snap.resources.length, 1);
+    assert.equal(snap.resources[0].resourceId, "provider:openai");
+  });
+});

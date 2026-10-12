@@ -7,11 +7,11 @@ import { fileURLToPath } from "node:url";
 // (and right after a restart) the map went blank even though connections were healthy.
 // These guard the connection-health base layer that keeps "what is connected" visible.
 
-const read = (rel: string) =>
-  readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
+const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
 
 const homePageClientSrc = read("../../src/app/(dashboard)/dashboard/HomePageClient.tsx");
-const providerTopologySrc = read("../../src/app/(dashboard)/home/ProviderTopology.tsx");
+// OR-ATOM-001 (M1): rendering/styling lives in the 2D renderer, not the renderer host.
+const providerTopologySrc = read("../../src/app/(dashboard)/home/ProviderTopology2D.tsx");
 const sectionSrc = read("../../src/app/(dashboard)/dashboard/HomeProviderTopologySection.tsx");
 
 test("HomePageClient derives per-provider health from connection testStatus counts", () => {

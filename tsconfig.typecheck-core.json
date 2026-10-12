@@ -35,7 +35,24 @@
     "open-sse/translator/registry.ts",
     "open-sse/handlers/responseSanitizer.ts",
     "open-sse/handlers/responseTranslator.ts",
-    "src/lib/tokenHealthCheckCursor.ts"
+    "src/lib/tokenHealthCheckCursor.ts",
+    "src/shared/topology/domain/layoutIdentity.ts",
+    "src/shared/topology/domain/normalizeTopology.ts",
+    "src/shared/topology/domain/types.ts",
+    "src/shared/topology/renderer/BuiltinReactFlowRenderer.tsx",
+    "src/shared/topology/renderer/registry.ts",
+    "src/shared/topology/renderer/types.ts",
+    "src/shared/topology/telemetry/gateway.ts",
+    "src/shared/topology/telemetry/mergeSnapshots.ts",
+    "src/shared/topology/telemetry/provenance.ts",
+    "src/shared/topology/telemetry/providers/omniroute.ts",
+    "src/shared/topology/telemetry/types.ts",
+    "src/plugins/atomic-topology/manifest.ts",
+    "src/plugins/atomic-topology/capabilities.ts",
+    "src/plugins/atomic-topology/visualEncoding.ts",
+    "src/plugins/atomic-topology/layout.ts",
+    "src/plugins/atomic-topology/eventPool.ts",
+    "src/plugins/atomic-topology/index.ts"
   ],
   "exclude": ["node_modules", ".next", "app.__qa_backup", "vscode-extension"]
 }

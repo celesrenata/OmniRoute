@@ -9,6 +9,15 @@ const homePageClientSrc = readFileSync(
 );
 
 const providerTopologySrc = readFileSync(
+  fileURLToPath(new URL("../../src/app/(dashboard)/home/ProviderTopology2D.tsx", import.meta.url)),
+  "utf8"
+);
+
+// Renderer host (plugin boundary). It owns the Next router/intl context and
+// delegates navigation to the 2D renderer via the `onProviderClick` option —
+// the 2D renderer itself is context-free (mounted out-of-tree in its own
+// createRoot, where useRouter/useTranslations throw).
+const providerTopologyHostSrc = readFileSync(
   fileURLToPath(new URL("../../src/app/(dashboard)/home/ProviderTopology.tsx", import.meta.url)),
   "utf8"
 );
@@ -29,15 +38,21 @@ test("HomePageClient filters out providers where all connections are deactivated
 
 test("ProviderTopology configures click-to-navigate on provider nodes", () => {
   assert.match(
-    providerTopologySrc,
+    providerTopologyHostSrc,
     /router\.push\(`\/dashboard\/providers\/\${providerId}`\)/,
-    "ProviderTopology must navigate to the clicked provider page /dashboard/providers/${providerId}"
+    "host must navigate to the clicked provider page /dashboard/providers/${providerId}"
+  );
+
+  assert.match(
+    providerTopologyHostSrc,
+    /onProviderClick:/,
+    "host must delegate provider navigation to the renderer via onProviderClick"
   );
 
   assert.match(
     providerTopologySrc,
     /onNodeClick=\{handleNodeClick\}/,
-    "ProviderTopology must pass handleNodeClick to FlowCanvas"
+    "ProviderTopology2D must pass handleNodeClick to FlowCanvas"
   );
 
   assert.match(

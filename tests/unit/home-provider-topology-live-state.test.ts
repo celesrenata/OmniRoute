@@ -13,6 +13,13 @@ const providerTopologySrc = readFileSync(
   "utf8"
 );
 
+// OR-ATOM-001 (M1): the live-snapshot active-set derivation moved from the component
+// into the renderer-neutral normalizer that the host feeds to the renderer plugin.
+const normalizeTopologySrc = readFileSync(
+  fileURLToPath(new URL("../../src/shared/topology/domain/normalizeTopology.ts", import.meta.url)),
+  "utf8"
+);
+
 test("home topology uses provider-metrics topology.errorProvider instead of re-deriving from stale lastErrorAt", () => {
   assert.match(
     homePageClientSrc,
@@ -38,8 +45,13 @@ test("ProviderTopology treats live activeRequests as the current snapshot withou
   );
 
   assert.match(
-    providerTopologySrc,
-    /const activeSet = useMemo\(\s*\(\) => new Set<string>\(activeKey \? activeKey\.split\(","\) : \[\]\),\s*\[activeKey\]\s*\);/,
+    normalizeTopologySrc,
+    /function buildActiveSet\(activeRequests: Array<\{ provider\?: string \}>\): Set<string>/,
     "activeSet should be derived directly from activeRequests/current live snapshot"
+  );
+  assert.match(
+    normalizeTopologySrc,
+    /for \(const request of activeRequests\) {/,
+    "the active set must be built by scanning the current live activeRequests, not a cache"
   );
 });

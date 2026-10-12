@@ -1,301 +1,99 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
+/**
+ * ProviderTopology — renderer host (OR-ATOM-001 v2, T004 / M1).
+ *
+ * This component is the plugin boundary for the home-page topology panel. It
+ * OWNS THE DATA: it normalizes the props it receives (provider entries,
+ * live active requests, last/error providers) into a renderer-neutral
+ * `TopologySceneSnapshot` (see `src/shared/topology/domain/normalizeTopology`)
+ * and hands that snapshot to a renderer plugin selected from the registry
+ * (see `src/shared/topology/renderer/registry`). It OWNS NO RENDERING: there
+ * is no ReactFlow, no layout math and no node styling here — the 2D ReactFlow
+ * implementation lives in `ProviderTopology2D.tsx` behind the
+ * `reactflow-2d` plugin contract.
+ *
+ * Renderer selection (AC3 / AC4):
+ * - The preferred renderer id is read from browser-local storage via
+ *   `readTopologyRendererPreference` — strictly client-side
+ *   (`getBrowserStorage` returns `null` when `window` is undefined, so there is
+ *   no module-top-level `window` access; this component is also mounted via
+ *   `dynamic(..., { ssr: false })` so it is client-only in practice).
+ * - Unknown / unregistered ids resolve to the default 2D renderer.
+ * - A renderer that throws on `mount` or `update` is disposed and the panel
+ *   automatically falls back to 2D with a non-blocking notice.
+ *
+ * The props interface is unchanged from the previous implementation, so
+ * `HomeProviderTopologySection` / `HomePageClient` need no modifications.
+ */
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Handle, Position, type Node, type Edge, type NodeTypes } from "@xyflow/react";
-import { AI_PROVIDERS } from "@/shared/constants/providers";
-import ProviderIcon from "@/shared/components/ProviderIcon";
-import { FlowCanvas } from "@/shared/components/flow/FlowCanvas";
-import { StatusDot } from "@/shared/components/flow/StatusDot";
-import { edgeStyle, FLOW_EDGE_COLORS, flowColorAlpha } from "@/shared/components/flow/edgeStyles";
-import { getFallbackProviderColor } from "@/shared/utils/providerFallbackColor";
-import { resolveTopologyNodeLabel } from "./topologyLabel";
-import { isTopologyEntryInSet } from "./topologyUtils";
 
-// Rings: [capacity, rx, ry]. Each successive ring fits ~6 more nodes.
-const RINGS: [number, number, number][] = [
-  [8, 210, 132],
-  [14, 370, 233],
-  [20, 530, 334],
-  [26, 690, 435],
-  [32, 850, 536],
-  [38, 1010, 637],
-];
+import {
+  DEFAULT_TOPOLOGY_RENDERER_ID,
+  getTopologyRenderer,
+  readTopologyRendererPreference,
+  writeTopologyRendererPreference,
+} from "@/shared/topology/renderer/registry";
+import type {
+  TopologyRendererInstance,
+  TopologyRendererOptions,
+} from "@/shared/topology/renderer/types";
+// Side effect: importing the built-in self-registers it under "reactflow-2d",
+// which the host depends on as its default + fallback renderer.
+import "@/shared/topology/renderer/BuiltinReactFlowRenderer";
+// Registers the optional WebGL2 "Atomic" 3D renderer under "atomic" (M3).
+// SSR-safe to import: the three/R3F scene sits behind a client-only dynamic
+// import inside the plugin, so this costs only the pure contract on the
+// server. 2D remains the default; 3D is strictly opt-in (see the toggle in
+// the returned JSX). A WebGL2-less browser simply falls back (AC4).
+import { registerAtomicTopologyRenderer } from "@/plugins/atomic-topology";
 
-type ProviderConfig = { color?: string; name?: string; textIcon?: string };
+// Register the optional Atomic renderer at module load, mirroring how the
+// built-in self-registers on import. Doing it here (not in a `useEffect`)
+// means the renderer is guaranteed present by the time the host's mount
+// effect runs in the first commit — registering inside an effect would race
+// the mount effect (declared earlier) and leave the 3D view blank.
+registerAtomicTopologyRenderer();
+import {
+  normalizeTopology,
+  type TopologyProviderEntry,
+} from "@/shared/topology/domain/normalizeTopology";
 
-function getProviderConfig(providerId: string): ProviderConfig {
-  // Predefined providers keep their registry color/name untouched. Anything else (custom
-  // openai-compatible-*/anthropic-compatible-* provider_nodes) gets a deterministic,
-  // per-id fallback color instead of one shared gray — see #8328.
-  return (
-    (AI_PROVIDERS as Record<string, ProviderConfig>)[providerId] || {
-      color: getFallbackProviderColor(providerId),
-      name: providerId,
-    }
-  );
-}
-
-type ProviderNodeData = {
-  label: string;
-  color: string;
-  providerId: string;
-  active: boolean;
-  error: boolean;
-  /** Connection-health base state: a healthy connection with no in-flight traffic. */
-  healthy: boolean;
-  /** Most recently routed provider. Orthogonal to health — it can be last *and* healthy. */
-  last: boolean;
-  /** Click-through id when it differs from the node key (provider-node row id). */
-  routeId?: string;
-};
-
-function ProviderNode({ data }: { data: ProviderNodeData }) {
-  const { label, color, providerId, active, error, healthy, last } = data;
-  const GREEN = FLOW_EDGE_COLORS.active;
-  const RED = FLOW_EDGE_COLORS.error;
-  const AMBER = FLOW_EDGE_COLORS.last;
-  // "Last routed" is a traffic annotation, not a health state: the border keeps saying
-  // whether the connection is up, and only the dot turns amber to mark recency.
-  const dotColor = active ? color : last ? AMBER : GREEN;
-
-  return (
-    <div
-      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border-2 transition-all duration-300 bg-bg cursor-pointer hover:scale-105 active:scale-95 shadow-sm hover:shadow-md"
-      style={{
-        borderColor: error ? RED : active ? color : healthy ? GREEN : "var(--color-border)",
-        boxShadow: error
-          ? `0 0 12px ${flowColorAlpha(RED, 19)}`
-          : active
-            ? `0 0 12px ${color}30`
-            : healthy
-              ? `0 0 10px ${flowColorAlpha(GREEN, 13)}`
-              : "none",
-        minWidth: "136px",
-      }}
-    >
-      <Handle
-        type="target"
-        position={Position.Top}
-        id="top"
-        className="!bg-transparent !border-0 !w-0 !h-0"
-      />
-      <Handle
-        type="target"
-        position={Position.Bottom}
-        id="bottom"
-        className="!bg-transparent !border-0 !w-0 !h-0"
-      />
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="left"
-        className="!bg-transparent !border-0 !w-0 !h-0"
-      />
-      <Handle
-        type="target"
-        position={Position.Right}
-        id="right"
-        className="!bg-transparent !border-0 !w-0 !h-0"
-      />
-
-      <div
-        className="size-6 rounded flex items-center justify-center shrink-0"
-        style={{ backgroundColor: `${color}18` }}
-      >
-        <ProviderIcon providerId={providerId} size={16} type="color" />
-      </div>
-
-      <span
-        className="text-xs font-medium truncate flex-1"
-        style={{
-          color: active ? color : error ? RED : healthy ? GREEN : "var(--color-text-main)",
-        }}
-      >
-        {label}
-      </span>
-
-      {(active || error || healthy || last) && (
-        <StatusDot color={dotColor} error={error} pulse={active || error} />
-      )}
-    </div>
-  );
-}
-
-type RouterNodeData = { activeCount: number };
-
-function RouterNode({ data }: { data: RouterNodeData }) {
-  return (
-    <div className="flex items-center gap-2 px-5 py-3 rounded-xl border-2 border-primary bg-primary/8 shadow-lg min-w-[140px] justify-center">
-      <Handle
-        type="source"
-        position={Position.Top}
-        id="top"
-        className="!bg-transparent !border-0 !w-0 !h-0"
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="bottom"
-        className="!bg-transparent !border-0 !w-0 !h-0"
-      />
-      <Handle
-        type="source"
-        position={Position.Left}
-        id="left"
-        className="!bg-transparent !border-0 !w-0 !h-0"
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="right"
-        className="!bg-transparent !border-0 !w-0 !h-0"
-      />
-
-      <div className="flex items-center justify-center size-7 rounded-md bg-primary/15 shrink-0">
-        <span className="material-symbols-outlined text-primary text-[16px]">route</span>
-      </div>
-      <span className="text-sm font-bold text-primary">OmniRoute</span>
-      {data.activeCount > 0 && (
-        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary text-white text-[10px] font-bold leading-none">
-          {data.activeCount}
-        </span>
-      )}
-    </div>
-  );
-}
-
-const nodeTypes: NodeTypes = {
-  provider: ProviderNode as any,
-  router: RouterNode as any,
-};
-
-type ProviderHealth = "active" | "error" | "idle";
-type ProviderEntry = {
-  id?: string;
-  provider: string;
-  name?: string;
-  status?: ProviderHealth;
-  aliases?: string[];
-  routeId?: string;
-};
-
-function getHandles(angle: number, cx: number): { sourceHandle: string; targetHandle: string } {
-  const rel = (((angle + Math.PI / 2) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-  if (rel < Math.PI / 4 || rel > (7 * Math.PI) / 4)
-    return { sourceHandle: "top", targetHandle: "bottom" };
-  if (rel > (3 * Math.PI) / 4 && rel < (5 * Math.PI) / 4)
-    return { sourceHandle: "bottom", targetHandle: "top" };
-  return cx > 0
-    ? { sourceHandle: "right", targetHandle: "left" }
-    : { sourceHandle: "left", targetHandle: "right" };
-}
-
-function buildLayout(
-  providers: ProviderEntry[],
-  activeSet: Set<string>,
-  lastSet: Set<string>,
-  errorSet: Set<string>
-): { nodes: Node[]; edges: Edge[] } {
-  const nodeW = 156;
-  const nodeH = 28;
-  const routerW = 148;
-  const routerH = 44;
-
-  const nodes: Node[] = [];
-  const edges: Edge[] = [];
-
-  nodes.push({
-    id: "router",
-    type: "router",
-    position: { x: -routerW / 2, y: -routerH / 2 },
-    data: { activeCount: activeSet.size },
-    draggable: false,
-  });
-
-  if (providers.length === 0) return { nodes, edges };
-
-  // Sort: active → error → last-used → healthy(connected) → rest (alpha within groups)
-  const sorted = [...providers].sort((a, b) => {
-    const rank = (p: ProviderEntry) => {
-      if (isTopologyEntryInSet(p, activeSet)) return 0;
-      if (isTopologyEntryInSet(p, errorSet) || p.status === "error") return 1;
-      if (isTopologyEntryInSet(p, lastSet)) return 2;
-      if (p.status === "active") return 3;
-      return 4;
-    };
-    const d = rank(a) - rank(b);
-    return d !== 0 ? d : a.provider.toLowerCase().localeCompare(b.provider.toLowerCase()); // ASCII kasıtlı
-  });
-
-  let provIdx = 0;
-  for (let ri = 0; ri < RINGS.length && provIdx < sorted.length; ri++) {
-    const [cap, rx, ry] = RINGS[ri];
-    const count = Math.min(cap, sorted.length - provIdx);
-
-    for (let i = 0; i < count; i++) {
-      const p = sorted[provIdx++];
-      const active = isTopologyEntryInSet(p, activeSet);
-      // Traffic signals (live/recent request) take precedence; connection health is the
-      // base state shown when a provider has no in-flight or recent traffic, so the map
-      // still reflects "what is connected" at rest instead of going blank after a restart.
-      const trafficError = !active && isTopologyEntryInSet(p, errorSet);
-      const last = !active && !trafficError && isTopologyEntryInSet(p, lastSet);
-      // Health is orthogonal to recency: having just served a request does not make a
-      // connection any less connected. `last` used to suppress `healthy`/`healthError`,
-      // and because the node had no `last` visual it fell all the way through to the idle
-      // grey — so the provider you had just used rendered *less* connected than an idle
-      // peer, while its edge was amber. Health drives the border, `last` only the dot.
-      const healthError = !active && !trafficError && p.status === "error";
-      const healthy = !active && !trafficError && !healthError && p.status === "active";
-      const error = trafficError || healthError;
-      const config = getProviderConfig(p.provider);
-      const nodeId = `provider-${p.provider}`;
-
-      const angle = -Math.PI / 2 + (2 * Math.PI * i) / count;
-      const cx = rx * Math.cos(angle);
-      const cy = ry * Math.sin(angle);
-      const { sourceHandle, targetHandle } = getHandles(angle, cx);
-
-      nodes.push({
-        id: nodeId,
-        type: "provider",
-        position: { x: cx - nodeW / 2, y: cy - nodeH / 2 },
-        data: {
-          label: resolveTopologyNodeLabel(p.name, config.name, p.provider),
-          color: config.color || "#6b7280",
-          providerId: p.provider,
-          active,
-          error,
-          healthy,
-          last,
-          routeId: p.routeId,
-        } satisfies ProviderNodeData,
-        draggable: false,
-      });
-
-      edges.push({
-        id: `e-${nodeId}`,
-        source: "router",
-        sourceHandle,
-        target: nodeId,
-        targetHandle,
-        animated: active,
-        style: edgeStyle(active, last, error, healthy),
-      });
-    }
-  }
-
-  return { nodes, edges };
-}
+/** Shown (non-blocking) when a non-default renderer fails and we fall back to 2D. */
+const FALLBACK_NOTICE = "Topology renderer unavailable — showing the 2D view.";
 
 type Props = {
-  providers?: ProviderEntry[];
+  providers?: TopologyProviderEntry[];
   activeRequests?: Array<{ provider?: string; model?: string }>;
   lastProvider?: string;
   errorProvider?: string;
 };
+
+/**
+ * Browser-local storage, SSR-safe: `null` during server rendering (and when
+ * storage access throws, e.g. some privacy modes). The panel renders with the
+ * default renderer in that case.
+ */
+function getBrowserStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The renderer id to mount: the persisted preference when it resolves to a
+ * registered renderer, otherwise the default 2D renderer. SSR-safe (no storage
+ * on the server → default).
+ */
+function resolveInitialRendererId(): string {
+  const preferred = readTopologyRendererPreference(getBrowserStorage());
+  return getTopologyRenderer(preferred) ? preferred : DEFAULT_TOPOLOGY_RENDERER_ID;
+}
 
 export default function ProviderTopology({
   providers = [],
@@ -303,77 +101,174 @@ export default function ProviderTopology({
   lastProvider = "",
   errorProvider = "",
 }: Props) {
-  const t = useTranslations("common");
-  const activeKey = useMemo(
-    () =>
-      activeRequests
-        .map((r) => r.provider?.toLowerCase())
-        .filter(Boolean)
-        .sort()
-        .join(","),
-    [activeRequests]
-  );
-  const lastKey = lastProvider.toLowerCase();
-  const errorKey = errorProvider.toLowerCase();
-
-  const activeSet = useMemo(
-    () => new Set<string>(activeKey ? activeKey.split(",") : []),
-    [activeKey]
-  );
-  const lastSet = useMemo(() => new Set<string>(lastKey ? [lastKey] : []), [lastKey]);
-  const errorSet = useMemo(() => new Set<string>(errorKey ? [errorKey] : []), [errorKey]);
-
-  const { nodes, edges } = useMemo(
-    () => buildLayout(providers, activeSet, lastSet, errorSet),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [providers, activeSet, lastKey, errorKey]
-  );
-
-  const providersKey = useMemo(
-    () =>
-      providers
-        .map((p) => p.provider)
-        .sort()
-        .join(","),
-    [providers]
-  );
-
   const router = useRouter();
+  const t = useTranslations("common");
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const instanceRef = useRef<TopologyRendererInstance | null>(null);
 
-  const handleNodeClick = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      if (node.type !== "provider") return;
-      const data = node.data as ProviderNodeData | undefined;
-      const providerId = data?.routeId || data?.providerId || node.id.replace(/^provider-/, "");
-      if (providerId) {
-        router.push(`/dashboard/providers/${providerId}`);
-      }
-    },
-    [router]
+  // The renderer actually mounted. Starts at the resolved preference (default
+  // on the server / when unresolvable); a renderer failure resets it back to
+  // the default.
+  const [rendererId, setRendererId] = useState<string>(resolveInitialRendererId);
+  const [notice, setNotice] = useState<string | null>(null);
+  const fallbackArmedRef = useRef(false);
+
+  /** Registry id of the optional Atomic (3D) renderer — mirrors `atomicManifest.id`. */
+  const atomicRendererId = "atomic";
+
+  /** Persist the user's renderer choice and remount into the new plugin. */
+  const switchRenderer = (id: string) => {
+    if (id === rendererId) return;
+    writeTopologyRendererPreference(getBrowserStorage(), id);
+    setRendererId(id);
+  };
+
+  // Core-owned data: renderer-neutral snapshot of the panel's inputs.
+  const snapshot = useMemo(
+    () => normalizeTopology({ providers, activeRequests, lastProvider, errorProvider }),
+    [providers, activeRequests, lastProvider, errorProvider]
   );
 
-  const containerClass =
-    "h-[300px] w-full min-w-0 rounded-xl border border-border bg-bg-subtle/20 overflow-hidden sm:h-[420px]";
+  // Renderer options (localized empty state + delegated navigation).
+  const options = useMemo<TopologyRendererOptions>(
+    () => ({
+      emptyStateLabel: t("providerTopologyEmpty"),
+      onProviderClick: (providerId: string) => {
+        router.push(`/dashboard/providers/${providerId}`);
+      },
+    }),
+    [router, t]
+  );
 
-  if (providers.length === 0) {
-    return (
-      <div
-        className={`${containerClass} flex flex-col items-center justify-center gap-2 text-text-muted`}
-      >
-        <span className="material-symbols-outlined text-[32px]">device_hub</span>
-        <p className="text-sm">{t("providerTopologyEmpty")}</p>
-      </div>
-    );
-  }
+  // Refs so the mount effect (driven by `rendererId` only) can read the
+  // current snapshot/options without depending on them — depending on the
+  // snapshot would remount the canvas (and re-run fitView) on every live tick.
+  const snapshotRef = useRef(snapshot);
+  const optionsRef = useRef(options);
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
+
+  // Mount (or remount) the selected renderer into the container.
+  //
+  // When the renderer id changes, the previous instance is disposed via a
+  // microtask (not synchronously) so that the old renderer's own React root
+  // (R3F for 3D, ReactFlow for 2D) fully unmounts before the new renderer
+  // mounts into the same container. Disposing synchronously during this
+  // component's commit triggers React's "synchronously unmount a root while
+  // rendering" warning and leaves the freshly-mounted container blank.
+  useEffect(() => {
+    const container = containerRef.current;
+    const plugin = getTopologyRenderer(rendererId);
+    if (!container || !plugin) return;
+
+    let instance: TopologyRendererInstance | null = null;
+    try {
+      instance = plugin.mount(container, snapshotRef.current, optionsRef.current);
+    } catch (error) {
+      console.error("[topology] renderer mount failed; falling back to 2D", error);
+      if (rendererId !== DEFAULT_TOPOLOGY_RENDERER_ID) {
+        fallbackArmedRef.current = true;
+        // setState from the mount effect is an error-recovery path (the
+        // selected renderer threw on mount); flipping to the default 2D
+        // plugin triggers a re-mount into a renderer that is known good.
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- error recovery, not a render-time side effect
+        setNotice(FALLBACK_NOTICE);
+        setRendererId(DEFAULT_TOPOLOGY_RENDERER_ID);
+      }
+      return;
+    }
+
+    instanceRef.current = instance;
+
+    setNotice(null);
+
+    return () => {
+      if (instanceRef.current === instance) instanceRef.current = null;
+      if (instance) {
+        // Defer the old renderer's disposal to a microtask so its nested
+        // React root finishes unmounting before the next mount commits.
+        queueMicrotask(() => {
+          try {
+            instance.dispose();
+          } catch {
+            // Dispose must never take the panel down with it.
+          }
+        });
+      }
+    };
+  }, [rendererId]);
+
+  // Push new snapshots to the mounted renderer.
+  useEffect(() => {
+    const instance = instanceRef.current;
+    if (!instance) return;
+    try {
+      instance.update(snapshot);
+    } catch (error) {
+      console.error("[topology] renderer update failed; falling back to 2D", error);
+      try {
+        instance.dispose();
+      } catch {
+        // Ignore — fall through to the fallback below.
+      }
+      instanceRef.current = null;
+      if (rendererId !== DEFAULT_TOPOLOGY_RENDERER_ID) {
+        fallbackArmedRef.current = true;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- fallback recovery after a renderer update failure
+        setNotice(FALLBACK_NOTICE);
+
+        setRendererId(DEFAULT_TOPOLOGY_RENDERER_ID);
+      }
+    }
+  }, [snapshot, rendererId]);
 
   return (
-    <FlowCanvas
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      fitKey={providersKey}
-      className={containerClass}
-      onNodeClick={handleNodeClick}
-    />
+    <div className="relative h-[300px] w-full min-w-0 sm:h-[420px]">
+      <div ref={containerRef} className="h-full w-full min-w-0" />
+      <div className="absolute left-2 top-2 z-10">
+        <div
+          role="group"
+          aria-label="Topology view mode"
+          className="flex overflow-hidden rounded-md border border-white/10 bg-bg/90 text-[11px] shadow-sm"
+        >
+          <button
+            type="button"
+            aria-pressed={rendererId === DEFAULT_TOPOLOGY_RENDERER_ID}
+            onClick={() => switchRenderer(DEFAULT_TOPOLOGY_RENDERER_ID)}
+            className={
+              rendererId === DEFAULT_TOPOLOGY_RENDERER_ID
+                ? "bg-white/10 px-2 py-0.5 font-medium text-white"
+                : "px-2 py-0.5 text-white/60 hover:text-white"
+            }
+          >
+            2D
+          </button>
+          <button
+            type="button"
+            aria-pressed={rendererId === atomicRendererId}
+            onClick={() => switchRenderer(atomicRendererId)}
+            className={
+              rendererId === atomicRendererId
+                ? "bg-white/10 px-2 py-0.5 font-medium text-white"
+                : "px-2 py-0.5 text-white/60 hover:text-white"
+            }
+          >
+            3D
+          </button>
+        </div>
+      </div>
+      {notice && (
+        <div
+          role="status"
+          className="pointer-events-none absolute right-2 top-2 z-10 max-w-[80%] truncate rounded-md border border-amber-500/40 bg-bg/90 px-2 py-1 text-[11px] text-amber-500 shadow-sm"
+        >
+          {notice}
+        </div>
+      )}
+    </div>
   );
 }
