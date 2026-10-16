@@ -56,6 +56,16 @@ export interface ComboTraceEntry {
    * fragment, header, or raw upstream error string.
    */
   detail?: string;
+  /**
+   * #omniroute-fleet-topology 18.1: provider-connection id of the skipped
+   * target, when known. Carried so the Fleet_Observer's Capacity_Leak detector
+   * can reconstruct the skipped local target's (connection, model) pair from a
+   * structured record (`connectionId` here + the model in `target`) instead of
+   * scraping logs. Routing metadata ONLY — a connection identifier, never a
+   * credential, header, or body. Populated for the busy-slot (saturated hard
+   * concurrency cap) skip; absent elsewhere.
+   */
+  connectionId?: string;
 }
 
 export const AUTO_EVALUATION_STAGES = [
@@ -243,6 +253,7 @@ export function recordComboDecision(
     reason: entry.reason as ComboSkipReason | undefined,
     ts: Date.now(),
     detail: entry.detail,
+    connectionId: entry.connectionId,
   });
 }
 

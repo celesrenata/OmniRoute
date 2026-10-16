@@ -20,7 +20,8 @@ import type { RejectedRequestUsageInput } from "./rejectedRequestUsage";
 
 /** The request-scoped values of handleSingleModelChat that attribute a rejection. */
 export interface ChatRejectionScope {
-  body?: { model?: string } | null;
+  /** `user` is the OpenAI request field carrying the Capability_Lane name (Req 17.3/17.4). */
+  body?: { model?: string; user?: unknown } | null;
   modelStr?: string | null;
   clientRawRequest?: { endpoint?: string | null } | null;
   apiKeyInfo?: { id?: string | null; name?: string | null } | null;
@@ -47,6 +48,16 @@ export interface QuotaParkedSkip {
 export function chatRejectionAttribution(scope: ChatRejectionScope) {
   const opts = scope.runtimeOptions ?? null;
   const isCombo = scope.isCombo === true;
+  // Requirement 17.3/17.4: a not-dispatched row must still carry the
+  // Capability_Lane name when the client sent one, so the Fleet_Observer can
+  // attribute the refused attempt to its lane. On these pre-dispatch paths the
+  // request never reached chatCore (which also reads the x-omniroute-session-id
+  // header), so the OpenAI `user` field on the body is the lane source here; it
+  // WINS over the internally-derived conversationId, matching the dispatched row.
+  const laneTag =
+    typeof scope.body?.user === "string" && scope.body.user.trim().length > 0
+      ? scope.body.user.trim()
+      : null;
   return {
     requestedModel: scope.body?.model || scope.modelStr || undefined,
     endpoint: scope.clientRawRequest?.endpoint,
@@ -56,7 +67,7 @@ export function chatRejectionAttribution(scope: ChatRejectionScope) {
     apiKeyId: scope.apiKeyInfo?.id ?? null,
     apiKeyName: scope.apiKeyInfo?.name ?? null,
     correlationId: opts?.correlationId ?? null,
-    sessionTag: opts?.conversationId ?? null,
+    sessionTag: laneTag || opts?.conversationId || null,
     startTime: scope.telemetry?.startTime,
   };
 }
@@ -94,6 +105,36 @@ export async function recordGateRejection(
       ...chatRejectionAttribution(scope),
     },
     "gate rejection"
+  );
+}
+
+/**
+ * Requirement 17.7: a request that ended fail-closed WITHOUT ever dispatching —
+ * no eligible connection matched the routing constraints — returns a non-2xx to
+ * the client but, before this, left no call_logs row, so the Fleet_Observer
+ * could not see the refused attempt. Record a not-dispatched row (non-2xx
+ * status) so the attempt is observable, mirroring the gate-rejection path.
+ *
+ * Combo targets are NOT recorded here: the combo-exhausted path in chat.ts
+ * already writes one row for the whole request (same reason recordQuotaParkedSkip
+ * early-returns for combos) — recording each skipped target too would duplicate.
+ */
+export async function recordNoEligibleConnections(
+  status: number,
+  provider: string,
+  model: string,
+  scope: ChatRejectionScope
+): Promise<void> {
+  if (scope.isCombo) return;
+  await recordSafely(
+    {
+      status,
+      model,
+      provider,
+      error: `[${status}] No eligible connections matched the requested routing constraints`,
+      ...chatRejectionAttribution(scope),
+    },
+    "no-eligible-connections"
   );
 }
 

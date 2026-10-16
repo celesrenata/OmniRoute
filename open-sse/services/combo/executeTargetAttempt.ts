@@ -428,11 +428,23 @@ export async function executeTargetAttempt(opts: {
           "COMBO",
           `Skipping ${modelStr} — connection ${target.connectionId} is at max concurrency cap (hard) — overflowing to next target`
         );
+        // #omniroute-fleet-topology 18.1: emit the structured busy-slot-skip
+        // signal. This records the skip into the combo decision trace (the
+        // read-only surface the Fleet_Observer polls via GET
+        // /api/usage/combo-trace/:id) with the skip time (`ts`) and the skipped
+        // local target's identity: its model (in `target`) plus the provider
+        // connection id (`connectionId`). That (connection, model) pair + the
+        // completion timestamp is exactly what the observer projects onto its
+        // BusySlotSkip saturated-gate fallback shape, letting the Capacity_Leak
+        // detector run on data instead of log scraping. Routing metadata ONLY —
+        // no request/response body. Additive: dispatch behavior is unchanged
+        // (the target is still skipped and the request still overflows below).
         recordComboDecision(deps.traceInvocationId, {
           step: target.executionKey,
           target: modelStr,
           decision: "skipped_before_dispatch",
           reason: "concurrency_cap_hard",
+          connectionId: target.connectionId ?? undefined,
         });
         if (i > 0) state.fallbackCount++;
         return null;

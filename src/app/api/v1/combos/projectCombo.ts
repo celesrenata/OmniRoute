@@ -55,12 +55,64 @@ export interface PublicComboCapabilities {
   caching: boolean;
 }
 
+/**
+ * Fleet-topology (task 12.1): the kind of a combo in the Desired_Route_State a
+ * fleet compiler publishes.
+ *
+ * - `public`     — a client-selectable Public_Route (a visible combo-ref to an
+ *                  Internal_Pool).
+ * - `alias`      — a Route_Alias: structurally identical to its Public_Route (a
+ *                  visible combo-ref to the same pool). OmniRoute cannot tell an
+ *                  alias from its Public_Route by shape alone, so it is only
+ *                  reported when the combo record carries an explicit `kind`
+ *                  marker (see `deriveComboKind`); otherwise a visible combo
+ *                  reads as `public`.
+ * - `internal`   — a hidden Internal_Pool: the model steps a route fans out to.
+ * - `diagnostic` — a hidden Diagnostic_Route (a hidden combo-ref), outside the
+ *                  client-selectable catalog.
+ */
+export type PublicComboKind = "public" | "alias" | "internal" | "diagnostic";
+
+/**
+ * Fleet-topology (task 14.1): the per-route capacity record a fleet compiler
+ * publishes for a Public_Route — the number of distinct local Slots compiled as
+ * its targets on the primary instance. Mirrors the Menagerie fleet compiler's
+ * `RouteCapacity` ({ route, capacity }). Only surfaced when the combo record
+ * carries it (OmniRoute does not re-derive it from live routing state).
+ */
+export interface PublicComboRouteCapacity {
+  route: string;
+  capacity: number;
+}
+
 export interface PublicCombo {
   name: string;
   strategy: string;
   description?: string;
   models: PublicComboStep[];
   capabilities?: PublicComboCapabilities;
+  /**
+   * Fleet-topology (task 4.11): the route kind. Additive — older clients ignore
+   * it. Always present on the vscode-combos projection; see `deriveComboKind`.
+   */
+  kind?: PublicComboKind;
+  /**
+   * Fleet-topology (task 13.1): the route's effective context window, from
+   * `computeComboContextLength`. Omitted when no known window can be determined
+   * (e.g. an internal pool that carries none). Additive — older clients ignore it.
+   */
+  contextWindow?: number;
+  /**
+   * Fleet-topology (task 14.1): per-route capacity, for a Public_Route only.
+   * Only present when the combo record carries it; see `deriveRouteCapacity`.
+   */
+  routeCapacity?: PublicComboRouteCapacity;
+  /**
+   * Fleet-topology (task 14.2): the Capability_Lane → this Public_Route-name map
+   * entries assigned to this route, for a Public_Route only. Only present when
+   * the combo record carries it; see `deriveCapabilityLane`.
+   */
+  capabilityLane?: Record<string, string>;
 }
 
 /** Capability subset projectCombo needs; injectable so tests stay DB-free + deterministic. */
@@ -82,6 +134,18 @@ export interface ProjectComboOptions {
    * legacy behavior applies: any combo-ref forces the conservative false.
    */
   allCombos?: ComboCollectionLike;
+  /**
+   * Fleet-topology (task 12.1): when true, attach the published route metadata
+   * (`kind`, `contextWindow`, and for a Public_Route `routeCapacity` +
+   * `capabilityLane`) to the projection. Additive and body-free; older clients
+   * ignore the new fields.
+   */
+  includeRouteMetadata?: boolean;
+  /**
+   * Override the context-window resolver (defaults to `computeComboContextLength`
+   * bound to `allCombos`). Injectable so tests stay DB-free + deterministic.
+   */
+  resolveContextWindow?: (combo: Record<string, unknown>) => number | undefined;
 }
 
 const defaultCapabilityResolver: ComboCapabilityResolver = (model) => {
@@ -171,6 +235,104 @@ export function computeComboCapabilities(
   return { multimodal, reasoning, caching };
 }
 
+const COMBO_KINDS: readonly PublicComboKind[] = ["public", "alias", "internal", "diagnostic"];
+
+function isComboKind(value: unknown): value is PublicComboKind {
+  return typeof value === "string" && (COMBO_KINDS as readonly string[]).includes(value);
+}
+
+/** Read a combo's own `kind` marker, falling back to `config.kind` / `config.routeKind`. */
+function explicitComboKind(combo: Record<string, unknown>): PublicComboKind | undefined {
+  if (isComboKind(combo.kind)) return combo.kind;
+  if (isComboKind(combo.routeKind)) return combo.routeKind;
+  const config = combo.config;
+  if (config && typeof config === "object") {
+    const c = config as Record<string, unknown>;
+    if (isComboKind(c.kind)) return c.kind;
+    if (isComboKind(c.routeKind)) return c.routeKind;
+  }
+  return undefined;
+}
+
+/**
+ * Fleet-topology (task 4.11): derive a combo's route kind from the combo model
+ * OmniRoute persists (`isHidden`, step shape), as a fleet compiler emits it:
+ *
+ *   - hidden + model steps        → `internal` (an Internal_Pool: a route's fan-out).
+ *   - hidden + a combo-ref step   → `diagnostic` (a hidden Diagnostic_Route).
+ *   - visible                     → `public` (a client-selectable Public_Route).
+ *
+ * A Route_Alias is a visible combo-ref to the same pool as its Public_Route, so
+ * it is structurally identical to a `public` route in OmniRoute's record and
+ * cannot be told apart by shape. An explicit `kind` / `routeKind` marker on the
+ * record (or its `config`) is honored first — that is the only way `alias` is
+ * reported; without it an alias reads as `public`. Documented gap: OmniRoute's
+ * current combo record carries no alias-vs-public discriminator.
+ */
+export function deriveComboKind(combo: Record<string, unknown>): PublicComboKind {
+  const explicit = explicitComboKind(combo);
+  if (explicit) return explicit;
+
+  const hidden = combo.isHidden === true;
+  const rawModels = Array.isArray(combo.models) ? combo.models : [];
+  const hasComboRef = rawModels.some(
+    (m) => m && typeof m === "object" && (m as Record<string, unknown>).kind === "combo-ref"
+  );
+  const hasModelStep = rawModels.some(
+    (m) => m && typeof m === "object" && (m as Record<string, unknown>).kind === "model"
+  );
+
+  if (hidden) {
+    // A hidden combo-ref with no model step is a Diagnostic_Route; anything else
+    // hidden is an Internal_Pool (the model fan-out behind a route).
+    return hasComboRef && !hasModelStep ? "diagnostic" : "internal";
+  }
+  return "public";
+}
+
+/**
+ * Fleet-topology (task 14.1): read a Public_Route's `routeCapacity` from the
+ * combo record when a fleet compiler stamped it (`routeCapacity`, or
+ * `config.routeCapacity`). OmniRoute does not re-derive capacity from live
+ * routing state, so a route without the stamped record reports no capacity.
+ */
+function deriveRouteCapacity(
+  combo: Record<string, unknown>,
+  routeName: string
+): PublicComboRouteCapacity | undefined {
+  const source =
+    combo.routeCapacity ??
+    (combo.config && typeof combo.config === "object"
+      ? (combo.config as Record<string, unknown>).routeCapacity
+      : undefined);
+  if (!source || typeof source !== "object") return undefined;
+  const rec = source as Record<string, unknown>;
+  const capacity = rec.capacity;
+  if (typeof capacity !== "number" || !Number.isFinite(capacity)) return undefined;
+  const route = typeof rec.route === "string" && rec.route.length > 0 ? rec.route : routeName;
+  return { route, capacity };
+}
+
+/**
+ * Fleet-topology (task 14.2): read a Public_Route's `capabilityLane` map
+ * (Capability_Lane → this route's name) from the combo record when a fleet
+ * compiler stamped it (`capabilityLane`, or `config.capabilityLane`). String →
+ * string entries only. Absent when the record carries nothing.
+ */
+function deriveCapabilityLane(combo: Record<string, unknown>): Record<string, string> | undefined {
+  const source =
+    combo.capabilityLane ??
+    (combo.config && typeof combo.config === "object"
+      ? (combo.config as Record<string, unknown>).capabilityLane
+      : undefined);
+  if (!source || typeof source !== "object") return undefined;
+  const out: Record<string, string> = {};
+  for (const [lane, route] of Object.entries(source as Record<string, unknown>)) {
+    if (typeof route === "string" && route.length > 0) out[lane] = route;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function projectCombo(
   combo: Record<string, unknown>,
   options?: ProjectComboOptions
@@ -199,6 +361,30 @@ export function projectCombo(
       options.resolveCapabilities,
       options.allCombos
     );
+  }
+
+  // Fleet-topology (task 12.1): additively publish the route metadata. Body-free
+  // (derived from the already-fetched combo record) and additive — older clients
+  // ignore `kind` / `contextWindow` / `routeCapacity` / `capabilityLane`.
+  if (options?.includeRouteMetadata) {
+    const kind = deriveComboKind(combo);
+    out.kind = kind;
+
+    const contextWindow = options.resolveContextWindow
+      ? options.resolveContextWindow(combo)
+      : undefined;
+    if (typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0) {
+      out.contextWindow = contextWindow;
+    }
+
+    // routeCapacity + capabilityLane are Public_Route-only (a fleet compiler
+    // publishes them per Public_Route, not per alias / internal pool / diagnostic).
+    if (kind === "public") {
+      const routeCapacity = deriveRouteCapacity(combo, name);
+      if (routeCapacity) out.routeCapacity = routeCapacity;
+      const capabilityLane = deriveCapabilityLane(combo);
+      if (capabilityLane) out.capabilityLane = capabilityLane;
+    }
   }
 
   return out;

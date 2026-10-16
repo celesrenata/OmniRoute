@@ -28,6 +28,11 @@ import assert from "node:assert/strict";
 import * as semaphore from "../../../open-sse/services/rateLimitSemaphore.ts";
 import { connectionConcurrencyKey } from "../../../open-sse/services/combo/connectionConcurrencyGate.ts";
 import { executeTargetAttempt } from "../../../open-sse/services/combo/executeTargetAttempt.ts";
+import {
+  getComboTrace,
+  resetComboTraceStore,
+  startComboTrace,
+} from "../../../open-sse/services/combo/decisionTrace.ts";
 import type {
   AttemptLoopDeps,
   AttemptLoopState,
@@ -700,4 +705,99 @@ test("HARD cap all-saturated: the only hard target skips (null) — no dispatch,
   releaseGate!();
   await holder;
   assert.equal(semaphore.getStats()[key], undefined, "slot released after the holder completes");
+});
+
+/**
+ * #omniroute-fleet-topology 18.1: the busy-slot (saturated hard concurrency cap)
+ * skip must EMIT a structured record readable read-only by the Fleet_Observer —
+ * a combo-trace decision entry carrying routing metadata ONLY: the skip time
+ * (`ts`), the skipped local target's model (`target` = "<provider>/<model>"),
+ * and its provider-connection id (`connectionId`). That (connection, model)
+ * pair + completion timestamp is what the observer projects onto its
+ * BusySlotSkip saturated-gate fallback shape so the Capacity_Leak detector runs
+ * on data, not log scraping. The signal must NOT carry any request/response
+ * body, and emitting it must NOT change the skip's dispatch behavior.
+ */
+test("busy-slot skip EMITS a structured combo-trace record (ts + model + connectionId, body-free)", async () => {
+  semaphore.resetAll();
+  resetComboTraceStore();
+  const invocationId = "inv-conn-cap";
+  startComboTrace(invocationId, { strategy: "priority", comboName: "fleet-topology" });
+
+  const connectionId = "esnixi-5090-signal";
+  seedConnection(connectionId, "vllm", 2);
+  const key = connectionConcurrencyKey(connectionId, MODEL_5090_27B);
+
+  // Two holders occupy the cap=2 ceiling and block inside handleSingleModel.
+  let releaseGate: (() => void) | null = null;
+  const gate = new Promise<void>((r) => {
+    releaseGate = r;
+  });
+  const makeDeps = (name: string) =>
+    baseDeps({
+      // Short queue timeout so the 3rd WAITS then times out → the real
+      // saturated hard-cap skip path (not an instant queue-full fail).
+      config: { queueTimeoutMs: 50, queueDepth: 5 },
+      combo: { name, models: [] },
+      traceInvocationId: invocationId,
+      handleSingleModelWithTimeout: async () => {
+        await gate;
+        return json200(connectionId);
+      },
+    });
+
+  const target = modelTarget({ connectionId, modelStr: MODEL_5090_27B, provider: "vllm" });
+  const p1 = runAttempt(makeDeps("comboA"), target);
+  const p2 = runAttempt(makeDeps("comboB"), target);
+  await wait(20);
+  assert.equal(semaphore.getStats()[key]?.running, 2, "two holders fill the hard cap");
+
+  const before = Date.now();
+  // The 3rd arrives with an overflow target available at index 1; the saturated
+  // 5090 at index 0 must be skipped (the busy-slot skip under test).
+  const next = modelTarget({
+    connectionId: "glm-conn",
+    modelStr: MODEL_GLM,
+    provider: "zai",
+    executionKey: "ek-glm",
+  });
+  const { result: thirdResult } = runAttemptAt(makeDeps("comboC"), [target, next], 0);
+  const third = await thirdResult;
+  const after = Date.now();
+
+  // Additive: dispatch behavior is unchanged — the target is still skipped.
+  assert.equal(
+    third,
+    null,
+    "the busy-slot skip still returns null (overflow) — behavior unchanged"
+  );
+
+  // The structured record is readable from the read-only combo-trace surface.
+  const trace = getComboTrace(invocationId)!;
+  const skip = trace.decisions.find(
+    (d) => d.decision === "skipped_before_dispatch" && d.reason === "concurrency_cap_hard"
+  );
+  assert.ok(skip, "a busy-slot-skip decision entry was emitted into the combo trace");
+  // Identity of the skipped local target: model (in target) + connection id.
+  assert.equal(skip!.target, MODEL_5090_27B, "record carries the skipped target's model");
+  assert.equal(
+    skip!.connectionId,
+    connectionId,
+    "record carries the skipped target's connection id"
+  );
+  // Skip time: a plain epoch-ms timestamp bounded by the skip window.
+  assert.equal(typeof skip!.ts, "number", "record carries a numeric skip timestamp");
+  assert.ok(
+    skip!.ts >= before && skip!.ts <= after,
+    "skip timestamp falls within the window the skip occurred in"
+  );
+  // Body-free: the record is routing metadata only — no request/response body.
+  const serialized = JSON.stringify(skip);
+  assert.ok(!serialized.includes("messages"), "record carries no request body");
+  assert.ok(!serialized.includes("content"), "record carries no message content");
+
+  releaseGate!();
+  const results = await Promise.all([p1, p2]);
+  for (const r of results) assert.equal(r?.ok, true, "the two holders still succeed");
+  assert.equal(semaphore.getStats()[key], undefined, "all slots released");
 });

@@ -165,6 +165,7 @@ import {
 } from "../utils/stream.ts";
 import { ensureStreamReadiness } from "../utils/streamReadiness.ts";
 import { requestTtftMs } from "../utils/streamTiming.ts";
+import { accumulateAddedWait } from "../utils/proxyFetch.ts";
 import { resolveSuppressThinkClose, THINKING_MARKER_HEADER } from "../utils/thinkCloseMarker.ts";
 import { resolveStreamReadinessTimeout } from "../utils/streamReadinessPolicy.ts";
 import { resolveAgentGoalPolicy } from "../utils/agentGoalPolicy.ts";
@@ -1094,6 +1095,17 @@ async function handleChatCoreInner({
           clientRawRequest?.headers ?? null,
           "x-omniroute-session-id"
         )) || null;
+  // Requirement 17.3/17.4: the Capability_Lane name the client sends. It travels
+  // on the existing header-free channel — the `x-omniroute-session-id` header
+  // (above) OR the OpenAI `user` request field. Captured EXACTLY as sent (only a
+  // non-empty string is accepted) so the Fleet_Observer, which reads it from
+  // call_logs.session_tag, can attribute a request to its lane. The header wins
+  // over the body field when both are present.
+  const openAiUserField =
+    body !== null && typeof body === "object" && typeof (body as { user?: unknown }).user === "string"
+      ? ((body as { user: string }).user.trim() || null)
+      : null;
+  const explicitLaneTag = explicitSessionIdHeader || openAiUserField;
   const pipelineSessionId = explicitSessionIdHeader || skillRequestId;
   const reasoningReplaySessionKey = sessionAffinityKey || explicitSessionIdHeader;
   const reasoningCacheScope = reasoningReplaySessionKey
@@ -1131,11 +1143,13 @@ async function handleChatCoreInner({
       noLogEnabled,
       correlationId,
       modelPinned,
-      // Resolved conversationId (open-sse/services/conversationTracker.ts) wins when
-      // present — it's populated for every request now, not just ones where the
-      // client explicitly sent x-omniroute-session-id. The raw header remains a
-      // fallback for any caller that somehow bypassed conversationId resolution.
-      sessionTag: conversationId || explicitSessionIdHeader,
+      // Requirement 17.3/17.4: an explicitly-sent Capability_Lane name
+      // (x-omniroute-session-id header, else the OpenAI `user` field) is the
+      // lane the Fleet_Observer attributes this request to, so it WINS over the
+      // internally-derived conversationId. When the client sends no lane name,
+      // the resolved conversationId (open-sse/services/conversationTracker.ts)
+      // still applies — byte-identical to before for callers that send neither.
+      sessionTag: explicitLaneTag || conversationId,
       // #12150 P1b surface 1: undefined for every non-video request (byte-identical
       // to before this param existed) — see applyVideoBridgeLogRedaction.
       videoBridgeLogRedaction: (videoBridgeLog as VideoBridgeLogParam | undefined)?.redaction,
@@ -3310,6 +3324,11 @@ async function handleChatCoreInner({
               }
             ).catch(rethrowAdmissionError);
             const remainingAfterGate = remainingQueueBudgetMs(maxWaitMs, gateStartedAt);
+            // Requirement 17.3: the global/provider/account concurrency gate HELD
+            // this request before dispatch. Accumulate that wait onto the call-log
+            // added_wait so (added_wait_ms + upstream_duration) reconstructs the
+            // end-to-end latency. Best-effort/no-op outside the proxy capture.
+            accumulateAddedWait(Date.now() - gateStartedAt, "connection-concurrency");
             trace("post_semaphore", { maxWaitMs, remainingAfterGate });
             updatePendingScope(pendingScope, {
               stage: "waiting_rate_limit",
@@ -3317,11 +3336,17 @@ async function handleChatCoreInner({
 
             try {
               trace("pre_rate_limit", { connectionId: attemptConnectionId });
+              // Requirement 17.3: measure the local rate-limit scheduler hold —
+              // the span between asking withRateLimit for a slot and the slot being
+              // granted (the inner callback firing). Recorded as a distinct
+              // `rate-limit` cause so the two gate waits compose on the sink.
+              const rateLimitWaitStartedAt = Date.now();
               const rawExecutorResult = await withRateLimit(
                 provider,
                 attemptConnectionId,
                 modelToCall,
                 async () => {
+                  accumulateAddedWait(Date.now() - rateLimitWaitStartedAt, "rate-limit");
                   trace("inside_rate_limit", { connectionId: attemptConnectionId });
                   updatePendingScope(pendingScope, {
                     stage: "rate_limit_slot_acquired",

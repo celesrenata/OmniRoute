@@ -84,7 +84,11 @@ import { getCachedSettings, getCombosCacheVersion } from "@/lib/db/readCache";
 import { comboCheckProvider, ghComboGate } from "./chat/githubLiveCatalogFilter.ts";
 import { markEmergencyFallback } from "./emergencyFallbackHeader.ts";
 import { comboTargetPassesKeyModelPolicy } from "./chat/comboTargetKeyPolicy.ts";
-import { recordGateRejection, recordQuotaParkedSkip } from "./quotaParkedSkipUsage";
+import {
+  recordGateRejection,
+  recordNoEligibleConnections,
+  recordQuotaParkedSkip,
+} from "./quotaParkedSkipUsage";
 import { getCombos } from "@/lib/db/combos";
 import { resolveModelLockoutSettings } from "@/lib/resilience/modelLockoutSettings";
 import {
@@ -1225,6 +1229,11 @@ async function handleChatImplementation(
             // log id 1784418258231-14961a.
             modelAbortSignal: target?.modelAbortSignal ?? null,
             fallbackAttempts: target?.fallbackAttempts,
+            // Requirement 17.3: the admission/lane wait is per-request (the
+            // parent held one admission lease), so every combo target records
+            // the same seed; the per-target gate/rate-limit waits accumulate on
+            // top of it on each target's own capture sink.
+            admissionWait: admissionContext.getAdmissionWait(),
           },
           target?.effectiveComboStrategy ?? combo.strategy,
           true
@@ -1407,6 +1416,9 @@ async function handleChatImplementation(
       previousResponseResumed:
         (body as { _omniroutePreviousResponseResumed?: unknown })
           ._omniroutePreviousResponseResumed === true || undefined,
+      // Requirement 17.3: seed the admission/lane wait onto the single-model
+      // dispatch's capture sink (see the combo call site above).
+      admissionWait: admissionContext.getAdmissionWait(),
     },
     null,
     false
@@ -1470,6 +1482,14 @@ async function handleSingleModelChat(
      */
     modelAbortSignal?: AbortSignal | null;
     fallbackAttempts?: number;
+    /**
+     * Requirement 17.3: admission/lane hold this request waited through before
+     * dispatch (from the admission context's acquire). Seeded onto the proxy
+     * capture sink so the call-log added_wait composes it with the in-dispatch
+     * connection-concurrency and rate-limit gate waits. Omitted/null when no
+     * admission wait was imposed.
+     */
+    admissionWait?: { ms: number; cause: string } | null;
   } = {},
   comboStrategy: string | null = null,
   isCombo: boolean = false
@@ -1677,6 +1697,16 @@ async function handleSingleModelChat(
 
   if (Array.isArray(effectiveAllowedConnections) && effectiveAllowedConnections.length === 0) {
     log.debug("AUTH", `${provider}/${model} filtered out by connection-level routing constraints`);
+    // Requirement 17.7: this request ended fail-closed without ever dispatching.
+    // Write a not-dispatched call-log row (non-2xx) so the attempt is observable
+    // instead of existing only in the client's terminal. No-op for combo targets
+    // (the combo-exhausted path writes one row for the whole request).
+    await recordNoEligibleConnections(
+      HTTP_STATUS.SERVICE_UNAVAILABLE,
+      provider,
+      model,
+      rejectionScope
+    );
     return errorResponse(
       HTTP_STATUS.SERVICE_UNAVAILABLE,
       "No eligible connections matched the requested routing constraints"
@@ -2011,7 +2041,19 @@ async function handleSingleModelChat(
         upstreamStatus?: number;
         rotationAccount?: string | null;
         reselectPoolMember?: () => Promise<unknown>;
+        addedWaitMs?: number | null;
+        addedWaitCause?: string | null;
       } = { proxy: null };
+      // Requirement 17.3: seed the admission/lane wait measured BEFORE the proxy
+      // capture scope existed (the adaptive admission queue runs ahead of
+      // dispatch). The in-dispatch connection-concurrency and rate-limit gate
+      // waits accumulate on top of this seed via accumulateAddedWait, so the
+      // final added_wait_ms is the total OmniRoute-side hold and added_wait_cause
+      // lists every mechanism. Null when no admission wait was imposed.
+      if (runtimeOptions.admissionWait && runtimeOptions.admissionWait.ms > 0) {
+        appliedProxySink.addedWaitMs = runtimeOptions.admissionWait.ms;
+        appliedProxySink.addedWaitCause = runtimeOptions.admissionWait.cause;
+      }
       const proxyStartTime = Date.now();
       // 4. Execute chat via core after breaker gate checks (with optional TLS tracking)
       if (telemetry) telemetry.startPhase("connect");

@@ -118,7 +118,6 @@ const TLS_PROVIDER_PROFILE: Record<string, { browser: string; os: string }> = {
 
 type TlsProfileResult = { browserProfile?: string; os?: string };
 function tlsProfileForProvider(provider: string | null | undefined): TlsProfileResult {
-
   if (!provider) return {};
   const p = TLS_PROVIDER_PROFILE[provider.trim().toLowerCase()];
   return p ? { browserProfile: p.browser, os: p.os } : {};
@@ -256,8 +255,38 @@ export function noteRotationAccount(masked: string): void {
   }
 }
 
-/** Added-wait causes. Plain data — numbers plus this enum, nothing to mask. */
-export type AddedWaitCause = "throttle" | "park" | "throttle+park";
+/**
+ * Added-wait causes. Plain data — numbers plus this enum, nothing to mask.
+ *
+ * The first three (`throttle`/`park`/`throttle+park`) are the executor-side
+ * egress-pacing/park causes published via `noteAddedWait` (snapshot/last-write-wins).
+ *
+ * The four `*-queue`/gate causes below are the OmniRoute admission/gate HOLDS that
+ * delay a dispatched request before it reaches upstream (Requirement 17.3):
+ *   - `admission-queue`      — the lane-aware adaptive admission queue (AdaptiveAdmissionController)
+ *   - `connection-concurrency` — the per-(connection,model) concurrency gate (connectionConcurrencyGate)
+ *   - `rate-limit`           — the local rate-limit scheduler hold (rateLimitManager)
+ *   - `lane-max-queue-wait`  — a per-tenant virtual admission lane's bounded queue wait
+ * These are published cumulatively via `accumulateAddedWait`, so that
+ * `added_wait_ms + upstream_duration` reconstructs the end-to-end latency: the
+ * dashboard/Fleet_Observer separate OmniRoute-imposed wait from upstream time.
+ */
+export type AddedWaitCause =
+  | "throttle"
+  | "park"
+  | "throttle+park"
+  | "admission-queue"
+  | "connection-concurrency"
+  | "rate-limit"
+  | "lane-max-queue-wait";
+
+/**
+ * Gate/admission hold causes accumulated via `accumulateAddedWait`. Kept
+ * distinct from the executor pacing causes so the two accounting paths never
+ * clobber each other's cause label.
+ */
+export type AddedWaitGateCause =
+  "admission-queue" | "connection-concurrency" | "rate-limit" | "lane-max-queue-wait";
 
 /**
  * Cumulative wait before dispatch (pacing, park) on the capture sink.
@@ -275,6 +304,55 @@ export function noteAddedWait(totalMs: number, causes: Set<AddedWaitCause>): voi
     }
     sink.addedWaitMs = Math.round(totalMs);
     sink.addedWaitCause = causes.size > 1 ? "throttle+park" : ([...causes][0] ?? null);
+  } catch {
+    /* added-wait is best-effort; never break the request path */
+  }
+}
+
+/**
+ * Join a set of distinct gate causes into the single `added_wait_cause` string,
+ * stable-ordered so the column value is deterministic regardless of hold order.
+ * A single cause serializes as-is; multiple compose with `+` (same convention
+ * as `throttle+park`).
+ */
+const GATE_CAUSE_ORDER: readonly AddedWaitGateCause[] = [
+  "admission-queue",
+  "lane-max-queue-wait",
+  "connection-concurrency",
+  "rate-limit",
+];
+function serializeGateCauses(causes: Set<string>): string | null {
+  if (causes.size === 0) return null;
+  const ordered = GATE_CAUSE_ORDER.filter((c) => causes.has(c));
+  // Preserve any non-standard cause defensively (never silently drop one).
+  for (const c of causes) if (!GATE_CAUSE_ORDER.includes(c as AddedWaitGateCause)) ordered.push(c);
+  return ordered.join("+");
+}
+
+/**
+ * ADD `deltaMs` of gate/admission hold with `cause` to the capture sink,
+ * COMPOSING with any wait already recorded (unlike `noteAddedWait`'s snapshot
+ * semantics). Multiple holds in one request — e.g. the admission queue, then the
+ * connection-concurrency gate, then the rate-limit scheduler — each add their own
+ * measured delay, so the final `added_wait_ms` is the total OmniRoute-side wait
+ * and `added_wait_cause` lists every holding mechanism. Best-effort: no-op
+ * outside a capture, ignores non-positive/non-finite deltas, never throws.
+ */
+export function accumulateAddedWait(deltaMs: number, cause: AddedWaitGateCause): void {
+  try {
+    if (!Number.isFinite(deltaMs) || deltaMs <= 0) return;
+    const sink = getAppliedProxyContext().getStore();
+    if (!sink) return;
+    const prior =
+      typeof sink.addedWaitMs === "number" && sink.addedWaitMs > 0 ? sink.addedWaitMs : 0;
+    sink.addedWaitMs = prior + Math.round(deltaMs);
+    const causes = new Set<string>();
+    // Preserve any already-recorded gate cause(s) so a second hold composes.
+    if (typeof sink.addedWaitCause === "string" && sink.addedWaitCause.length > 0) {
+      for (const c of sink.addedWaitCause.split("+")) if (c) causes.add(c);
+    }
+    causes.add(cause);
+    sink.addedWaitCause = serializeGateCauses(causes);
   } catch {
     /* added-wait is best-effort; never break the request path */
   }

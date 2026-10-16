@@ -17,6 +17,19 @@ import type { PerTargetAdmissionHook } from "@omniroute/open-sse/services/admiss
 /** Single fairness bucket for unauthenticated / keyless traffic. Opaque; never a raw key. */
 export const ANONYMOUS_ADMISSION_TENANT_KEY = "anonymous";
 
+/**
+ * The admission/lane hold this request waited through before dispatch
+ * (Requirement 17.3). `ms` is the wall-clock time spent inside the adaptive
+ * admission `acquire()` (0 when admitted immediately); `cause` distinguishes a
+ * per-tenant virtual lane's bounded wait from the shared admission queue. Read
+ * by the chat handler to seed the call-log added_wait sink so admission wait +
+ * upstream duration reconstruct the end-to-end latency. Null until acquire runs.
+ */
+export type AdmissionWaitObservation = {
+  ms: number;
+  cause: "admission-queue" | "lane-max-queue-wait";
+};
+
 export type ChatAdmissionContext = {
   /**
    * Acquire once against the process runtime.
@@ -27,6 +40,12 @@ export type ChatAdmissionContext = {
     request: { signal?: AbortSignal | null },
     body: unknown
   ): Promise<Response | null>;
+  /**
+   * The admission/lane wait this request incurred before dispatch, or null when
+   * none was imposed (immediate admit, or acquire not yet run). Additive,
+   * read-only — see AdmissionWaitObservation. (Requirement 17.3.)
+   */
+  getAdmissionWait(): AdmissionWaitObservation | null;
   /**
    * #9654 Wave 2: build a per-target lane-aware admission probe for combo /
    * fusion fan-out dispatch. Strictly non-blocking (maxWaitMs 0 — skip, never
@@ -243,9 +262,11 @@ export function createChatAdmissionContext(
 ): ChatAdmissionContext & { getAdmittedState(): AdmittedState | null } {
   let state: AdmittedState | null = null;
   let acquireStarted = false;
+  let admissionWait: AdmissionWaitObservation | null = null;
 
   return {
     getAdmittedState: () => state,
+    getAdmissionWait: () => admissionWait,
     async acquire(apiKeyId, request, body) {
       // Exactly once per logical request — never re-enter the runtime.
       if (state || acquireStarted) return null;
@@ -254,6 +275,22 @@ export function createChatAdmissionContext(
       const runtime = getRuntime();
       const streaming =
         body !== null && typeof body === "object" && (body as { stream?: unknown }).stream === true;
+
+      // Requirement 17.3: time the admission hold. A request parked in the
+      // admission queue (or a per-tenant virtual lane) waits here before it is
+      // admitted and dispatched; that wall-clock delay is OmniRoute-imposed and
+      // must be reconstructable from the call-log. Measured around the runtime
+      // acquire (0 when admitted immediately).
+      const admissionWaitStartedAt = Date.now();
+      // Virtual lanes on → a queued wait is a per-tenant lane's bounded wait,
+      // not the shared admission queue (snapshot read is cheap and side-effect
+      // free). Fail-soft: default to the shared-queue cause on any read error.
+      let lanesEnabled = false;
+      try {
+        lanesEnabled = runtime.snapshot().virtualLanes === true;
+      } catch {
+        lanesEnabled = false;
+      }
 
       const result = await runtime.acquire({
         tenantKey: resolveAdmissionTenantKey(apiKeyId),
@@ -267,6 +304,14 @@ export function createChatAdmissionContext(
 
       if (result.status === "rejected") {
         return result.response;
+      }
+
+      const waitedMs = Date.now() - admissionWaitStartedAt;
+      if (waitedMs > 0) {
+        admissionWait = {
+          ms: waitedMs,
+          cause: lanesEnabled ? "lane-max-queue-wait" : "admission-queue",
+        };
       }
 
       state = { runtime, admitted: result };
