@@ -19,6 +19,7 @@
 import { MemoryType, type Memory } from "./types";
 import { listMemoriesForDecay, deleteMemory } from "./store";
 import { logger } from "../../../open-sse/utils/logger.ts";
+import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
 
 const log = logger("MEMORY_TYPED_DECAY");
 
@@ -91,6 +92,12 @@ export function isTypeImmune(type: MemoryType, config: TypedDecayConfig): boolea
 
 /** A memory accessed enough times is immune (disabled when the threshold is `0`). */
 export function isAccessImmune(accessCount: number, config: TypedDecayConfig): boolean {
+  // Intelligence Layer v2 (M6): access-count-based *permanence* is a bug — a memory
+  // that happened to be injected enough times is immortal, forever. The new
+  // default makes decay purely TTL-based; accessCount stays telemetry. The legacy
+  // threshold behavior is restored only when MEMORY_TYPED_DECAY_LEGACY_ACCESS_IMMUNITY
+  // is enabled.
+  if (!isFeatureFlagEnabled("MEMORY_TYPED_DECAY_LEGACY_ACCESS_IMMUNITY")) return false;
   return config.accessImmunityThreshold > 0 && accessCount >= config.accessImmunityThreshold;
 }
 

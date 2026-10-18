@@ -1,4 +1,5 @@
 import { capMemoryExtractionText, MEMORY_EXTRACTION_TEXT_LIMIT } from "./logTruncation.ts";
+import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
 
 export function extractMemoryTextFromResponse(
   response: Record<string, unknown> | null | undefined
@@ -218,8 +219,15 @@ export function runMemoryExtractionGate(input: {
     extractFacts(requestMemoryText, memoryOwnerId, pipelineSessionId);
   }
 
-  const responseMemoryText = extractMemoryTextFromResponse(responseBody ?? null);
-  if (responseMemoryText) {
-    extractFacts(responseMemoryText, memoryOwnerId, pipelineSessionId);
+  // Intelligence Layer v2 — B2: the response text is the model's OWN reply, not a
+  // user assertion. By default it must NOT seed durable user memory, otherwise an
+  // assistant that writes "I prefer Rust" becomes a user fact. The request path
+  // above already filters to role === "user", so it is unaffected. Restore the
+  // legacy behavior by enabling MEMORY_EXTRACT_ASSISTANT_RESPONSES.
+  if (isFeatureFlagEnabled("MEMORY_EXTRACT_ASSISTANT_RESPONSES")) {
+    const responseMemoryText = extractMemoryTextFromResponse(responseBody ?? null);
+    if (responseMemoryText) {
+      extractFacts(responseMemoryText, memoryOwnerId, pipelineSessionId);
+    }
   }
 }

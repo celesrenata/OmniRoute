@@ -50,7 +50,12 @@ const {
 // per-address 429, default off) takes the registry to 79.
 // PROXY_POOL_SHARED_EGRESS_ORDER (shared-egress pool ordering, default off)
 // takes it to 80.
-const EXPECTED_FEATURE_FLAG_COUNT = 80;
+// Intelligence Layer v2 — memory correctness hotfix (WP0) adds 7 flags
+// (MEMORY_V2_MATERIALIZATION_GATE, MEMORY_V2_ACCEPT_GATE,
+// MEMORY_V2_NO_RECENCY_FALLBACK, MEMORY_EXTRACT_ASSISTANT_RESPONSES,
+// MEMORY_V2_ACCESS_AT_INJECTION, MEMORY_TYPED_DECAY_LEGACY_ACCESS_IMMUNITY,
+// MEMORY_V2_STRUCTURED_INJECTION), all default-off, taking the registry to 87.
+const EXPECTED_FEATURE_FLAG_COUNT = 87;
 
 // ──────────────────────────────────────────────────────
 // Test group 1 — Flag definitions registry
