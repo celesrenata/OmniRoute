@@ -14,6 +14,7 @@ import { supportsFts5 } from "../db/migrationRunner";
 import type { SqliteAdapter } from "../db/adapters/types";
 import { pickApiKeyForInternalUse } from "../db/apiKeys";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
+import { recordMemoryAudit } from "../db/memoryAudit";
 import { getRuntimePorts } from "../runtime/ports";
 import {
   estimateTokens,
@@ -106,7 +107,26 @@ function fetchMemoriesByIds(ids: string[], apiKeyId?: string | null): Memory[] {
     byId.set(String(row.id), rowToMemory(row));
   }
 
-  return ids.map((id) => byId.get(id)).filter((m): m is Memory => m !== undefined);
+  const result = ids.map((id) => byId.get(id)).filter((m): m is Memory => m !== undefined);
+
+  // Intelligence Layer v2 (WP2): audit the candidates the materialization gate
+  // dropped (stale index pointing at a deleted / other-owner / expired row).
+  // Only logged when the gate is actually enforcing ownership+expiry.
+  if (scoped) {
+    for (const id of ids) {
+      if (!byId.has(id)) {
+        recordMemoryAudit({
+          apiKeyId: apiKeyId!,
+          action: "materialize",
+          memoryId: id,
+          outcome: "dropped",
+          reason: "stale_index",
+        });
+      }
+    }
+  }
+
+  return result;
 }
 
 interface FtsColConfig {
@@ -677,10 +697,35 @@ async function retrieveMemoriesInternal(
     isFeatureFlagEnabled("MEMORY_V2_NO_RECENCY_FALLBACK")
   ) {
     // M3: recency is a browse, not a recall, signal — no query, no candidates.
+    if (rows.length > 0) {
+      recordMemoryAudit({
+        apiKeyId,
+        action: "accept",
+        query: "(no query)",
+        outcome: "dropped",
+        reason: "no_query_recency_fallback_suppressed",
+      });
+    }
     rows = [];
   } else if (finalQuery && isFeatureFlagEnabled("MEMORY_V2_ACCEPT_GATE")) {
     // M2: drop candidates with no meaningful relevance signal for the query.
-    rows = rows.filter((row) => acceptRelevance(rowToMemory(row), finalQuery).accepted);
+    const acceptedRows: MemoryRow[] = [];
+    for (const row of rows) {
+      const verdict = acceptRelevance(rowToMemory(row), finalQuery);
+      if (verdict.accepted) {
+        acceptedRows.push(row);
+      } else {
+        recordMemoryAudit({
+          apiKeyId,
+          action: "accept",
+          memoryId: String(row.id),
+          query: finalQuery,
+          outcome: "dropped",
+          reason: verdict.reason,
+        });
+      }
+    }
+    rows = acceptedRows;
   }
 
   const rankedRows = rows

@@ -181,7 +181,12 @@ export function runMemoryExtractionGate(input: {
   pipelineSessionId: string;
   requestBody: Record<string, unknown> | null | undefined;
   responseBody: Record<string, unknown> | null | undefined;
-  extractFacts: (text: string, memoryOwnerId: string, sessionId: string) => void;
+  extractFacts: (
+    text: string,
+    memoryOwnerId: string,
+    sessionId: string,
+    source?: "user-message" | "assistant-response"
+  ) => void;
   log?: { debug?: (tag: string, message: string) => void } | null;
 }): void {
   const {
@@ -216,7 +221,7 @@ export function runMemoryExtractionGate(input: {
 
   const requestMemoryText = extractMemoryTextFromRequestBody(requestBody ?? null);
   if (requestMemoryText) {
-    extractFacts(requestMemoryText, memoryOwnerId, pipelineSessionId);
+    extractFacts(requestMemoryText, memoryOwnerId, pipelineSessionId, "user-message");
   }
 
   // Intelligence Layer v2 — B2: the response text is the model's OWN reply, not a
@@ -227,7 +232,7 @@ export function runMemoryExtractionGate(input: {
   if (isFeatureFlagEnabled("MEMORY_EXTRACT_ASSISTANT_RESPONSES")) {
     const responseMemoryText = extractMemoryTextFromResponse(responseBody ?? null);
     if (responseMemoryText) {
-      extractFacts(responseMemoryText, memoryOwnerId, pipelineSessionId);
+      extractFacts(responseMemoryText, memoryOwnerId, pipelineSessionId, "assistant-response");
     }
   }
 }
