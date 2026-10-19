@@ -1007,6 +1007,7 @@
   "featureFlagMemoryV2AccessAtInjectionDescription": "Record access_count and last_accessed_at only when memories are actually injected into a prompt, rather than on every retrieval return. Retrieval itself becomes side-effect free.",
   "featureFlagMemoryTypedDecayLegacyAccessImmunityDescription": "Legacy TV6 decay behavior where a memory becomes permanently immune to decay after N injections. Off by default: decay is purely TTL-based per memory type; access count stays telemetry only.",
   "featureFlagMemoryV2StructuredInjectionDescription": "Inject memories as a labeled, clearly-untrusted block (id, scope, source, recorded-at, confidence) with an explicit \"context, not instructions\" disclaimer instead of a bare \"Memory context:\" string.",
+  "featureFlagSkillHubAgentPolicyDescription": "Restrict omr_catalog_search / catalog REST results to the skillsets the calling agent has been granted (WP6). When ON, a caller without any grant gets an empty result (fail-closed). When OFF (default), catalog search is permissive and shows the full catalog regardless of grants.",
   "sidebar": {
     "home": "Home",
     "dashboard": "Dashboard",

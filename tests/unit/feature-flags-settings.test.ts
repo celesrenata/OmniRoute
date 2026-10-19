@@ -54,8 +54,9 @@ const {
 // (MEMORY_V2_MATERIALIZATION_GATE, MEMORY_V2_ACCEPT_GATE,
 // MEMORY_V2_NO_RECENCY_FALLBACK, MEMORY_EXTRACT_ASSISTANT_RESPONSES,
 // MEMORY_V2_ACCESS_AT_INJECTION, MEMORY_TYPED_DECAY_LEGACY_ACCESS_IMMUNITY,
-// MEMORY_V2_STRUCTURED_INJECTION), all default-off, taking the registry to 87.
-const EXPECTED_FEATURE_FLAG_COUNT = 87;
+// MEMORY_V2_STRUCTURED_INJECTION), and SKILL_HUB_AGENT_POLICY (WP6 per-agent
+// catalog policy), all default-off, taking the registry to 88.
+const EXPECTED_FEATURE_FLAG_COUNT = 88;
 
 // ──────────────────────────────────────────────────────
 // Test group 1 — Flag definitions registry

@@ -167,3 +167,37 @@ export async function runReindexBatch(limit = 100): Promise<{ processed: number;
 export function getReindexPending(): number {
   return countMemoryReindexPending();
 }
+
+/**
+ * Intelligence Layer v2 (WP5) — run a reindex batch and record it as a durable
+ * `memory_reindex_jobs` row so the run is diagnosable and retryable.
+ *
+ * Backward-compatible with `runReindexBatch`: same inputs and return shape,
+ * plus an optional `trigger` that labels the job (defaults to "manual"). This
+ * is the path used by the operator-facing reindex endpoint and by failure-retry
+ * automation; the plain `runReindexBatch` is left untouched so existing
+ * callers (scheduled/scheduled-adopted paths) keep working unchanged.
+ */
+export async function runTrackedReindexBatch(
+  limit = 100,
+  trigger: "manual" | "model_swap" | "failure_retry" | "scheduled" = "manual"
+): Promise<{ processed: number; errors: number; jobId: number }> {
+  const { startReindexJob, finishReindexJob } = await import("@/lib/db/memoryFeedback");
+  const jobId = startReindexJob({ trigger, apiKeyId: null });
+  try {
+    const result = await runReindexBatch(limit);
+    finishReindexJob(jobId, {
+      processed: result.processed,
+      failed: result.errors,
+      error: result.errors > 0 ? `${result.errors} item(s) failed` : null,
+    });
+    return { ...result, jobId };
+  } catch (err) {
+    finishReindexJob(jobId, {
+      processed: 0,
+      failed: 0,
+      error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)),
+    });
+    throw err;
+  }
+}

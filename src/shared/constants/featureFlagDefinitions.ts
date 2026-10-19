@@ -1054,4 +1054,16 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     requiresRestart: false,
     warningLevel: "info",
   },
+  {
+    key: "SKILL_HUB_AGENT_POLICY",
+    label: "Skills: Per-Agent Catalog Policy",
+    description:
+      "Restrict omr_catalog_search / catalog REST results to the skillsets the calling agent has been granted (WP6). When ON, a caller without any grant gets an empty result (fail-closed). When OFF (default), catalog search is permissive and shows the full catalog regardless of grants.",
+    descriptionI18nKey: "featureFlagSkillHubAgentPolicyDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
 ];
