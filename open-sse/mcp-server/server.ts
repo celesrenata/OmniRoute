@@ -82,6 +82,7 @@ import { gamificationTools } from "./tools/gamificationTools.ts";
 import { notionTools } from "./tools/notionTools.ts";
 import { obsidianTools } from "./tools/obsidianTools.ts";
 import { localCorpusTools } from "./tools/localCorpusTools.ts";
+import { scriptVaultTools } from "./tools/scriptVaultTools.ts";
 import { compressMcpRegistryMetadata } from "./descriptionCompressor.ts";
 import { reduceToolManifest, readMcpToolProfileFromEnv } from "./toolCardinality.ts";
 import { smartFilterText } from "../services/compression/engines/mcpAccessibility/index.ts";
@@ -120,6 +121,7 @@ const TOTAL_MCP_TOOL_COUNT = countUniqueMcpTools({
   notionTools,
   obsidianTools,
   localCorpusTools,
+  scriptVaultTools,
   compressionTools,
 });
 

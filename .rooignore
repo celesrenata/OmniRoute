@@ -1,0 +1,26 @@
+# .rooignore — scope menagerie's codebase indexer for the OmniRoute monorepo.
+# Honored by RooIgnoreController during the code-index directory scan.
+# Goal: drop translated docs, test corpora, and large generated text that
+# inflate the indexed "block" count without adding semantic-search value.
+# Without these rules the scan parses ~23k files into ~700k code blocks;
+# the first two blocks alone remove ~16,600 files (~70% of the index).
+
+# --- Biggest win: translated documentation (~10,200 markdown files) ---
+docs/i18n/
+
+# --- Second win: unit test corpus (~6,400 files) ---
+tests/unit/
+tests/fixtures/
+
+# --- Generated / state blobs ---
+.i18n-state.json
+*.i18n-state.json
+
+# --- Large env templates (indexed because < 1MB cap, low signal) ---
+.env
+.env.*
+*.env.example
+
+# --- Vendored / bundled third-party code ---
+open-sse/vendor/
+**/vendor/
