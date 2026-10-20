@@ -1,4 +1,4 @@
--- Migration 198: Intelligence Layer v2 (WP1) — memory provenance v2 + versioned supersession.
+-- Migration 202: Intelligence Layer v2 (WP1) — memory provenance v2 + versioned supersession.
 --
 -- Builds on migration 197 (source / confidence / recorded_at + memory_audit).
 -- This adds the remaining B1 provenance fields on `memories` and the two

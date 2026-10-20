@@ -1,4 +1,4 @@
--- Migration 197: Intelligence Layer v2 (WP2) — memory provenance + audit log.
+-- Migration 201: Intelligence Layer v2 (WP2) — memory provenance + audit log.
 --
 -- Adds three per-memory provenance columns and an append-only audit table so
 -- operators can explain WHY a query returned / dropped a candidate.

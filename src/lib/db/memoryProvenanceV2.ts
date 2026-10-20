@@ -2,7 +2,7 @@
  * db/memoryProvenanceV2.ts — Intelligence Layer v2 (WP1) provenance + versioned
  * supersession domain module.
  *
- * Builds on migration 198 (`198_memory_provenance_supersession.sql`) and
+ * Builds on migration 202 (`202_memory_provenance_supersession.sql`) and
  * migration 197 (source / confidence / recorded_at + memory_audit).
  *
  * This module gives the extraction / memory_save paths a safe way to:

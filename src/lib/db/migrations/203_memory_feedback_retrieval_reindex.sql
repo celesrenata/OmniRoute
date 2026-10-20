@@ -1,4 +1,4 @@
--- Migration 199: Intelligence Layer v2 (WP5) — memory feedback, retrieval
+-- Migration 203: Intelligence Layer v2 (WP5) — memory feedback, retrieval
 -- events, and reindex jobs.
 --
 -- These are the durable, append-only audit + feedback tables that let operators

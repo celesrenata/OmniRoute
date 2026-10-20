@@ -1,4 +1,4 @@
--- Migration 200: Intelligence Layer v2 (WP6) — durable Skill Hub tables.
+-- Migration 204: Intelligence Layer v2 (WP6) — durable Skill Hub tables.
 --
 -- WP4 (SkillDiscoveryService + omr_catalog_* tools) currently reads the catalog
 -- from disk in-memory and keeps import state only on the filesystem. This adds

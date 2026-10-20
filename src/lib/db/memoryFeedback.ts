@@ -3,7 +3,7 @@
  * retrieval-event / reindex-job domain module.
  *
  * Tables are created by migration 199
- * (`199_memory_feedback_retrieval_reindex.sql`).
+ * (`203_memory_feedback_retrieval_reindex.sql`).
  *
  * Raw SQL is allowed here (Hard Rule #5 — src/lib/db/ domain module).
  *

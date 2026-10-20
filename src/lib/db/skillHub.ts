@@ -1,7 +1,7 @@
 /**
  * db/skillHub.ts — Intelligence Layer v2 (WP6) durable Skill Hub domain module.
  *
- * Tables are created by migration 200 (`200_skill_hub_durable.sql`). This is the
+ * Tables are created by migration 204 (`204_skill_hub_durable.sql`). This is the
  * persistence + policy backplane for WP4's `SkillDiscoveryService`: it stores
  * skill collections (the "skillset" concept), per-agent grants, import-job
  * audit, and execution approvals — the things that WP4's in-memory index

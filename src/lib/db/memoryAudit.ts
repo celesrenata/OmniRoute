@@ -3,7 +3,7 @@
  *
  * Intelligence Layer v2 (WP2). Raw SQL is allowed here (Hard Rule #5 —
  * src/lib/db/ domain module). Table `memory_audit` is created by migration
- * 197 (`197_memory_provenance_audit.sql`).
+ * 201 (`201_memory_provenance_audit.sql`).
  *
  * Purpose: let operators (and the WP4 debugger) explain WHY a retrieval
  * query returned or dropped a candidate, and trace extraction provenance
