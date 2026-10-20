@@ -63,9 +63,22 @@ test("WP4 — searchCatalog respects the limit", () => {
   assert.ok(results.length <= 3, `limit=3 violated: ${results.length}`);
 });
 
-test("WP4 — searchCatalog returns empty for empty/whitespace query", () => {
-  assert.deepEqual(searchCatalog("   "), []);
-  assert.deepEqual(searchCatalog(""), []);
+test("WP4 — empty/whitespace query browses the full catalog (no lexical ranking)", () => {
+  refreshCatalogIndex();
+  const browse = searchCatalog("   ");
+  assert.ok(browse.length > 0, "browse-all should surface the catalog, not an empty list");
+  assert.ok(browse.length <= 200, "browse cap (200) violated");
+  // Browse results carry no relevance breakdown.
+  for (const r of browse) {
+    assert.equal(r.score, 0);
+    assert.equal(r.reason, null);
+  }
+  // Stable name order.
+  const names = browse.map((r) => r.name);
+  assert.deepEqual(
+    names,
+    [...names].sort((a, b) => a.localeCompare(b))
+  );
 });
 
 test("WP4 — searchCatalog caps limit at 20", () => {
