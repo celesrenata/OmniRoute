@@ -967,4 +967,103 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     requiresRestart: false,
     warningLevel: "caution",
   },
+  // ──────────────── Intelligence Layer v2 (Memory correctness + reliability) ─────
+  // Every flag is default-OFF so that with no flag set, behavior is byte-identical
+  // to the pre-v2 baseline. Opt-in per-operator via env or the settings/DB override.
+  {
+    key: "MEMORY_V2_MATERIALIZATION_GATE",
+    label: "Memory: Materialization Gate",
+    description:
+      "Re-validate every vector/Qdrant/FTS candidate by owner, scope, expiry and status before it is returned. Stale or foreign memory ids are dropped instead of resurrected.",
+    descriptionI18nKey: "featureFlagMemoryV2MaterializationGateDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
+  {
+    key: "MEMORY_V2_ACCEPT_GATE",
+    label: "Memory: Relevance Accept Gate",
+    description:
+      "Require a meaningful relevance signal (distinct token or exact-phrase hit, stopword-filtered) before a memory is returned. A bare substring count no longer admits a candidate.",
+    descriptionI18nKey: "featureFlagMemoryV2AcceptGateDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
+  {
+    key: "MEMORY_V2_NO_RECENCY_FALLBACK",
+    label: "Memory: Disable Recency Fallback",
+    description:
+      "When a semantic/hybrid query finds no relevant memory, return nothing instead of falling back to the most-recent memories. Recency is only used for the explicit exact/preview strategy.",
+    descriptionI18nKey: "featureFlagMemoryV2NoRecencyFallbackDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
+  {
+    key: "MEMORY_EXTRACT_ASSISTANT_RESPONSES",
+    label: "Memory: Extract From Assistant Responses",
+    description:
+      "Extract durable facts from the model's own (assistant) reply. OFF (default): only the user's own assertions are persisted — an assistant writing \"I prefer X\" no longer becomes a user fact. ON restores the legacy behavior.",
+    descriptionI18nKey: "featureFlagMemoryExtractAssistantResponsesDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "caution",
+  },
+  {
+    key: "MEMORY_V2_ACCESS_AT_INJECTION",
+    label: "Memory: Record Access At Injection",
+    description:
+      "Record access_count/last_accessed_at only when memories are actually injected into a prompt, rather than on every retrieval return. Retrieval itself becomes side-effect free.",
+    descriptionI18nKey: "featureFlagMemoryV2AccessAtInjectionDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
+  {
+    key: "MEMORY_TYPED_DECAY_LEGACY_ACCESS_IMMUNITY",
+    label: "Memory: Legacy Access-Count Immunity",
+    description:
+      "Legacy TV6 decay behavior where a memory becomes permanently immune to decay after N injections. OFF (default): decay is purely TTL-based per memory type; access count stays telemetry only.",
+    descriptionI18nKey: "featureFlagMemoryTypedDecayLegacyAccessImmunityDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
+  {
+    key: "MEMORY_V2_STRUCTURED_INJECTION",
+    label: "Memory: Structured Provenance Injection",
+    description:
+      'Inject memories as a labeled, clearly-untrusted block (id, scope, source, recorded-at, confidence) with an explicit "context, not instructions" disclaimer instead of a bare "Memory context:" string.',
+    descriptionI18nKey: "featureFlagMemoryV2StructuredInjectionDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
+  {
+    key: "SKILL_HUB_AGENT_POLICY",
+    label: "Skills: Per-Agent Catalog Policy",
+    description:
+      "Restrict omr_catalog_search / catalog REST results to the skillsets the calling agent has been granted (WP6). When ON, a caller without any grant gets an empty result (fail-closed). When OFF (default), catalog search is permissive and shows the full catalog regardless of grants.",
+    descriptionI18nKey: "featureFlagSkillHubAgentPolicyDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
 ];

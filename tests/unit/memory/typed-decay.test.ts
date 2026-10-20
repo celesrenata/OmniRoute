@@ -63,10 +63,22 @@ describe("typedDecay — pure predicates", () => {
     assert.equal(isTypeImmune(MemoryType.SEMANTIC, config), true);
   });
 
-  it("access count >= threshold grants immunity", () => {
+  it("access count >= threshold grants immunity (legacy flag ON)", () => {
+    process.env.MEMORY_TYPED_DECAY_LEGACY_ACCESS_IMMUNITY = "true";
+    try {
+      assert.equal(isAccessImmune(2, config), false);
+      assert.equal(isAccessImmune(DEFAULT_ACCESS_IMMUNITY_THRESHOLD, config), true);
+      assert.equal(isAccessImmune(99, config), true);
+    } finally {
+      delete process.env.MEMORY_TYPED_DECAY_LEGACY_ACCESS_IMMUNITY;
+    }
+  });
+
+  it("access count does NOT grant immunity by default (flag OFF — v2 behavior)", () => {
+    // The v2 default makes decay purely TTL-based; accessCount stays telemetry.
     assert.equal(isAccessImmune(2, config), false);
-    assert.equal(isAccessImmune(DEFAULT_ACCESS_IMMUNITY_THRESHOLD, config), true);
-    assert.equal(isAccessImmune(99, config), true);
+    assert.equal(isAccessImmune(DEFAULT_ACCESS_IMMUNITY_THRESHOLD, config), false);
+    assert.equal(isAccessImmune(99, config), false);
   });
 
   it("a fresh episodic memory is not decayed before its TTL", () => {
@@ -97,11 +109,23 @@ describe("typedDecay — pure predicates", () => {
     assert.equal(isMemoryDecayed(c, config, now), false);
   });
 
-  it("access immunity beats an expired TTL", () => {
+  it("access immunity beats an expired TTL (legacy flag ON)", () => {
     const created = new Date("2026-01-01T00:00:00Z");
     const now = new Date(created.getTime() + 365 * DAY_MS);
     const c = candidate({ createdAt: created, accessCount: DEFAULT_ACCESS_IMMUNITY_THRESHOLD });
-    assert.equal(isMemoryDecayed(c, config, now), false);
+    process.env.MEMORY_TYPED_DECAY_LEGACY_ACCESS_IMMUNITY = "true";
+    try {
+      assert.equal(isMemoryDecayed(c, config, now), false);
+    } finally {
+      delete process.env.MEMORY_TYPED_DECAY_LEGACY_ACCESS_IMMUNITY;
+    }
+  });
+
+  it("an old episodic memory decays past TTL even with high access count (flag OFF — v2 behavior)", () => {
+    const created = new Date("2026-01-01T00:00:00Z");
+    const now = new Date(created.getTime() + 365 * DAY_MS);
+    const c = candidate({ createdAt: created, accessCount: 99 });
+    assert.equal(isMemoryDecayed(c, config, now), true);
   });
 });
 

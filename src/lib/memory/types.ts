@@ -29,6 +29,16 @@ export interface Memory {
   accessCount: number;
   /** TV6 typed-decay telemetry: timestamp of the most recent injection (re-bases the decay clock). */
   lastAccessedAt: Date | null;
+  /**
+   * Intelligence Layer v2 (WP2) provenance: where this fact came from
+   * ("user-message", "assistant-response", "manual", "skill", "import").
+   * `null` for pre-v2 rows — readers treat it as "user-message".
+   */
+  source?: string | null;
+  /** Intelligence Layer v2 (WP2) provenance: extraction confidence label ("high"|"medium"|"low"). */
+  confidence?: string | null;
+  /** Intelligence Layer v2 (WP2) provenance: when the fact was originally asserted. */
+  recordedAt?: Date | null;
 }
 
 /**

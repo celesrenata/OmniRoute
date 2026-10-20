@@ -33,6 +33,10 @@ interface MemoryRow {
   // TV6 typed-decay columns (migration 111). Optional so a pre-migration row still maps.
   access_count?: number | null;
   last_accessed_at?: string | null;
+  // Intelligence Layer v2 (WP2) provenance columns (migration 197). Optional.
+  source?: string | null;
+  confidence?: string | null;
+  recorded_at?: string | null;
 }
 
 // Memory cache configuration
@@ -84,6 +88,9 @@ function rowToMemory(row: MemoryRow): Memory {
     expiresAt: row.expires_at ? new Date(String(row.expires_at)) : null,
     accessCount: typeof row.access_count === "number" ? row.access_count : 0,
     lastAccessedAt: row.last_accessed_at ? new Date(String(row.last_accessed_at)) : null,
+    source: typeof row.source === "string" ? row.source : null,
+    confidence: typeof row.confidence === "string" ? row.confidence : null,
+    recordedAt: row.recorded_at ? new Date(String(row.recorded_at)) : null,
   };
 }
 
@@ -196,8 +203,15 @@ export async function createMemory(
   if (existing) {
     // UPDATE existing record
     const updatedMetadata = { ...parseJSON(existing.metadata), ...memory.metadata };
+    // Intelligence Layer v2 (WP2): an upsert refreshes content but preserves the
+    // original `recorded_at` (when the fact was first asserted). source/confidence
+    // are updated from the new extraction when it provides them; otherwise the
+    // existing provenance is kept.
+    const nextSource = memory.source ?? existing.source ?? null;
+    const nextConfidence = memory.confidence ?? existing.confidence ?? null;
     const stmt = db.prepare(
-      "UPDATE memories SET content = ?, metadata = ?, updated_at = ?, session_id = ?, type = ?, expires_at = ? WHERE id = ?"
+      "UPDATE memories SET content = ?, metadata = ?, updated_at = ?, session_id = ?, type = ?, " +
+        "expires_at = ?, source = ?, confidence = ? WHERE id = ?"
     );
     stmt.run(
       memory.content,
@@ -206,6 +220,8 @@ export async function createMemory(
       memory.sessionId,
       memory.type,
       memory.expiresAt ?? null,
+      nextSource,
+      nextConfidence,
       existing.id
     );
 
@@ -232,6 +248,13 @@ export async function createMemory(
       lastAccessedAt: existing.last_accessed_at
         ? new Date(String(existing.last_accessed_at))
         : null,
+      // Provenance: `recorded_at` is preserved from the existing row (the original
+      // assertion time); a pre-v2 row has NULL recorded_at, so fall back to created_at.
+      source: nextSource,
+      confidence: nextConfidence,
+      recordedAt: existing.recorded_at
+        ? new Date(String(existing.recorded_at))
+        : new Date(String(existing.created_at)),
     };
 
     // Invalidate and update cache
@@ -272,9 +295,13 @@ export async function createMemory(
 
   // INSERT new record if not exists
   const id = crypto.randomUUID();
+  // Intelligence Layer v2 (WP2): record provenance at insert time. `recorded_at`
+  // defaults to now (the moment the fact is asserted) when the caller does not
+  // supply an earlier assertion time (e.g. backfill / import).
+  const recordedAt = (memory.recordedAt ?? new Date()).toISOString();
   const stmt = db.prepare(
-    "INSERT INTO memories (id, api_key_id, session_id, type, key, content, metadata, created_at, updated_at, expires_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO memories (id, api_key_id, session_id, type, key, content, metadata, created_at, updated_at, expires_at, source, confidence, recorded_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
 
   stmt.run(
@@ -287,7 +314,10 @@ export async function createMemory(
     JSON.stringify(memory.metadata ?? {}),
     now,
     now,
-    memory.expiresAt?.toISOString() ?? null
+    memory.expiresAt?.toISOString() ?? null,
+    memory.source ?? null,
+    memory.confidence ?? null,
+    recordedAt
   );
 
   // Keep memory_id in sync with the SQLite rowid. Migration 023 made the FTS5
@@ -311,6 +341,9 @@ export async function createMemory(
     expiresAt: memory.expiresAt ?? null,
     accessCount: 0,
     lastAccessedAt: null,
+    source: memory.source ?? null,
+    confidence: memory.confidence ?? null,
+    recordedAt: new Date(recordedAt),
   };
 
   // Cache the newly created memory

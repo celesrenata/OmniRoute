@@ -122,11 +122,16 @@ const modelReplyEchoingTranscript = {
 };
 
 function spy() {
-  const calls: Array<[string, string, string]> = [];
+  const calls: Array<[string, string, string, string?]> = [];
   return {
     calls,
-    fn: (text: string, ownerId: string, sessionId: string) => {
-      calls.push([text, ownerId, sessionId]);
+    fn: (
+      text: string,
+      ownerId: string,
+      sessionId: string,
+      source?: "user-message" | "assistant-response"
+    ) => {
+      calls.push([text, ownerId, sessionId, source]);
     },
   };
 }
@@ -170,8 +175,10 @@ test("runMemoryExtractionGate: response-derived extraction specifically is skipp
   );
 });
 
-test("runMemoryExtractionGate: extracts BOTH request and response text when video-bridge was not observed", () => {
+test("runMemoryExtractionGate: default — only request text is extracted (M4 gate, MEMORY_EXTRACT_ASSISTANT_RESPONSES off)", () => {
   const extractFacts = spy();
+  // Ensure the M4 gate flag is off (the default)
+  delete process.env.MEMORY_EXTRACT_ASSISTANT_RESPONSES;
   runMemoryExtractionGate({
     memoryOwnerId: "key-1",
     memorySettings: { enabled: true, maxTokens: 2000 },
@@ -181,15 +188,47 @@ test("runMemoryExtractionGate: extracts BOTH request and response text when vide
     responseBody: { choices: [{ message: { content: "a normal reply" } }] },
     extractFacts: extractFacts.fn,
   });
+  // M4: the assistant's own reply is not a user assertion, so the response path
+  // is skipped by default — only the request (user-message) extraction runs.
   assert.equal(
     extractFacts.calls.length,
-    2,
-    "both request- and response-derived extraction run on the ordinary (non-video) path"
+    1,
+    "only request-derived extraction runs by default (M4 gate)"
   );
   assert.match(extractFacts.calls[0][0], /secret words/);
-  assert.match(extractFacts.calls[1][0], /a normal reply/);
   assert.equal(extractFacts.calls[0][1], "key-1");
   assert.equal(extractFacts.calls[0][2], "session-1");
+  // WP2: the source arg is "user-message"
+  assert.equal(extractFacts.calls[0][3], "user-message");
+});
+
+test("runMemoryExtractionGate: flag ON — BOTH request and response text are extracted", () => {
+  const extractFacts = spy();
+  process.env.MEMORY_EXTRACT_ASSISTANT_RESPONSES = "true";
+  try {
+    runMemoryExtractionGate({
+      memoryOwnerId: "key-1",
+      memorySettings: { enabled: true, maxTokens: 2000 },
+      videoBridgeObserved: false,
+      pipelineSessionId: "session-1",
+      requestBody: flattenedVideoRequestBody,
+      responseBody: { choices: [{ message: { content: "a normal reply" } }] },
+      extractFacts: extractFacts.fn,
+    });
+    assert.equal(
+      extractFacts.calls.length,
+      2,
+      "both request- and response-derived extraction run when MEMORY_EXTRACT_ASSISTANT_RESPONSES is on"
+    );
+    assert.match(extractFacts.calls[0][0], /secret words/);
+    assert.match(extractFacts.calls[1][0], /a normal reply/);
+    assert.equal(extractFacts.calls[0][1], "key-1");
+    assert.equal(extractFacts.calls[0][2], "session-1");
+    // WP2: response path carries "assistant-response" source
+    assert.equal(extractFacts.calls[1][3], "assistant-response");
+  } finally {
+    delete process.env.MEMORY_EXTRACT_ASSISTANT_RESPONSES;
+  }
 });
 
 test("runMemoryExtractionGate: no-ops when memory is disabled, regardless of videoBridgeObserved", () => {

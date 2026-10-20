@@ -13,6 +13,8 @@ import type { MemoryEngineStatus } from "@/shared/schemas/memory";
 import { supportsFts5 } from "../db/migrationRunner";
 import type { SqliteAdapter } from "../db/adapters/types";
 import { pickApiKeyForInternalUse } from "../db/apiKeys";
+import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
+import { recordMemoryAudit } from "../db/memoryAudit";
 import { getRuntimePorts } from "../runtime/ports";
 import {
   estimateTokens,
@@ -20,6 +22,7 @@ import {
   rowToMemory,
   getRelevanceScore,
   sanitizeFts5Query,
+  acceptRelevance,
 } from "./retrieval/scoring";
 import type { MemoryRow } from "./retrieval/scoring";
 
@@ -69,21 +72,61 @@ function hasTable(tableName: string): boolean {
 
 /**
  * Fetch memories from SQLite by an array of IDs, preserving order.
+ *
+ * Intelligence Layer v2 — Materialization Gate (`MEMORY_V2_MATERIALIZATION_GATE`,
+ * default OFF): a vector/Qdrant/FTS hit is only a *candidate* id. Before a
+ * candidate is returned we re-validate it against the authoritative row by owner
+ * (`api_key_id`), scope, and expiry. This closes the resurrection hole where a
+ * stale embedding index pointing at a deleted or another key's memory id was
+ * returned to a caller that never checked those invariants (the legacy fetch
+ * selected by id alone).
+ *
+ * When `apiKeyId` is null/undefined the gate is a no-op (preserves the
+ * legacy any-owner fetch used by the operator-preview path), and with the flag
+ * OFF the fetch is byte-identical to before v2.
  */
-function fetchMemoriesByIds(ids: string[]): Memory[] {
+function fetchMemoriesByIds(ids: string[], apiKeyId?: string | null): Memory[] {
   if (ids.length === 0) return [];
   const db = getDbInstance();
+  const gateEnabled = isFeatureFlagEnabled("MEMORY_V2_MATERIALIZATION_GATE");
+  const scoped = gateEnabled && Boolean(apiKeyId);
+
   const placeholders = ids.map(() => "?").join(", ");
+  const scopeClause = scoped ? " AND api_key_id = ?" : "";
+  const expiryClause = " AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))";
   const rows = db
-    .prepare(`SELECT * FROM memories WHERE id IN (${placeholders})`)
-    .all(...ids) as MemoryRow[];
+    .prepare(
+      `SELECT * FROM memories WHERE id IN (${placeholders})` +
+        (scoped ? scopeClause : "") +
+        expiryClause
+    )
+    .all(...ids, ...(scoped && apiKeyId ? [apiKeyId] : [])) as MemoryRow[];
 
   const byId = new Map<string, Memory>();
   for (const row of rows) {
     byId.set(String(row.id), rowToMemory(row));
   }
 
-  return ids.map((id) => byId.get(id)).filter((m): m is Memory => m !== undefined);
+  const result = ids.map((id) => byId.get(id)).filter((m): m is Memory => m !== undefined);
+
+  // Intelligence Layer v2 (WP2): audit the candidates the materialization gate
+  // dropped (stale index pointing at a deleted / other-owner / expired row).
+  // Only logged when the gate is actually enforcing ownership+expiry.
+  if (scoped) {
+    for (const id of ids) {
+      if (!byId.has(id)) {
+        recordMemoryAudit({
+          apiKeyId: apiKeyId!,
+          action: "materialize",
+          memoryId: id,
+          outcome: "dropped",
+          reason: "stale_index",
+        });
+      }
+    }
+  }
+
+  return result;
 }
 
 interface FtsColConfig {
@@ -259,7 +302,12 @@ export async function retrieveMemories(
   config: RetrievalOptions = {}
 ): Promise<Memory[]> {
   const result = await retrieveMemoriesInternal(apiKeyId, config);
-  if (result.length > 0) {
+  // Intelligence Layer v2 (M5): when MEMORY_V2_ACCESS_AT_INJECTION is ON, the
+  // access bump is deferred to the injection boundary (injectMemory) so a
+  // memory that was retrieved but never actually placed into a prompt does not
+  // inflate its access_count. With the flag OFF (default), behavior is
+  // byte-identical to before v2 (record on every retrieval return).
+  if (result.length > 0 && !isFeatureFlagEnabled("MEMORY_V2_ACCESS_AT_INJECTION")) {
     recordMemoryAccess(result.map((m) => m.id));
   }
   return result;
@@ -372,7 +420,7 @@ async function retrieveMemoriesInternal(
               });
               if (qres.ok && qres.results && qres.results.length > 0) {
                 const hitIds = qres.results.map((r) => r.id);
-                const hitMemories = fetchMemoriesByIds(hitIds);
+                const hitMemories = fetchMemoriesByIds(hitIds, apiKeyId);
                 const scoreMap = new Map(qres.results.map((r) => [r.id, r.score]));
                 let qdrantItems = hitMemories.map((m) => ({
                   memory: m,
@@ -421,7 +469,7 @@ async function retrieveMemoriesInternal(
                 await vec.ensureReady(resolution);
                 const hits = await vec.searchVector(embeddingResult.vector, 100, apiKeyId);
                 const hitIds = hits.map((h) => h.memoryId);
-                const hitMemories = fetchMemoriesByIds(hitIds);
+                const hitMemories = fetchMemoriesByIds(hitIds, apiKeyId);
                 const scoreMap = new Map(hits.map((h) => [h.memoryId, h.score]));
 
                 let rankedItems = hitMemories.map((m) => ({
@@ -500,7 +548,7 @@ async function retrieveMemoriesInternal(
               });
               if (qres.ok && qres.results && qres.results.length > 0) {
                 const hitIds = qres.results.map((r) => r.id);
-                const hitMemories = fetchMemoriesByIds(hitIds);
+                const hitMemories = fetchMemoriesByIds(hitIds, apiKeyId);
                 const scoreMap = new Map(qres.results.map((r) => [r.id, r.score]));
                 let qdrantItems = hitMemories.map((m) => ({
                   memory: m,
@@ -554,7 +602,7 @@ async function retrieveMemoriesInternal(
                   apiKeyId
                 );
                 const hitIds = hybridHits.map((h) => h.memoryId);
-                const hitMemories = fetchMemoriesByIds(hitIds);
+                const hitMemories = fetchMemoriesByIds(hitIds, apiKeyId);
                 const scoreMap = new Map(
                   hybridHits.map((h) => [
                     h.memoryId,
@@ -638,6 +686,46 @@ async function retrieveMemoriesInternal(
       query += ` ORDER BY ${columns.createdAt} DESC LIMIT 100`;
       rows = db.prepare(query).all(...params) as MemoryRow[];
     }
+  }
+
+  // Intelligence Layer v2 — precision-first gates applied to the final candidate
+  // set. Both are no-ops with their flags off (byte-identical to legacy).
+  const finalQuery = config.query?.trim() ?? "";
+  if (
+    !finalQuery &&
+    normalizedConfig.retrievalStrategy !== "exact" &&
+    isFeatureFlagEnabled("MEMORY_V2_NO_RECENCY_FALLBACK")
+  ) {
+    // M3: recency is a browse, not a recall, signal — no query, no candidates.
+    if (rows.length > 0) {
+      recordMemoryAudit({
+        apiKeyId,
+        action: "accept",
+        query: "(no query)",
+        outcome: "dropped",
+        reason: "no_query_recency_fallback_suppressed",
+      });
+    }
+    rows = [];
+  } else if (finalQuery && isFeatureFlagEnabled("MEMORY_V2_ACCEPT_GATE")) {
+    // M2: drop candidates with no meaningful relevance signal for the query.
+    const acceptedRows: MemoryRow[] = [];
+    for (const row of rows) {
+      const verdict = acceptRelevance(rowToMemory(row), finalQuery);
+      if (verdict.accepted) {
+        acceptedRows.push(row);
+      } else {
+        recordMemoryAudit({
+          apiKeyId,
+          action: "accept",
+          memoryId: String(row.id),
+          query: finalQuery,
+          outcome: "dropped",
+          reason: verdict.reason,
+        });
+      }
+    }
+    rows = acceptedRows;
   }
 
   const rankedRows = rows
@@ -726,7 +814,7 @@ export async function retrievePreview(
           );
           if (qres.ok && qres.results && qres.results.length > 0) {
             const hitIds = qres.results.map((r) => r.id);
-            const hitMemories = fetchMemoriesByIds(hitIds).slice(0, limit);
+            const hitMemories = fetchMemoriesByIds(hitIds, apiKeyId).slice(0, limit);
             const scoreMap = new Map(qres.results.map((r) => [r.id, r.score]));
             let items: Array<{
               memory: Memory;
@@ -796,7 +884,7 @@ export async function retrievePreview(
                 apiKeyId ?? undefined
               );
               const hitIds = hits.map((h) => h.memoryId);
-              const hitMemories = fetchMemoriesByIds(hitIds).slice(0, limit);
+              const hitMemories = fetchMemoriesByIds(hitIds, apiKeyId).slice(0, limit);
               const scoreMap = new Map(hits.map((h) => [h.memoryId, h.score]));
 
               let items: Array<{
@@ -838,7 +926,7 @@ export async function retrievePreview(
                 apiKeyId ?? undefined
               );
               const hitIds = hybridHits.map((h) => h.memoryId);
-              const hitMemories = fetchMemoriesByIds(hitIds);
+              const hitMemories = fetchMemoriesByIds(hitIds, apiKeyId);
               const scoreMap = new Map(
                 hybridHits.map((h) => [
                   h.memoryId,

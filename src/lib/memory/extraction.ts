@@ -207,12 +207,25 @@ export function extractFactsFromText(text: string): ExtractedFact[] {
  * @param apiKeyId - API key owning this memory
  * @param sessionId - Session context for the memory
  */
-export function extractFacts(response: string, apiKeyId: string, sessionId: string): void {
+/**
+ * Extract facts from a text string and store them asynchronously.
+ *
+ * `source` (Intelligence Layer v2 WP2 provenance) records WHERE the fact came
+ * from: "user-message" (the user's own assertion) or "assistant-response" (the
+ * model's reply, only when MEMORY_EXTRACT_ASSISTANT_RESPONSES is enabled). It
+ * defaults to "user-message" so existing 3-arg callers are unaffected.
+ */
+export function extractFacts(
+  response: string,
+  apiKeyId: string,
+  sessionId: string,
+  source: "user-message" | "assistant-response" = "user-message"
+): void {
   if (!response || !apiKeyId || !sessionId) return;
 
   const cappedResponse = capExtractionText(response);
 
-  log.info("memory.extraction.start", { apiKeyId });
+  log.info("memory.extraction.start", { apiKeyId, source });
 
   // Non-blocking: schedule after current event loop tick
   setImmediate(() => {
@@ -231,8 +244,10 @@ export function extractFacts(response: string, apiKeyId: string, sessionId: stri
         metadata: {
           category: fact.category,
           extractedAt: new Date().toISOString(),
-          source: "llm_response",
+          source,
         },
+        source,
+        confidence: "low",
         expiresAt: null,
       }).catch((err) => {
         log.error("memory.extraction.background.failed", { err: err?.message, apiKeyId });
