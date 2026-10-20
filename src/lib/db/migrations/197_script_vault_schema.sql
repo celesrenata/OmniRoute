@@ -31,5 +31,3 @@ CREATE TABLE IF NOT EXISTS _omniroute_script_migrations (
   migration_name TEXT PRIMARY KEY,
   applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-
-COMMIT;
