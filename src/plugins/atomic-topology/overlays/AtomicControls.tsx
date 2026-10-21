@@ -22,9 +22,10 @@ const TOGGLE_PAUSE_EVENT = "atomic:toggle-pause";
  * @param paused the current pause state (mirrored from the host's
  *   `setPaused`).
  */
+// The live-feed state word ("Live" / "Stale") is owned by the telemetry
+// badge (top-right); this chip is the *pause toggle*, so it shows only the
+// state dot + icon (no redundant Live text — OR-ATOM-002, V6).
 export function AtomicControls({ paused }: { paused: boolean }) {
-  const label = paused ? "Paused" : "Live";
-
   return (
     <button
       type="button"
@@ -33,13 +34,17 @@ export function AtomicControls({ paused }: { paused: boolean }) {
       data-paused={paused ? "true" : "false"}
       aria-pressed={paused}
       aria-label={paused ? "Resume atomic animation" : "Pause atomic animation"}
+      title={paused ? "Resume atomic animation" : "Pause atomic animation"}
       onClick={() => {
         // Delegate the toggle to the host (which owns setPaused).
         window.dispatchEvent(new CustomEvent(TOGGLE_PAUSE_EVENT, { detail: { pause: !paused } }));
       }}
     >
+      {/* Live / Stale words belong to the telemetry badge; dot + icon only (OR-ATOM-002, V6) */}
       <span className="atomic-controls__dot" aria-hidden="true" />
-      <span className="atomic-controls__label">{label}</span>
+      <span className="atomic-controls__icon" aria-hidden="true">
+        {paused ? "▶" : "❚❚"}
+      </span>
     </button>
   );
 }

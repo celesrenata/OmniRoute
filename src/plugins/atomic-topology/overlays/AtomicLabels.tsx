@@ -31,6 +31,12 @@ import { useEffect, useRef } from "react";
 
 import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
 import { createProjector } from "../projection";
+import {
+  LABEL_OFFSET_Y,
+  LABEL_PRIORITY_TIERS,
+  labelRect,
+  resolveLabelCollision,
+} from "../labelCollision";
 import type { AtomicCameraState } from "../scene/sceneContext";
 
 /**
@@ -107,9 +113,27 @@ function useAtomSelection(
 /* Projected mode — one label per atom, positioned next to the atom    */
 /* ------------------------------------------------------------------ */
 
-/** The on-screen offset (CSS px) between the projected atom center and the
- *  label anchor, so the label sits just above its atom instead of on it. */
-const LABEL_OFFSET_Y = -28;
+/**
+ * The screen-space collision priority of a label (OR-ATOM-002, V3): a focused
+ * atom always wins a collision; the hub (the scene's anchor) is next; then
+ * the visual-state emphasis (error > active > last > healthy > idle). Pure —
+ * deterministic for a given descriptor + focus.
+ */
+function labelPriority(
+  descriptor: AtomVisualDescriptor,
+  focusNodeId: string | null
+): number {
+  if (focusNodeId === descriptor.id) return LABEL_PRIORITY_TIERS.focused;
+  if (descriptor.kind === "hub") return LABEL_PRIORITY_TIERS.hub;
+  const byState: Record<AtomVisualDescriptor["visualState"]["state"], number> = {
+    error: LABEL_PRIORITY_TIERS.error,
+    active: LABEL_PRIORITY_TIERS.active,
+    last: LABEL_PRIORITY_TIERS.last,
+    healthy: LABEL_PRIORITY_TIERS.healthy,
+    idle: LABEL_PRIORITY_TIERS.idle,
+  };
+  return byState[descriptor.visualState.state] ?? LABEL_PRIORITY_TIERS.default;
+}
 
 function ProjectedLabels({
   descriptors,
@@ -152,13 +176,37 @@ function ProjectedLabels({
           }
         );
 
-        for (const descriptor of labels) {
+        // Project every atom, build its chip rect, then resolve screen-space
+        // collisions (V3 — OR-ATOM-002): the higher-priority label wins;
+        // lower-priority labels that overlap a placed one are hidden.
+        const entries = labels.map((descriptor) => {
+          const p = project([descriptor.position.x, descriptor.position.y, descriptor.position.z]);
+          return {
+            descriptor,
+            p,
+            rect: labelRect({
+              id: descriptor.id,
+              label: descriptor.label,
+              x: p.x,
+              y: p.y,
+              priority: labelPriority(descriptor, focusNodeId),
+              viewportWidth: cameraState.viewportWidth,
+              viewportHeight: cameraState.viewportHeight,
+            }),
+          };
+        });
+        const hiddenIds = new Set(
+          resolveLabelCollision(entries.map((e) => e.rect))
+            .filter((v) => v.hidden)
+            .map((v) => v.id)
+        );
+
+        for (const { descriptor, p } of entries) {
           const el = labelRefs.current[descriptor.id];
           if (!el) continue;
-          const p = project([descriptor.position.x, descriptor.position.y, descriptor.position.z]);
           // Hide when behind the camera, when projected far outside the
-          // viewport (margin = label half-width, so re-entry is smooth), or
-          // when the projection is degenerate.
+          // viewport (margin = label half-width, so re-entry is smooth), when
+          // the projection is degenerate, or when the collision pass hid it.
           const marginX = 80;
           const offscreen =
             p.behind ||
@@ -166,7 +214,7 @@ function ProjectedLabels({
             p.x > cameraState.viewportWidth + marginX ||
             p.y < -marginX ||
             p.y > cameraState.viewportHeight + marginX;
-          if (offscreen) {
+          if (offscreen || hiddenIds.has(descriptor.id)) {
             el.style.visibility = "hidden";
             el.style.pointerEvents = "none";
           } else {
@@ -181,7 +229,7 @@ function ProjectedLabels({
 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [cameraState, descriptors]);
+  }, [cameraState, descriptors, focusNodeId]);
 
   return (
     <div

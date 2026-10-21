@@ -24,7 +24,7 @@ import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-import { useAtomicSceneContext } from "./sceneContext";
+import { useAtomicSceneContext, resolveOrbitTarget } from "./sceneContext";
 
 /**
  * Orbit / zoom / pan around the nucleus (the scene origin).
@@ -36,6 +36,13 @@ import { useAtomicSceneContext } from "./sceneContext";
  *   render loop as the atoms (and stays in sync with the auto-spin).
  * - Distance is clamped so the user cannot zoom into the nucleus or past the
  *   scene's `far` plane (the camera's `far` is 6000 in `AtomicScene`).
+ * - **Focus pivot tracking (OR-ATOM-002, V2):** `controls.target` is not left
+ *   at the origin — every frame it eases toward the focused atom
+ *   (`context.focusTarget`), or back to the origin when no atom is focused.
+ *   Because `OrbitControls.update()` re-derives the camera from its target,
+ *   tracking the pivot is what makes `CameraRig`'s focus slide *persist*
+ *   (without it, the first `update()` yanks the camera back to an origin
+ *   orbit). Reduced motion settles the pivot in one step instead of easing.
  *
  * The callback captured by `useFrame` is always the latest render's closure
  * (R3F keeps the subscription stable but invokes the current callback), so
@@ -50,7 +57,7 @@ export function SceneOrbitControls({ enabled = true }: { enabled?: boolean }) {
   // instance, so it is the *target* writer: every frame (after damping
   // `update()`) it copies `controls.target` into the shared state. The camera
   // position / frustum / viewport halves are written by `CameraStateWriter`.
-  const cameraState = useAtomicSceneContext().cameraState;
+  const { focusTarget, reducedMotion, cameraState } = useAtomicSceneContext();
 
   useEffect(() => {
     const dom = gl.domElement;
@@ -75,10 +82,24 @@ export function SceneOrbitControls({ enabled = true }: { enabled?: boolean }) {
   }, [camera, gl, enabled]);
 
   // eslint-disable-next-line react-hooks/immutability -- this component is the orbit-target writer: AtomicCameraState is the intentional per-frame shared mutable bridge (see sceneContext.ts), so copying controls.target into it every frame IS the contract
-  useFrame(() => {
+  useFrame((_state, delta) => {
     const controls = controlsRef.current;
-    controls?.update();
     if (controls) {
+      // Ease the orbit pivot toward the focused atom (or the origin when no
+      // atom is focused). `update()` below re-derives the camera from this
+      // target, so the CameraRig focus slide survives the frame — the pivot
+      // move *is* the animation. Frame-rate-independent settle (~0.2s);
+      // reduced motion snaps in one step.
+      const goal = resolveOrbitTarget(focusTarget);
+      const target = controls.target;
+      const dx = goal[0] - target.x;
+      const dy = goal[1] - target.y;
+      const dz = goal[2] - target.z;
+      if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 1e-3) {
+        const k = reducedMotion ? 1 : 1 - Math.exp(-12 * Math.min(delta, 0.1));
+        target.set(target.x + dx * k, target.y + dy * k, target.z + dz * k);
+      }
+      controls.update();
       // eslint-disable-next-line react-hooks/immutability -- per-frame orbit-target write to the shared mutable bridge (mutation is the contract)
       cameraState.target[0] = controls.target.x;
       cameraState.target[1] = controls.target.y;

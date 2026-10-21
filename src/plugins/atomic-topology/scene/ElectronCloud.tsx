@@ -48,6 +48,14 @@ const SHELL_TILTS_X = [0.45, -0.2, 0.9] as const;
 const SHELL_TILTS_Z = [0.2, 0.55, -0.35] as const;
 /** Per-shell speed multiplier (outer shells spin slightly slower). */
 const SHELL_SPEED_FACTOR = [1.0, 0.72, 0.5] as const;
+/**
+ * Per-shell radius multiplier (OR-ATOM-002, V5). Without this every shell
+ * shares the *same* radius and the cloud reads as one tilted disc; scaling
+ * the shells inner→outer gives the layered-depth orbital system the spec asks
+ * for. The innermost shell sits just outside the atom core, the outermost is
+ * the widest visible orbit.
+ */
+const SHELL_RADIUS_FACTOR = [0.72, 1.0, 1.3] as const;
 
 /**
  * A multi-shell orbital electron cloud around an atom.
@@ -73,11 +81,16 @@ export function ElectronCloud({
       const tiltX = SHELL_TILTS_X[s] ?? 0.4;
       const tiltZ = SHELL_TILTS_Z[s] ?? 0.2;
       const speedFactor = SHELL_SPEED_FACTOR[s] ?? 0.5;
+      const shellRadius = radius * (SHELL_RADIUS_FACTOR[s] ?? 1);
       const electrons = Array.from({ length: perShell }, (_, i) => {
         const angle = (i / perShell) * Math.PI * 2 + s * 0.6;
-        return [Math.cos(angle) * radius, 0, Math.sin(angle) * radius] as [number, number, number];
+        return [
+          Math.cos(angle) * shellRadius,
+          0,
+          Math.sin(angle) * shellRadius,
+        ] as [number, number, number];
       });
-      return { tiltX, tiltZ, speedFactor, electrons };
+      return { tiltX, tiltZ, speedFactor, shellRadius, electrons };
     });
   }, [radius, electronCount, shellCount]);
 
@@ -99,9 +112,10 @@ export function ElectronCloud({
               shellsRef.current[s] = el;
             }}
           >
-            {/* Thin orbit line (torus) — the "electron path". */}
+            {/* Thin orbit line (torus) — the "electron path". Each shell uses
+                its own radius so the cloud reads as layered depth (V5). */}
             <mesh>
-              <torusGeometry args={[radius, Math.max(0.8, radius * 0.012), 6, 48]} />
+              <torusGeometry args={[shell.shellRadius, Math.max(0.8, shell.shellRadius * 0.012), 6, 48]} />
               <meshStandardMaterial
                 color={color}
                 emissive={color}
@@ -115,7 +129,7 @@ export function ElectronCloud({
             {/* Electrons on this shell. */}
             {shell.electrons.map((pos, i) => (
               <mesh key={i} position={pos}>
-                <sphereGeometry args={[Math.max(2.2, radius * 0.04), 12, 12]} />
+                <sphereGeometry args={[Math.max(2.2, shell.shellRadius * 0.04), 12, 12]} />
                 <meshStandardMaterial
                   color={color}
                   emissive={color}

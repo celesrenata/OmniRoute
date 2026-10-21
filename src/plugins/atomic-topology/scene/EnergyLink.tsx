@@ -28,9 +28,8 @@ import { useFrame } from "@react-three/fiber";
 
 import type { AtomVisualDescriptor, LinkVisualDescriptor } from "../AtomicTopologyRenderer";
 import { useAtomicSceneContext } from "./sceneContext";
+import { linkTubeRadius } from "../visualEncoding";
 
-/** Base tube radius (world units) for a link. */
-const LINK_RADIUS = 6;
 /** Tube segment resolution (smoothness). */
 const TUBE_SEGMENTS = 24;
 /** Arc factor: how far the Bézier control point bows outward from the chord midpoint. */
@@ -46,7 +45,10 @@ export function EnergyLink({
   const target = atoms.find((a) => a.id === descriptor.target);
 
   // Build the tube geometry once per (target, style) — a quadratic Bézier from
-  // the origin to the atom, bowing outward.
+  // the origin to the atom, bowing outward. The tube radius scales with the
+  // resolved visual state's stroke width (OR-ATOM-002, V4): an idle route is a
+  // thin filament, an active one a thicker discharge (pure `linkTubeRadius`).
+  const tubeRadius = linkTubeRadius(descriptor.visualState.style.width);
   const geometry = useMemo(() => {
     if (!target) return null;
     const end = new THREE.Vector3(target.position.x, target.position.y, target.position.z);
@@ -56,10 +58,11 @@ export function EnergyLink({
     if (radial.lengthSq() < 1e-6) radial.set(0, 0, 1); // degenerate: use +z
     const control = mid.clone().add(radial.multiplyScalar(end.length() * ARC_FACTOR));
     const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 0, 0), control, end);
-    return new THREE.TubeGeometry(curve, TUBE_SEGMENTS, LINK_RADIUS, 8, false);
-  }, [target]);
+    return new THREE.TubeGeometry(curve, TUBE_SEGMENTS, tubeRadius, 8, false);
+  }, [target, tubeRadius]);
 
   const materialRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const glowRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const animated = descriptor.visualState.style.animated;
   const baseEmissive = animated ? 0.6 : 0.25;
   const opacity = descriptor.visualState.style.opacity;
@@ -90,26 +93,46 @@ export function EnergyLink({
     const material = materialRef.current;
     if (!material) return;
     // The discharge flare is the floor; the active-route pulse sits on top.
-    material.emissiveIntensity =
-      baseEmissive +
-      dischargeBoost +
-      (animated && !reducedMotion ? 0.4 * (0.5 + 0.5 * Math.sin(state.clock.elapsedTime * 3)) : 0);
+    const pulse = animated && !reducedMotion ? 0.4 * (0.5 + 0.5 * Math.sin(state.clock.elapsedTime * 3)) : 0;
+    material.emissiveIntensity = baseEmissive + dischargeBoost + pulse;
+    // The endpoint glow breathes with the route (brighter when active / on a
+    // discharge) so the target end of the route reads as an energy landing.
+    const glow = glowRef.current;
+    if (glow) glow.emissiveIntensity = 0.6 + dischargeBoost + pulse;
   });
 
-  if (!geometry) return null;
+  if (!geometry || !target) return null;
 
   return (
-    <mesh geometry={geometry}>
-      <meshStandardMaterial
-        ref={materialRef}
-        color={color}
-        emissive={emissiveColor}
-        emissiveIntensity={baseEmissive + dischargeBoost}
-        transparent
-        opacity={opacity}
-        roughness={0.3}
-        metalness={0.1}
-      />
-    </mesh>
+    <group>
+      <mesh geometry={geometry}>
+        <meshStandardMaterial
+          ref={materialRef}
+          color={color}
+          emissive={emissiveColor}
+          emissiveIntensity={baseEmissive + dischargeBoost}
+          transparent
+          opacity={opacity}
+          roughness={0.3}
+          metalness={0.1}
+        />
+      </mesh>
+      {/* Endpoint glow — a small emissive sphere at the target end of the
+          route (OR-ATOM-002, V4). Colored by the route lane; brightens on a
+          transient discharge (red on a failure) so the landing reads. */}
+      <mesh position={[target.position.x, target.position.y, target.position.z]}>
+        <sphereGeometry args={[tubeRadius * 1.9, 16, 16]} />
+        <meshStandardMaterial
+          ref={glowRef}
+          color={color}
+          emissive={emissiveColor}
+          emissiveIntensity={0.6 + dischargeBoost}
+          transparent
+          opacity={Math.min(1, opacity + 0.2)}
+          roughness={0.3}
+          metalness={0.1}
+        />
+      </mesh>
+    </group>
   );
 }

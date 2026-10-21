@@ -29,6 +29,22 @@ export interface SceneWorldPosition {
 }
 
 /**
+ * The orbit pivot the camera should revolve around (OR-ATOM-002, V2).
+ *
+ * With no focused atom the pivot is the nucleus at the scene origin. When an
+ * atom is focused, the pivot slides to that atom so the orbit controls revolve
+ * around it instead of yanking the camera back to the origin every frame (see
+ * `SceneOrbitControls`). Pure + three-free, so it is unit-testable: same
+ * focus → same pivot. Non-finite coordinates clamp to 0 rather than corrupt
+ * the pivot.
+ */
+export function resolveOrbitTarget(focusTarget: SceneWorldPosition | null): [number, number, number] {
+  if (!focusTarget) return [0, 0, 0];
+  const { x, y, z } = focusTarget;
+  return [Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0, Number.isFinite(z) ? z : 0];
+}
+
+/**
  * A mutable, per-frame camera snapshot the DOM label overlay reads (UX
  * correction for the detached label roster).
  *
