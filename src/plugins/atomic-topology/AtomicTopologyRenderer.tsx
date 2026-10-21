@@ -61,6 +61,7 @@ import type { TopologySceneSnapshot } from "@/shared/topology/domain/types";
 
 import { detectTopologyCapabilities } from "./capabilities";
 import { computeAtomicLayout, type AtomicLayoutNode } from "./layout";
+import { computeFitRadiusFromPositions } from "./cameraFit";
 import {
   asJobLane,
   laneHue,
@@ -86,7 +87,7 @@ import {
   type AtomicEventPool,
 } from "./eventPool";
 import { resolveSceneQuality, type QualityProbe } from "./quality";
-import type { AtomicSceneContextValue } from "./scene/sceneContext";
+import { createAtomicCameraState, type AtomicSceneContextValue } from "./scene/sceneContext";
 
 // Re-export the pure visual-encoding types so the scene/overlay subtree has a
 // single import point (this adapter) rather than reaching into `visualEncoding`
@@ -100,6 +101,14 @@ export type { JobLane, SpinResult, VibrationResult, AtomicVisualState, AtomicVis
  * value change, not a refactor.
  */
 const TELEMETRY_FRESH_WINDOW_MS = 5_000;
+
+/**
+ * The world-unit margin added beyond the farthest ring atom's centerline when
+ * computing the responsive fit radius (UX correction): the atom's visual
+ * extent (radius + electron cloud, matching the scene's `ATOM_RADIUS + 16`),
+ * so the outermost atom sits just inside the frustum rather than on its edge.
+ */
+const ATOM_FIT_MARGIN = 38;
 
 /* ------------------------------------------------------------------ */
 /* Typed error for the unsupported-WebGL path                          */
@@ -385,6 +394,7 @@ export function AtomicTopologyRenderer({
   options,
   onFocusRequest,
   eventPool,
+  size,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
 
@@ -434,6 +444,27 @@ export function AtomicTopologyRenderer({
     };
   }, []);
 
+  // The stable per-frame camera snapshot the DOM label overlay reads
+  // (UX correction — projected labels). Created once; the scene writes to it
+  // every frame and the overlay reads it via requestAnimationFrame. A single
+  // mutable object shared between the R3F tree (writers) and the DOM overlay
+  // (reader) — kept outside React state so per-frame writes never re-render.
+  const [cameraState] = useState(() => createAtomicCameraState());
+
+  // Responsive framing (UX correction): fit the *actual* layout bounds, not
+  // the constant `DEFAULT_FIT_RADIUS`. The hub is the origin, so only the ring
+  // atoms contribute; the margin covers the atom radius + electron cloud.
+  const ringPositions = descriptors.filter((d) => d.kind !== "hub");
+  const fitRadius = computeFitRadiusFromPositions(
+    ringPositions.map((d) => d.position),
+    ATOM_FIT_MARGIN
+  );
+
+  // The live viewport aspect drives the fit: a wide, short canvas needs a
+  // different framing than a tall one. Before the first measured size both
+  // dimensions are 0 → fall back to the square default (aspect 1).
+  const cameraAspect = size.width > 0 && size.height > 0 ? size.width / size.height : 1;
+
   // The host-owned ambient scene state (M4/M6): the instance's stable event
   // pool, the focused atom's world position, and the shared camera framing.
   // Carried into the scene via the `AtomicSceneContext` provider.
@@ -443,10 +474,12 @@ export function AtomicTopologyRenderer({
     reducedMotion,
     quality,
     cameraFovDeg: 50,
-    cameraAspect: 1,
+    cameraAspect,
     // Deterministic discharge clock for render-time (reduced-motion) reads:
     // the snapshot's own capture time, so renders never touch the wall clock.
     nowMs: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
+    cameraState,
+    fitRadius,
   };
 
   // Feed-freshness state for the telemetry badge (M6): `unavailable` when the
@@ -529,6 +562,7 @@ export function AtomicTopologyRenderer({
           focusNodeId={focusNodeId}
           onProviderClick={handleProviderClick}
           onFocusRequest={onFocusRequest}
+          cameraState={cameraState}
         />
         <AtomicTooltip descriptor={focusedDescriptor} />
       </div>

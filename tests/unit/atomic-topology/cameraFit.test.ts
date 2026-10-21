@@ -11,8 +11,10 @@ import assert from "node:assert/strict";
 import {
   computeCameraFit,
   computeCameraFocus,
+  computeFitRadiusFromPositions,
   isUsableCameraFit,
   DEFAULT_FIT_RADIUS,
+  MIN_FIT_RADIUS,
 } from "@/plugins/atomic-topology/cameraFit";
 
 /* ------------------------------------------------------------------ */
@@ -137,4 +139,74 @@ test("isUsableCameraFit: rejects non-finite or unordered frams", () => {
   );
   assert.ok(!isUsableCameraFit({ position: [0, 1, 2], lookAt: [0, 0, 0], near: 5, far: 5 }));
   assert.ok(!isUsableCameraFit({ position: [0, 1, 2], lookAt: [0, 0, 0], near: 10, far: 5 }));
+});
+
+/* ------------------------------------------------------------------ */
+/* computeFitRadiusFromPositions                                       */
+/* ------------------------------------------------------------------ */
+
+test("computeFitRadiusFromPositions: frames the farthest ring atom + atom margin", () => {
+  // The hub is the origin, so only the ring placements matter. The farthest
+  // point here is at norm 210 (ring 0) → 210 + the default 22 margin.
+  const positions = [
+    { x: 210, y: 0, z: 0 },
+    { x: -100, y: 50, z: 0 },
+    { x: 0, y: 0, z: 30 },
+  ];
+  assert.equal(computeFitRadiusFromPositions(positions), 210 + 22);
+  // A custom atom radius (atom + electron cloud) widens the framing.
+  assert.equal(computeFitRadiusFromPositions(positions, 38), 210 + 38);
+});
+
+test("computeFitRadiusFromPositions: uses the 3D norm, not just the x extent", () => {
+  // An atom at (120, 90, 0) has norm 150 — larger than its x extent alone.
+  assert.equal(computeFitRadiusFromPositions([{ x: 120, y: 90, z: 0 }]), 150 + 22);
+});
+
+test("computeFitRadiusFromPositions: hub-only (no ring atoms) frames the minimum", () => {
+  assert.equal(computeFitRadiusFromPositions([]), MIN_FIT_RADIUS);
+  // A lone atom closer than the minimum does not over-zoom.
+  assert.equal(computeFitRadiusFromPositions([{ x: 40, y: 0, z: 0 }]), MIN_FIT_RADIUS);
+});
+
+test("computeFitRadiusFromPositions: clamps to [MIN_FIT_RADIUS, DEFAULT_FIT_RADIUS * 1.35]", () => {
+  assert.equal(MIN_FIT_RADIUS, 120);
+  // Small positions clamp up to the minimum.
+  assert.equal(computeFitRadiusFromPositions([{ x: 0, y: 0, z: 50 }]), MIN_FIT_RADIUS);
+  // Positions beyond the largest ring clamp down to the headroom cap.
+  const cap = DEFAULT_FIT_RADIUS * 1.35;
+  assert.equal(computeFitRadiusFromPositions([{ x: 2000, y: 0, z: 0 }]), cap);
+});
+
+test("computeFitRadiusFromPositions: ignores non-finite positions, deterministic", () => {
+  const positions = [
+    { x: NaN, y: 0, z: 0 },
+    { x: 300, y: 0, z: 0 },
+    { x: 0, y: 0, z: Infinity },
+  ];
+  assert.equal(computeFitRadiusFromPositions(positions), 300 + 22);
+  assert.equal(computeFitRadiusFromPositions(positions), computeFitRadiusFromPositions(positions));
+});
+
+test("computeFitRadiusFromPositions: real layout bounds sit far below the default", () => {
+  // Regression guard for the UX correction: a small fleet (ring 0/1 only) must
+  // NOT frame the constant `DEFAULT_FIT_RADIUS` (1010). A few atoms on the first
+  // two rings frame close enough that the topology fills the viewport.
+  const smallFleet = [
+    { x: 210, y: 24, z: 0 }, // ring 0
+    { x: -210, y: 24, z: 0 },
+    { x: 370, y: 48, z: 0 }, // ring 1
+    { x: -370, y: 48, z: 0 },
+  ];
+  const radius = computeFitRadiusFromPositions(smallFleet, 38);
+  assert.ok(radius < DEFAULT_FIT_RADIUS, `radius ${radius} must be < ${DEFAULT_FIT_RADIUS}`);
+  // Full fleet (outermost ring) frames the default radius (within headroom).
+  const fullFleet = [
+    { x: 1010, y: 144, z: 0 },
+    { x: 1010, y: 144, z: 18 },
+    { x: -1010, y: 144, z: 0 },
+  ];
+  const fullRadius = computeFitRadiusFromPositions(fullFleet, 38);
+  assert.ok(fullRadius > 0 && Number.isFinite(fullRadius));
+  assert.ok(fullRadius <= DEFAULT_FIT_RADIUS * 1.35);
 });

@@ -24,6 +24,8 @@ import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
+import { useAtomicSceneContext } from "./sceneContext";
+
 /**
  * Orbit / zoom / pan around the nucleus (the scene origin).
  *
@@ -43,6 +45,12 @@ export function SceneOrbitControls({ enabled = true }: { enabled?: boolean }) {
   const camera = useThree((state) => state.camera);
   const gl = useThree((state) => state.gl);
   const controlsRef = useRef<OrbitControls | null>(null);
+  // The mutable per-frame camera snapshot the DOM label overlay reads (UX
+  // correction — projected labels). This component owns the live OrbitControls
+  // instance, so it is the *target* writer: every frame (after damping
+  // `update()`) it copies `controls.target` into the shared state. The camera
+  // position / frustum / viewport halves are written by `CameraStateWriter`.
+  const cameraState = useAtomicSceneContext().cameraState;
 
   useEffect(() => {
     const dom = gl.domElement;
@@ -66,8 +74,16 @@ export function SceneOrbitControls({ enabled = true }: { enabled?: boolean }) {
     // them is harmless (disposes + rebuilds) and covers a remounted canvas.
   }, [camera, gl, enabled]);
 
+  // eslint-disable-next-line react-hooks/immutability -- this component is the orbit-target writer: AtomicCameraState is the intentional per-frame shared mutable bridge (see sceneContext.ts), so copying controls.target into it every frame IS the contract
   useFrame(() => {
-    controlsRef.current?.update();
+    const controls = controlsRef.current;
+    controls?.update();
+    if (controls) {
+      // eslint-disable-next-line react-hooks/immutability -- per-frame orbit-target write to the shared mutable bridge (mutation is the contract)
+      cameraState.target[0] = controls.target.x;
+      cameraState.target[1] = controls.target.y;
+      cameraState.target[2] = controls.target.z;
+    }
   });
 
   // No R3F primitive is rendered — this component only wires up the imperative

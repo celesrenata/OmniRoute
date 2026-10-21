@@ -275,7 +275,7 @@ export default function ProviderTopology({
                 : "px-2 py-0.5 text-white/60 hover:text-white"
             }
           >
-            3D
+            Atomic
           </button>
         </div>
       </div>

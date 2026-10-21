@@ -20,6 +20,56 @@
 export const DEFAULT_FIT_RADIUS = 1010;
 
 /**
+ * The smallest radius the camera fit will ever frame. Below this the scene is
+ * framed at the default radius so a one-atom fleet does not zoom into a
+ * single atom until it fills the frame. This keeps the nucleus + the first
+ * ring legible at any fleet size.
+ */
+export const MIN_FIT_RADIUS = 120;
+
+/**
+ * Compute the framing radius from the *actual* layout bounds instead of the
+ * constant {@link DEFAULT_FIT_RADIUS}.
+ *
+ * The layout places the hub at the origin and ring atoms at deterministic
+ * world positions (see `layout.ts`). The largest ring in the layout is always
+ * `DEFAULT_FIT_RADIUS`, but a small fleet (a few providers on ring 0/1) occupies
+ * only a fraction of that radius. Fitting the constant radius frames a small
+ * fleet in a huge empty viewport — the camera sits far back and the topology
+ * renders tiny. This helper measures the *actual* farthest atom (the hub is
+ * the origin, so only the ring placements matter) and adds headroom for the
+ * atom radius + electron cloud, then clamps to a sane `[MIN_FIT_RADIUS,
+ * DEFAULT_FIT_RADIUS * 1.35]` band:
+ *
+ * - the lower bound keeps a one-atom fleet from over-zooming;
+ * - the upper bound is `DEFAULT_FIT_RADIUS` (the layout cannot exceed it) — the
+ *   headroom factor only guards against a future layout growing past the
+ *   nominal ring radii.
+ *
+ * Pure: same positions → same radius; no clock, no DOM, no `three`.
+ *
+ * @param positions    world-space positions of every ring atom (hub excluded —
+ *   it is the origin and never the farthest point). May be empty (hub-only).
+ * @param atomRadius   world-unit radius of a single atom + its electron cloud
+ *   (the margin to add beyond the centerline of the farthest ring).
+ * @returns the framing radius (world units).
+ */
+export function computeFitRadiusFromPositions(
+  positions: ReadonlyArray<{ x: number; y: number; z: number }>,
+  atomRadius = 22
+): number {
+  let maxNorm = 0;
+  for (const p of positions) {
+    const norm = Math.hypot(p.x, p.y, p.z);
+    if (Number.isFinite(norm) && norm > maxNorm) maxNorm = norm;
+  }
+  // No ring atoms (a hub-only fleet): frame the minimum so the nucleus is the
+  // subject of the view instead of the camera zooming into a single point.
+  const radius = maxNorm === 0 ? MIN_FIT_RADIUS : maxNorm + atomRadius;
+  return Math.min(Math.max(radius, MIN_FIT_RADIUS), DEFAULT_FIT_RADIUS * 1.35);
+}
+
+/**
  * A deterministic camera framing: where the camera sits, where it looks, and
  * the far plane that safely contains the scene.
  */

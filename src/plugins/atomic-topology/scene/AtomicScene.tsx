@@ -44,7 +44,8 @@
  * `@react-three/fiber`.
  */
 import { useEffect, useState } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import type { PerspectiveCamera } from "three";
 
 import type { AtomicSceneProps } from "../AtomicTopologyRenderer";
 import { computeCameraFit, computeCameraFocus, isUsableCameraFit } from "../cameraFit";
@@ -59,14 +60,6 @@ import { AtomicSceneContext, type AtomicSceneContextValue } from "./sceneContext
 
 /** The scene's vertical FOV — shared by the camera fit math and the camera. */
 const SCENE_FOV_DEG = 50;
-/**
- * The deterministic framing aspect. The canvas aspect is not known before the
- * first measured frame (R3F sizes the camera after mount), so the fit uses a
- * fixed, documented aspect — the scene is centered at the origin, so the same
- * ring layout always frames the same way. (The scene context carries
- * `cameraAspect: 1` for this reason.)
- */
-const FIT_ASPECT = 1;
 
 /**
  * The Atomic scene root. Composes the canvas, lighting, the hub nucleus, the
@@ -107,6 +100,7 @@ export function AtomicScene({
       <AtomicSceneContext.Provider value={context}>
         <ContextGuard />
         <CameraRig context={context} />
+        <CameraStateWriter context={context} />
         <SceneContent
           descriptors={descriptors}
           linkDescriptors={linkDescriptors}
@@ -119,32 +113,90 @@ export function AtomicScene({
 }
 
 /**
- * Deterministic camera framing (M6). Sits inside the `<Canvas>` so it can read
- * the camera via `useThree`; frames the ring layout via the pure
- * {@link computeCameraFit} (fixed aspect — see {@link FIT_ASPECT}), or slides
- * to the focused atom via {@link computeCameraFocus}. A non-finite / unordered
- * fit is rejected by {@link isUsableCameraFit} and the base fit is used.
+ * Deterministic camera framing (M6) — now *responsive* (UX correction).
+ *
+ * Sits inside the `<Canvas>` so it can read the camera via `useThree`. Frames
+ * the ring layout via the pure {@link computeCameraFit} using the *measured*
+ * viewport aspect (`context.cameraAspect`) and the *actual* layout bounds
+ * (`context.fitRadius` — see {@link computeFitRadiusFromPositions} in
+ * `cameraFit.ts`), or slides to the focused atom via {@link computeCameraFocus}.
+ * A non-finite / unordered fit is rejected by {@link isUsableCameraFit} and the
+ * base fit is used.
+ *
+ * The fit's `near` / `far` / `fov` are applied to the live camera: R3F's
+ * default `far` (1000) clips a default-radius fit (~2166 units back) blank, so
+ * the frustum planes must track the fit or the topology never renders.
+ *
+ * Re-runs when the viewport aspect changes (container resize) so the framing
+ * stays legible at any canvas aspect; it also runs once on mount.
  *
  * Renders nothing; it only positions the camera, so the user can still orbit /
  * zoom / pan via `<SceneOrbitControls>` (focus *slides* the view — it does not
  * rotate it, and the controls own all rotation).
  */
 function CameraRig({ context }: { context: AtomicSceneContextValue }) {
-  const camera = useThree((state) => state.camera);
+  const camera = useThree((state) => state.camera) as PerspectiveCamera;
   const focusPosition = context.focusTarget;
+  const aspect = context.cameraAspect;
+  const fitRadius = context.fitRadius;
 
   useEffect(() => {
     const focused = focusPosition
-      ? computeCameraFocus(focusPosition, { fovDeg: SCENE_FOV_DEG, aspect: FIT_ASPECT })
+      ? computeCameraFocus(focusPosition, { fovDeg: SCENE_FOV_DEG, aspect, radius: fitRadius })
       : null;
     const fit =
       focused && isUsableCameraFit(focused)
         ? focused
-        : computeCameraFit({ fovDeg: SCENE_FOV_DEG, aspect: FIT_ASPECT });
+        : computeCameraFit({ fovDeg: SCENE_FOV_DEG, aspect, radius: fitRadius });
     camera.position.set(fit.position[0], fit.position[1], fit.position[2]);
     camera.lookAt(fit.lookAt[0], fit.lookAt[1], fit.lookAt[2]);
+    // eslint-disable-next-line react-hooks/immutability -- the three.js PerspectiveCamera is imperative state: mutation is the R3F contract (React does not render it; frustum planes must track the fit — R3F's default far=1000 would clip the scene blank)
+    camera.fov = SCENE_FOV_DEG;
+    camera.near = fit.near;
+    camera.far = fit.far;
     camera.updateProjectionMatrix();
-  }, [camera, focusPosition]);
+  }, [camera, focusPosition, aspect, fitRadius]);
+
+  return null;
+}
+
+/**
+ * Per-frame camera snapshot writer (UX correction — projected labels).
+ *
+ * The DOM label overlay is *outside* the R3F tree, so it cannot use
+ * `useFrame`; instead it reads the mutable {@link AtomicCameraState} carried
+ * in the scene context. This component is the *only* writer: every frame it
+ * copies the live camera position, the orbit target, the frustum params and
+ * the viewport size into that shared object (in place — no React state, no
+ * re-render, no `three` allocation on the overlay side).
+ *
+ * Runs every frame even while paused: orbit damping can still settle the
+ * camera, and the overlay must not project against a stale view.
+ */
+function CameraStateWriter({ context }: { context: AtomicSceneContextValue }) {
+  const camera = useThree((state) => state.camera) as PerspectiveCamera;
+  const gl = useThree((state) => state.gl);
+  const size = useThree((state) => state.size);
+  const cameraState = context.cameraState;
+
+  // NOTE: the orbit *target* is written by `<SceneOrbitControls />` (it owns
+  // the live OrbitControls instance; R3F's `state.controls` is only populated
+  // when controls are registered through the Canvas `controls` prop).
+  useFrame(() => {
+    const s = cameraState;
+    // eslint-disable-next-line react-hooks/immutability -- AtomicCameraState is the intentional per-frame shared mutable bridge (see sceneContext.ts): identity is stable for the host's lifetime, the scene writes it and the DOM overlay reads it — mutation is the contract, no React state
+    s.position[0] = camera.position.x;
+    s.position[1] = camera.position.y;
+    s.position[2] = camera.position.z;
+    // eslint-disable-next-line react-hooks/immutability -- per-frame frustum write to the shared bridge (mutation is the contract)
+    s.fovDeg = camera.fov;
+    s.aspect = camera.aspect;
+    s.near = camera.near;
+    s.far = camera.far;
+    s.viewportWidth = gl.domElement ? gl.domElement.clientWidth : size.width;
+    s.viewportHeight = gl.domElement ? gl.domElement.clientHeight : size.height;
+    s.valid = true;
+  });
 
   return null;
 }
