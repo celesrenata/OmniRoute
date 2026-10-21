@@ -19,6 +19,8 @@
  * adaptive scale for very large atom counts (camera auto-fit is also an
  * explicit unknown in `AtomicScene`).
  */
+import { useMemo } from "react";
+
 import type { AtomVisualDescriptor, AtomicVisualState } from "../AtomicTopologyRenderer";
 import { QUALITY_BUDGETS } from "../quality";
 import { useAtomicSceneContext } from "./sceneContext";
@@ -51,26 +53,61 @@ export function Nucleus({
   // A focused atom glows more strongly (readable emphasis without orbiting).
   const emissiveIntensity = focused ? 0.6 : 0.35;
 
+  // Layered hub particles (OR-ATOM-002 item 5): a fixed band of small
+  // "proton/neutron" spheres around the core makes the nucleus read as a
+  // distinct multi-particle body (not a single matte sphere). Deterministic
+  // positions (index-keyed), no randomness, no per-frame React state.
+  const hubParticles = useMemo(() => {
+    const count = 8;
+    return Array.from({ length: count }, (_, i) => {
+      const angle = (i / count) * Math.PI * 2;
+      return {
+        position: [
+          Math.cos(angle) * NUCLEUS_RADIUS * 0.82,
+          Math.sin(angle * 1.3) * NUCLEUS_RADIUS * 0.4,
+          Math.sin(angle) * NUCLEUS_RADIUS * 0.82,
+        ] as [number, number, number],
+        color: i % 2 === 0 ? "#bfdbfe" : "#e2e8f0",
+      };
+    });
+  }, []);
+
   return (
     <group position={[0, 0, 0]}>
+      {/* Core — slightly smaller, so the particle band reads as a shell. */}
       <mesh>
-        <sphereGeometry args={[NUCLEUS_RADIUS, 48, 48]} />
+        <sphereGeometry args={[NUCLEUS_RADIUS * 0.72, 48, 48]} />
         <meshStandardMaterial
           color={coreColor}
           emissive={coreColor}
-          emissiveIntensity={emissiveIntensity}
-          roughness={0.35}
+          emissiveIntensity={emissiveIntensity + 0.15}
+          roughness={0.3}
           metalness={0.2}
         />
       </mesh>
+      {/* Layered particle band — the hub is visually distinct from atoms. */}
+      {hubParticles.map((p, i) => (
+        <mesh key={i} position={p.position}>
+          <sphereGeometry args={[NUCLEUS_RADIUS * 0.16, 20, 20]} />
+          <meshStandardMaterial
+            color={p.color}
+            emissive={p.color}
+            emissiveIntensity={emissiveIntensity * 0.5}
+            roughness={0.35}
+            metalness={0.15}
+          />
+        </mesh>
+      ))}
 
-      {/* A slow shell around the nucleus so the hub reads as "alive". */}
+      {/* A slow multi-shell orbital cloud around the nucleus so the hub reads
+          as "alive" (3 tilted shells vs. the atoms' smaller cloud). */}
       <ElectronCloud
         radius={NUCLEUS_RADIUS + 26}
         speed={0.4}
         paused={paused}
         color="#93c5fd"
         electronCount={QUALITY_BUDGETS[quality].cloudParticles}
+        shellCount={3}
       />
     </group>
   );

@@ -339,7 +339,16 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
       // a provider serving only ordinary chat traffic gets no `lane` field
       // at all (the *absence* is the honest "no lane in flight" signal).
       const inFlightModels = collectInFlightModels(entry, activeRequests);
+      // Record the observed model ids themselves: renderers color the atom by
+      // *observed* model identity (not a provider-derived guess). Absent when
+      // no in-flight request carried a model id — the honest "unknown" signal.
       if (inFlightModels.length > 0) {
+        node.inFlightModels = {
+          value: inFlightModels,
+          source: "live-event",
+          sampledAt: capturedAt,
+          basis: "in-flight request model ids (WS live requests channel)",
+        };
         const derived = deriveLaneForProvider(inFlightModels);
         if (derived) {
           node.lane = {

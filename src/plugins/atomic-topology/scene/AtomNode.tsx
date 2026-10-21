@@ -144,11 +144,31 @@ export function AtomNode({
   const scale = (focused ? FOCUS_SCALE : 1) + dischargeIntensity * DISCHARGE_SCALE;
   const emissiveColor = discharge.red ? FAILED_DISCHARGE_COLOR : descriptor.laneHue;
 
+  // Model-composition particles (OR-ATOM-002 item 5): up to 3 small spheres,
+  // one per *observed* in-flight model color, arranged in a fixed band around
+  // the core. When no models are observed the atom is a single neutral core —
+  // no fabricated "composition" particles.
+  const modelParticles = useMemo(
+    () =>
+      descriptor.modelColors.map((color, i) => {
+        const angle = (i / Math.max(1, descriptor.modelColors.length)) * Math.PI * 2 + 0.6;
+        return {
+          color,
+          position: [
+            Math.cos(angle) * ATOM_RADIUS * 0.62,
+            Math.sin(angle * 1.7) * ATOM_RADIUS * 0.4,
+            Math.sin(angle) * ATOM_RADIUS * 0.62,
+          ] as [number, number, number],
+        };
+      }),
+    [descriptor.modelColors]
+  );
+
   return (
     <group ref={groupRef} position={basePosition}>
-      {/* Core sphere — colored by the deterministic atom color. */}
+      {/* Core sphere — the neutral/first-model base color. */}
       <mesh scale={scale}>
-        <sphereGeometry args={[ATOM_RADIUS, 32, 32]} />
+        <sphereGeometry args={[ATOM_RADIUS * 0.82, 32, 32]} />
         <meshStandardMaterial
           ref={materialRef}
           color={descriptor.color}
@@ -158,6 +178,19 @@ export function AtomNode({
           metalness={0.25}
         />
       </mesh>
+      {/* One particle per observed in-flight model (≤3); honest, no fake GPU. */}
+      {modelParticles.map((particle, i) => (
+        <mesh key={i} position={particle.position} scale={scale}>
+          <sphereGeometry args={[ATOM_RADIUS * 0.34, 20, 20]} />
+          <meshStandardMaterial
+            color={particle.color}
+            emissive={particle.color}
+            emissiveIntensity={emissiveIntensity * 0.7}
+            roughness={0.35}
+            metalness={0.2}
+          />
+        </mesh>
+      ))}
 
       {/* Electron cloud spinning at the per-atom speed (frozen when paused or
           reduced-motion; the discharge pulse does not touch the cloud). */}

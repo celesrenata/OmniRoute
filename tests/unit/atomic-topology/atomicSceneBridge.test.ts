@@ -77,13 +77,21 @@ test("resolveAtomDescriptors: hub at origin, provider on a ring, exact encodings
   assert.deepEqual(hub!.spin, { value: 0.1, mode: "unavailable" });
   assert.deepEqual(hub!.vibration, { amplitude: 0, frequencyHz: 0, mode: "unavailable" });
   assert.equal(hub!.activeRequests, null, "absent activeRequests -> null (never 0)");
+  assert.deepEqual(hub!.modelColors, [], "hub has no model composition");
 
   const provider = descriptors.find((d) => d.id === "provider:openai");
   assert.ok(provider, "provider descriptor present");
   assert.equal(provider!.providerId, "openai");
   assert.equal(provider!.ringIndex, 0, "first provider sits on the inner ring (index 0)");
-  assert.equal(provider!.color, modelColor("openai"));
-  assert.equal(provider!.color, modelColor("OPENAI"), "modelColor is case-insensitive");
+  // OR-ATOM-002 item 4: the base color is the FIRST OBSERVED in-flight model
+  // color, or neutral — never a provider-hash guess. This snapshot has no
+  // inFlightModels, so the honest result is the neutral unknown color.
+  assert.equal(
+    provider!.color,
+    UNKNOWN_MODEL_COLOR,
+    "no in-flight models -> neutral base (no provider-hash guess)"
+  );
+  assert.deepEqual(provider!.modelColors, [], "no in-flight models -> no model colors");
   assert.ok(Number.isFinite(provider!.position.x), "x finite");
   assert.ok(Number.isFinite(provider!.position.y), "y finite");
   assert.ok(Number.isFinite(provider!.position.z), "z finite");
@@ -91,8 +99,15 @@ test("resolveAtomDescriptors: hub at origin, provider on a ring, exact encodings
     provider!.position.x !== 0 || provider!.position.y !== 0,
     "provider is placed off the origin"
   );
-  assert.equal(provider!.spin.mode, "measured");
-  assert.equal(provider!.activeRequests, 5);
+  // OR-ATOM-002 item 2: a request COUNT is not a tokens-per-second
+  // measurement. The snapshot has no observed TPS, so the honest spin is
+  // "unavailable" — even when the provider is busy.
+  assert.deepEqual(
+    provider!.spin,
+    { value: 0.1, mode: "unavailable" },
+    "request count is not TPS -> spin is unavailable (never fabricated)"
+  );
+  assert.equal(provider!.activeRequests, 5, "the COUNT itself is still surfaced honestly");
   // healthy health + active traffic -> "active" (the animated energy-flow state).
   assert.equal(provider!.visualState.state, "active");
   assert.deepEqual(provider!.visualState.style, { width: 2.5, opacity: 1, animated: true });
@@ -136,6 +151,108 @@ test("resolveLinkDescriptors: canonical ids, lane hue, and resolved visual state
   // healthy health + active traffic -> "active" (animated energy flow).
   assert.equal(link.visualState.state, "active");
   assert.deepEqual(link.visualState.style, { width: 2.5, opacity: 1, animated: true });
+});
+
+test("resolveLinkDescriptors: link inherits the target node's observed lane (item 3)", () => {
+  const snapshot: TopologySceneSnapshot = {
+    schemaVersion: 1,
+    capturedAt: 1700000000000,
+    links: [
+      {
+        id: "route:openai",
+        source: "hub",
+        target: "provider:openai",
+        kind: "route",
+        health: "healthy",
+        traffic: "active",
+      },
+    ],
+    nodes: [
+      { id: "hub", kind: "hub", label: "Router", health: "healthy", traffic: "idle" },
+      {
+        id: "provider:openai",
+        kind: "provider",
+        label: "OpenAI",
+        providerId: "openai",
+        health: "healthy",
+        traffic: "active",
+        activeRequests: { value: 5, source: "derived", sampledAt: 1700000000000 },
+        lane: {
+          value: "vision",
+          source: "live-event",
+          sampledAt: 1700000000000,
+          basis: "in-flight models → vision",
+        },
+      },
+    ],
+  };
+  const links = resolveLinkDescriptors(snapshot);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].lane, "vision", "link lane joined from the target node's observed lane");
+  assert.equal(links[0].laneHue, LANE_HUES.vision);
+});
+
+test("resolveAtomDescriptors: model colors come ONLY from observed in-flight models (item 4)", () => {
+  const snapshot: TopologySceneSnapshot = {
+    schemaVersion: 1,
+    capturedAt: 1700000000000,
+    links: [],
+    nodes: [
+      { id: "hub", kind: "hub", label: "Router", health: "healthy", traffic: "idle" },
+      {
+        id: "provider:openai",
+        kind: "provider",
+        label: "OpenAI",
+        providerId: "openai",
+        health: "healthy",
+        traffic: "active",
+        activeRequests: { value: 3, source: "derived", sampledAt: 1700000000000 },
+        inFlightModels: {
+          value: ["gpt-4o", "gpt-4.1", "o3", "gpt-5"],
+          source: "derived",
+          sampledAt: 1700000000000,
+        },
+      },
+    ],
+  };
+  const provider = resolveAtomDescriptors(snapshot).find((d) => d.id === "provider:openai")!;
+  assert.deepEqual(
+    provider.modelColors,
+    [modelColor("gpt-4o"), modelColor("gpt-4.1"), modelColor("o3")],
+    "≤3 observed model colors, in first-occurrence order"
+  );
+  assert.equal(provider.color, modelColor("gpt-4o"), "base color = first observed model");
+  // The provider id itself is NOT used as a color (no provider-hash guess).
+  assert.notEqual(provider.color, modelColor("openai"));
+});
+
+test("resolveAtomDescriptors: spin is unavailable regardless of request count (item 2)", () => {
+  for (const value of [0, 1, 42]) {
+    const snapshot: TopologySceneSnapshot = {
+      schemaVersion: 1,
+      capturedAt: 1700000000000,
+      links: [],
+      nodes: [
+        { id: "hub", kind: "hub", label: "Router", health: "healthy", traffic: "idle" },
+        {
+          id: "provider:groq",
+          kind: "provider",
+          label: "Groq",
+          providerId: "groq",
+          health: "healthy",
+          traffic: value === 0 ? "idle" : "active",
+          activeRequests:
+            value === 0 ? undefined : { value, source: "derived", sampledAt: 1700000000000 },
+        },
+      ],
+    };
+    const provider = resolveAtomDescriptors(snapshot).find((d) => d.id === "provider:groq")!;
+    assert.deepEqual(
+      provider.spin,
+      { value: 0.1, mode: "unavailable" },
+      `count=${value} must not fabricate a TPS spin`
+    );
+  }
 });
 
 test("mountAtomicTopologyRenderer: throws AtomicWebGLUnsupportedError without WebGL2 (node)", () => {

@@ -1,16 +1,21 @@
 "use client";
 
 /**
- * Electron cloud — the reusable spinning shell an atom (or the hub nucleus)
- * wears (OR-ATOM-001 v2, M3 Phase B).
+ * Electron cloud — the reusable multi-shell orbital system an atom (or the hub
+ * nucleus) wears (OR-ATOM-002 item 6: replaces the single flat 5-dot ring).
  *
- * A ring of small "electron" spheres that rotates around the atom at the
- * per-atom speed supplied by the pure encoding
- * (`spinRadiansPerSecond` — see `AtomVisualDescriptor.spin`). When `paused` is
- * true the shell holds still (the `setPaused` contract).
+ * 2–3 tilted orbital shells, each a thin torus "orbit line" plus a few
+ * electrons, spinning at the per-atom speed. Shells are tilted at distinct
+ * angles so the cloud reads as a 3D orbital system, not a flat disc.
  *
- * The spin is driven in `useFrame` (R3F's frame loop) — no React state per
- * frame, so there are no re-renders and no shared host state.
+ * **Bounded draw calls:** the total electron count is capped by the quality
+ * budget (`cloudParticles`), distributed across `shellCount` shells. At the
+ * `low` quality the outer shell is dropped (2 shells) and each shell carries
+ * fewer electrons, keeping the per-atom draw-call budget flat regardless of
+ * atom count.
+ *
+ * **Reduced motion:** each shell holds still when `paused` is true; no
+ * per-frame mutation occurs.
  *
  * `three` / R3F are confined to this `scene/**` subtree.
  */
@@ -18,7 +23,7 @@ import { useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
-/** Props for a reusable electron shell. */
+/** Props for the multi-shell electron cloud. */
 export interface ElectronCloudProps {
   /** Shell radius (world units) — the orbit radius of the electrons. */
   radius: number;
@@ -26,69 +31,103 @@ export interface ElectronCloudProps {
   speed: number;
   /** When true the shell does not advance (host `setPaused`). */
   paused: boolean;
-  /** Electron color (usually the atom's lane hue). */
+  /** Electron/orbit color (lane hue; neutral fallback when lane is unknown). */
   color: string;
-  /** Number of electrons on the shell (default 5). */
+  /** Total electron budget across all shells (from `QUALITY_BUDGETS`). */
   electronCount?: number;
+  /** Number of orbital shells (default 3; clamped to ≥1, ≤3). */
+  shellCount?: number;
 }
 
 /**
- * A slowly-spinning shell of electrons around an atom.
+ * Per-shell tilt (X-axis radians). Deterministic, distinct per shell index so
+ * no two shells share a plane — the cloud reads as a 3D orbital system.
+ */
+const SHELL_TILTS_X = [0.45, -0.2, 0.9] as const;
+/** Per-shell Z-rotation (radians) — additional tilt variety. */
+const SHELL_TILTS_Z = [0.2, 0.55, -0.35] as const;
+/** Per-shell speed multiplier (outer shells spin slightly slower). */
+const SHELL_SPEED_FACTOR = [1.0, 0.72, 0.5] as const;
+
+/**
+ * A multi-shell orbital electron cloud around an atom.
  *
  * Pure with respect to props: `speed` / `paused` come from the pure
- * {@link AtomVisualDescriptor} encoding; the only per-frame mutation is the
- * group's rotation (an imperative three.js update, not React state).
+ * {@link AtomVisualDescriptor} encoding; the only per-frame mutation is each
+ * shell group's rotation (imperative three.js, not React state).
  */
 export function ElectronCloud({
   radius,
   speed,
   paused,
   color,
-  electronCount = 5,
+  electronCount = 12,
+  shellCount = 3,
 }: ElectronCloudProps) {
-  const shellRef = useRef<THREE.Group | null>(null);
+  const shellsRef = useRef<(THREE.Group | null)[]>([]);
 
-  // Deterministic electron positions on a circle (index-stable, no randomness).
-  const electrons = useMemo(() => {
-    const count = Math.max(1, Math.floor(electronCount));
-    return Array.from({ length: count }, (_, i) => {
-      const angle = (i / count) * Math.PI * 2;
-      return {
-        position: [Math.cos(angle) * radius, 0, Math.sin(angle) * radius] as [
-          number,
-          number,
-          number,
-        ],
-      };
+  const shells = useMemo(() => {
+    const count = Math.min(3, Math.max(1, Math.floor(shellCount)));
+    const perShell = Math.max(2, Math.floor(electronCount / count));
+    return Array.from({ length: count }, (_, s) => {
+      const tiltX = SHELL_TILTS_X[s] ?? 0.4;
+      const tiltZ = SHELL_TILTS_Z[s] ?? 0.2;
+      const speedFactor = SHELL_SPEED_FACTOR[s] ?? 0.5;
+      const electrons = Array.from({ length: perShell }, (_, i) => {
+        const angle = (i / perShell) * Math.PI * 2 + s * 0.6;
+        return [Math.cos(angle) * radius, 0, Math.sin(angle) * radius] as [number, number, number];
+      });
+      return { tiltX, tiltZ, speedFactor, electrons };
     });
-  }, [radius, electronCount]);
+  }, [radius, electronCount, shellCount]);
 
-  // Advance the shell rotation each frame — but only when not paused.
   useFrame((_state, delta) => {
     if (paused) return;
-    const shell = shellRef.current;
-    if (!shell) return;
-    // Clamp delta so a tab-switch spike cannot fling the shell forward.
-    shell.rotation.y += speed * Math.min(delta, 0.1);
+    const dt = Math.min(delta, 0.1);
+    for (let s = 0; s < shells.length; s += 1) {
+      const shell = shellsRef.current[s];
+      if (shell) shell.rotation.y += speed * shells[s].speedFactor * dt;
+    }
   });
 
   return (
-    // A slight tilt so the shell reads as an orbit plane, not a flat disc.
-    <group rotation={[0.35, 0, 0.12]}>
-      <group ref={shellRef}>
-        {electrons.map((electron, i) => (
-          <mesh key={i} position={electron.position}>
-            <sphereGeometry args={[Math.max(2.5, radius * 0.05), 16, 16]} />
-            <meshStandardMaterial
-              color={color}
-              emissive={color}
-              emissiveIntensity={0.55}
-              roughness={0.4}
-              metalness={0.2}
-            />
-          </mesh>
-        ))}
-      </group>
+    <group>
+      {shells.map((shell, s) => (
+        <group key={s} rotation={[shell.tiltX, 0, shell.tiltZ]}>
+          <group
+            ref={(el) => {
+              shellsRef.current[s] = el;
+            }}
+          >
+            {/* Thin orbit line (torus) — the "electron path". */}
+            <mesh>
+              <torusGeometry args={[radius, Math.max(0.8, radius * 0.012), 6, 48]} />
+              <meshStandardMaterial
+                color={color}
+                emissive={color}
+                emissiveIntensity={0.35}
+                roughness={0.5}
+                metalness={0.1}
+                transparent
+                opacity={0.45}
+              />
+            </mesh>
+            {/* Electrons on this shell. */}
+            {shell.electrons.map((pos, i) => (
+              <mesh key={i} position={pos}>
+                <sphereGeometry args={[Math.max(2.2, radius * 0.04), 12, 12]} />
+                <meshStandardMaterial
+                  color={color}
+                  emissive={color}
+                  emissiveIntensity={0.6}
+                  roughness={0.4}
+                  metalness={0.2}
+                />
+              </mesh>
+            ))}
+          </group>
+        </group>
+      ))}
     </group>
   );
 }

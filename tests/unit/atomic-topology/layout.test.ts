@@ -124,20 +124,79 @@ test("layout: same ids → identical positions across any reorder", () => {
   }
 });
 
-test("layout: adding a provider does not move existing providers (angles are id-keyed)", () => {
+/* ------------------------------------------------------------------ */
+/* Slot-distributed angles (OR-ATOM-002)                               */
+/* ------------------------------------------------------------------ */
+
+/** Smallest angular gap (radians) between any two atoms on the same ring. */
+function minAngularGap(layout: ReturnType<typeof computeAtomicLayout>, ring: number): number {
+  const angles = layout.placements
+    .filter((p) => p.ringIndex === ring)
+    .map((p) => p.angle % (Math.PI * 2));
+  angles.sort((a, b) => a - b);
+  if (angles.length < 2) return Math.PI * 2;
+  let min = Math.PI * 2;
+  for (let i = 0; i < angles.length; i += 1) {
+    const next = (i + 1) % angles.length;
+    // wrap-around gap for the last→first pair
+    const gap = next === 0 ? Math.PI * 2 - angles[i] + angles[0] : angles[next] - angles[i];
+    min = Math.min(min, gap);
+  }
+  return min;
+}
+
+test("layout: atoms are evenly distributed per ring (equal angular separation)", () => {
+  const layout = computeAtomicLayout(providers(...Array.from({ length: 8 }, (_, i) => `p${i}`)));
+  assert.equal(layout.placements.length, 8);
+  const gap = minAngularGap(layout, 0);
+  assert.ok(
+    gap >= (Math.PI * 2) / 8 - 1e-9,
+    `min gap ${gap} must equal 2π/8 for a full inner ring (no crowding)`
+  );
+});
+
+test("layout: adding a provider redistributes the ring evenly (no clumping)", () => {
   const base = computeAtomicLayout(providers("openai", "anthropic", "gemini"));
   const withExtra = computeAtomicLayout(providers("openai", "anthropic", "gemini", "groq"));
   assert.notEqual(base.membershipSignature, withExtra.membershipSignature);
 
-  const basePos = new Map(base.placements.map((p) => [p.id, p.position]));
-  for (const p of withExtra.placements) {
-    if (p.id === "provider:groq") continue;
-    assert.deepEqual(
-      basePos.get(p.id),
-      p.position,
-      `existing provider ${p.id} must not move when membership grows`
-    );
-  }
+  // 4 atoms on a ring → each must be ≥ 2π/4 apart; the hash-angle era
+  // allowed three atoms to crowd within a small arc.
+  assert.ok(
+    minAngularGap(withExtra, 0) >= (Math.PI * 2) / 4 - 1e-9,
+    "4 slots → ≥90° separation between every pair (even spread, not hash clumps)"
+  );
+  // All 4 atoms stay on ring 0 (capacity 8).
+  assert.equal(withExtra.placements.filter((p) => p.ringIndex === 0).length, 4);
+});
+
+test("layout: slots are stable under reorder of the same set", () => {
+  const ids = providers("openai", "anthropic", "gemini", "groq", "mistral", "cohere");
+  const reference = computeAtomicLayout(ids);
+  const shuffled = computeAtomicLayout([...ids].reverse());
+  const slotOf = (l: typeof reference) => new Map(l.placements.map((p) => [p.id, p.slotIndex]));
+  assert.deepEqual(
+    slotOf(shuffled),
+    slotOf(reference),
+    "slot index depends on the id set, not array order"
+  );
+});
+
+test("layout: explicit bounds radius covers the farthest atom", () => {
+  const ids = providers(...Array.from({ length: 140 }, (_, i) => `p${i}`));
+  const layout = computeAtomicLayout(ids, { zJitter: 18 });
+  const maxAtomRadius = Math.max(
+    ...layout.placements.map((p) => Math.hypot(p.position.x, p.position.z))
+  );
+  assert.ok(
+    layout.boundsRadius >= maxAtomRadius - 1e-9,
+    `bounds ${layout.boundsRadius} must cover the farthest atom (${maxAtomRadius})`
+  );
+  assert.equal(
+    layout.boundsRadius,
+    RING_RADII[5] + 160 + 18,
+    "140 atoms → ring 6 radius (1010+160) + z-jitter"
+  );
 });
 
 test("layout: hub is fixed at the origin", () => {

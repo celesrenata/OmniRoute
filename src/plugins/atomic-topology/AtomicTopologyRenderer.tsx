@@ -70,6 +70,7 @@ import {
   queueVibration,
   resolveVisualState,
   type JobLane,
+  type TopologyLane,
   type SpinResult,
   type VibrationResult,
   type AtomicVisualState,
@@ -159,8 +160,19 @@ export interface AtomVisualDescriptor {
   providerId?: string;
   /** World-space position (from {@link computeAtomicLayout}; hub = origin). */
   position: { x: number; y: number; z: number };
-  /** Deterministic atom color (provider → `modelColor(providerId)`, else slate). */
+  /**
+   * Base atom color. For provider atoms: the first observed in-flight model
+   * color (honest identity), or neutral slate when no models are observed.
+   * For hub/gpu: neutral slate. Never a provider-hash guess.
+   */
   color: string;
+  /**
+   * Observed in-flight model colors (≤3). Each entry is `modelColor(modelId)`
+   * for a distinct model actually seen in-flight. Empty when no models are
+   * observed — the scene renders only the neutral base in that case.
+   * This is the ground truth for the layered nucleus (item 5).
+   */
+  modelColors: string[];
   /** Resolved job lane (M1 has no per-node lane → `"unknown"`). */
   lane: JobLane;
   /** Lane hue (used by overlays: legend, labels, tooltip). */
@@ -252,14 +264,21 @@ export function resolveAtomDescriptors(
     // silently rendering an unmapped lane.
     const lane: JobLane = isHub ? "unknown" : asJobLane(node.lane?.value ?? "unknown");
 
-    // Deterministic color: providers key off `modelColor(providerId)` (a
-    // stable seeded hash); anything else (hub / unknown) is a neutral slate.
-    const color =
-      node.kind === "provider" && node.providerId
-        ? modelColor(node.providerId)
-        : UNKNOWN_ATOM_COLOR;
+    // Honest model-color composition (OR-ATOM-002 item 4): colors come ONLY
+    // from observed in-flight model ids — never from a provider-hash guess.
+    // At most 3 distinct model colors are rendered; the remainder is neutral.
+    const inFlightModelIds = node.inFlightModels?.value;
+    const modelColors =
+      inFlightModelIds && inFlightModelIds.length > 0
+        ? inFlightModelIds.slice(0, 3).map((m) => modelColor(m))
+        : [];
+    const color = modelColors.length > 0 ? modelColors[0] : UNKNOWN_ATOM_COLOR;
 
-    const spin = spinRadiansPerSecond(node.activeRequests?.value ?? null, SPIN_REFERENCE_TPS);
+    // Honest spin (OR-ATOM-002 item 2): the snapshot carries a request
+    // *count*, not a tokens-per-second measurement. Feeding a count into
+    // `spinRadiansPerSecond` would fabricate a TPS value. The domain has no
+    // observed TPS in the snapshot → the honest encoding is `unavailable`.
+    const spin = spinRadiansPerSecond(null, SPIN_REFERENCE_TPS);
     // M1 carries no queue telemetry; `null` → "unavailable" (never fabricated).
     const vibration = queueVibration(null);
     const visualState = resolveVisualState({
@@ -282,6 +301,7 @@ export function resolveAtomDescriptors(
       visualState,
       activeRequests: node.activeRequests?.value ?? null,
       ringIndex,
+      modelColors,
     };
   });
 }
@@ -291,8 +311,18 @@ export function resolveAtomDescriptors(
  * Pure (no DOM / WebGL); the 3D scene styles each route edge from these.
  */
 export function resolveLinkDescriptors(snapshot: TopologySceneSnapshot): LinkVisualDescriptor[] {
+  // Map node id → observed lane so a link can inherit its target atom's lane.
+  // The `Observed` wrapper may be present with a `null` value (unrecognizable
+  // lane), so check the value itself, not just the wrapper's presence.
+  const nodeLaneById = new Map<string, TopologyLane | null>();
+  for (const n of snapshot.nodes) {
+    if (n.lane && n.lane.value != null) nodeLaneById.set(n.id, n.lane.value);
+  }
   return snapshot.links.map((link) => {
-    const lane: JobLane = "unknown";
+    // Honest lane (OR-ATOM-002 item 3): join the target node's observed lane
+    // when present; fall back to explicit "unknown" when absent.
+    const targetLane = nodeLaneById.get(link.target);
+    const lane: JobLane = targetLane ? asJobLane(targetLane) : "unknown";
     const visualState = resolveVisualState({ health: link.health, traffic: link.traffic });
     return {
       id: link.id,

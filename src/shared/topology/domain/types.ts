@@ -120,6 +120,13 @@ export interface TopologySceneNode {
    * (neutral hue), which is not an observed lane fact.
    */
   lane?: Observed<TopologyLane>;
+  /**
+   * Model ids observed in-flight for this provider at snapshot capture time.
+   * Optional: **absent** when no in-flight requests carry a model id (idle
+   * provider, or requests without a model field). Renderers use these to color
+   * the nucleus by *observed* model identity — never fabricated.
+   */
+  inFlightModels?: Observed<string[]>;
 }
 
 /**
