@@ -26,6 +26,13 @@
  * operable without a pointer.
  *
  * Pure React + CSS only (no `three` / R3F) — safe under jsdom.
+ *
+ * Collision boxes use the *rendered* chip width: each chip is measured once
+ * per snapshot (`getBoundingClientRect`) and kept fresh by a `ResizeObserver`
+ * (ref-only — no per-frame React state, so the rAF loop never triggers a
+ * re-render). When no measurement is available (jsdom, first frame, or a
+ * missing element) the pure {@link ../labelCollision.estimateChipWidth}
+ * fallback — a conservative, CSS-matched estimate — is used instead.
  */
 import { useEffect, useRef } from "react";
 
@@ -119,10 +126,7 @@ function useAtomSelection(
  * the visual-state emphasis (error > active > last > healthy > idle). Pure —
  * deterministic for a given descriptor + focus.
  */
-function labelPriority(
-  descriptor: AtomVisualDescriptor,
-  focusNodeId: string | null
-): number {
+function labelPriority(descriptor: AtomVisualDescriptor, focusNodeId: string | null): number {
   if (focusNodeId === descriptor.id) return LABEL_PRIORITY_TIERS.focused;
   if (descriptor.kind === "hub") return LABEL_PRIORITY_TIERS.hub;
   const byState: Record<AtomVisualDescriptor["visualState"]["state"], number> = {
@@ -153,6 +157,44 @@ function ProjectedLabels({
   // One stable node ref per atom (snapshot order). The rAF loop projects each
   // atom against the *live* camera state and mutates `transform`/visibility.
   const labelRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  // Live rendered chip widths (CSS px), per atom id. The rAF loop reads these
+  // to size each chip's collision box, so the resolver works on the *actual*
+  // rendered width — an under-estimate is exactly the OR-ATOM-002 label
+  // overlap bug. Ref-only writes: no per-frame React state churn.
+  const measuredWidths = useRef<Record<string, number>>({});
+
+  // Measure every chip once per snapshot (the descriptor identity changes
+  // with each new snapshot), and keep the measurements fresh with a
+  // ResizeObserver (font load, reflow, zoom). `visibility: hidden` chips
+  // still lay out, so the first measurement is valid even before the first
+  // rAF frame reveals them.
+  useEffect(() => {
+    const widths: Record<string, number> = {};
+    const measure = (el: HTMLElement) => {
+      const id = el.dataset.atomId;
+      if (!id) return;
+      const w = el.getBoundingClientRect().width;
+      if (Number.isFinite(w) && w > 0) widths[id] = w;
+    };
+    const els = Object.values(labelRefs.current).filter(
+      (el): el is HTMLButtonElement => el !== null
+    );
+    els.forEach(measure);
+    // jsdom has no ResizeObserver; the one-shot measurement above still works.
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver((entries) => {
+        for (const entry of entries) measure(entry.target as HTMLElement);
+      });
+      els.forEach((el) => observer?.observe(el));
+    }
+    measuredWidths.current = widths;
+    return () => {
+      observer?.disconnect();
+      measuredWidths.current = {};
+    };
+  }, [descriptors]);
 
   // The loop re-runs when the descriptor set changes (a new snapshot identity)
   // or when the host re-creates the shared camera state; `cameraState` itself
@@ -187,11 +229,15 @@ function ProjectedLabels({
             rect: labelRect({
               id: descriptor.id,
               label: descriptor.label,
+              state: descriptor.visualState.state,
               x: p.x,
               y: p.y,
               priority: labelPriority(descriptor, focusNodeId),
               viewportWidth: cameraState.viewportWidth,
               viewportHeight: cameraState.viewportHeight,
+              // Live DOM measurement when the host could read it; the pure
+              // estimator is the fallback inside `labelRect`.
+              measuredWidth: measuredWidths.current[descriptor.id],
             }),
           };
         });
