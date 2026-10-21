@@ -35,19 +35,22 @@
  * `useEffect` (client-only).
  *
  * Explicit unknowns (bounded scope — deliberately NOT implemented):
- * - **Camera auto-fit**: the scene uses a fixed camera; auto-fitting an
- *   arbitrary atom count is an explicit unknown.
  * - **Spatially-projected labels**: labels are a DOM *roster* (a panel listing
  *   every atom), not pixel-projected screen labels. True projection would
  *   require `three` (for the camera math) or drei's `<Html>`, both of which
  *   would pull the 3D stack into the static graph or add a heavy dependency.
- * - **Event-pool pulses (M4)**: atoms/links reflect snapshot state only.
  * - **Live queue telemetry**: the snapshot carries no queue depth, so atom
  *   vibration is always "unavailable" (never fabricated) in this phase.
  * - **GPU device atoms (`kind: "gpu"`)**: never emitted by M1; rendered
  *   forward-compatibly, but no M1 snapshot carries them.
+ *
+ * Implemented (M4/M6): the bounded request-lifecycle event pool (transient
+ * discharges), the deterministic camera fit/focus, the quality-fallback
+ * ladder, reduced-motion, the document-hidden pause, the WebGL context-loss
+ * guard, and the telemetry stale/unavailable badge — all wired through the
+ * host-owned {@link AtomicSceneContextValue} (see `./scene/sceneContext.ts`).
  */
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import type {
@@ -76,11 +79,27 @@ import { AtomicControls } from "./overlays/AtomicControls";
 import { AtomicLegend } from "./overlays/AtomicLegend";
 import { AtomicLabels } from "./overlays/AtomicLabels";
 import { AtomicTooltip } from "./overlays/AtomicTooltip";
+import { AtomicTelemetryStatus, type AtomicTelemetryState } from "./overlays/AtomicTelemetryStatus";
+import {
+  createAtomicEventPool,
+  mapLifecycleToAtomicEvents,
+  type AtomicEventPool,
+} from "./eventPool";
+import { resolveSceneQuality, type QualityProbe } from "./quality";
+import type { AtomicSceneContextValue } from "./scene/sceneContext";
 
 // Re-export the pure visual-encoding types so the scene/overlay subtree has a
 // single import point (this adapter) rather than reaching into `visualEncoding`
 // directly.
 export type { JobLane, SpinResult, VibrationResult, AtomicVisualState, AtomicVisualStateInput };
+
+/**
+ * The snapshot-feed freshness window (ms) the telemetry badge keys off: a
+ * snapshot older than this is `stale`, a missing/invalid `capturedAt` is
+ * `unavailable`, otherwise `available`. Named so the threshold is a single
+ * value change, not a refactor.
+ */
+const TELEMETRY_FRESH_WINDOW_MS = 5_000;
 
 /* ------------------------------------------------------------------ */
 /* Typed error for the unsupported-WebGL path                          */
@@ -297,6 +316,12 @@ export interface AtomicSceneProps {
   paused: boolean;
   focusNodeId: string | null;
   emptyStateLabel?: string;
+  /**
+   * The host-owned ambient scene state (event pool, focus, reduced motion,
+   * quality, camera framing). Carried into the scene via the
+   * `AtomicSceneContext` provider.
+   */
+  sceneContext: AtomicSceneContextValue;
 }
 
 /** Props for the client-only scene host component. */
@@ -309,6 +334,12 @@ export interface AtomicTopologyRendererProps {
   paused: boolean;
   /** The atom id the view should center on (host-driven via `focusNode`). */
   focusNodeId: string | null;
+  /**
+   * The bounded request-lifecycle event pool owned by the imperative instance
+   * (stable across renders). Absent on the steady-state-only path — the scene
+   * primitives treat it as "no discharge".
+   */
+  eventPool?: AtomicEventPool;
   /** Renderer options (empty-state label + delegated provider click). */
   options: TopologyRendererOptions;
   /**
@@ -353,6 +384,7 @@ export function AtomicTopologyRenderer({
   focusNodeId,
   options,
   onFocusRequest,
+  eventPool,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
 
@@ -381,6 +413,65 @@ export function AtomicTopologyRenderer({
     ? (descriptors.find((d) => d.id === focusNodeId) ?? null)
     : null;
 
+  // Environment signals are stable for the lifetime of this host, so probe
+  // them once (the WebGL2 probe creates a real context — not free to repeat on
+  // every render).
+  const { reducedMotion, quality } = useMemo(() => {
+    const caps = detectTopologyCapabilities();
+    const probe: QualityProbe = {
+      webgl2: caps.webgl2,
+      devicePixelRatio: typeof window !== "undefined" ? window.devicePixelRatio : undefined,
+      hardwareConcurrency:
+        typeof navigator !== "undefined" ? navigator.hardwareConcurrency : undefined,
+      deviceMemoryGiB:
+        typeof navigator !== "undefined"
+          ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+          : undefined,
+    };
+    return {
+      reducedMotion: caps.reducedMotion,
+      quality: resolveSceneQuality(probe),
+    };
+  }, []);
+
+  // The host-owned ambient scene state (M4/M6): the instance's stable event
+  // pool, the focused atom's world position, and the shared camera framing.
+  // Carried into the scene via the `AtomicSceneContext` provider.
+  const sceneContext: AtomicSceneContextValue = {
+    pool: eventPool ?? null,
+    focusTarget: focusedDescriptor ? focusedDescriptor.position : null,
+    reducedMotion,
+    quality,
+    cameraFovDeg: 50,
+    cameraAspect: 1,
+    // Deterministic discharge clock for render-time (reduced-motion) reads:
+    // the snapshot's own capture time, so renders never touch the wall clock.
+    nowMs: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
+  };
+
+  // Feed-freshness state for the telemetry badge (M6): `unavailable` when the
+  // snapshot has no usable `capturedAt`, `stale` when the feed was older than
+  // the freshness window *when it arrived*, `available` otherwise. The
+  // freshness is measured once per snapshot, and measured *asynchronously*
+  // (deferred in an effect) — `Date.now()` during render is impure, and a
+  // synchronous `setState` inside an effect is a cascading-render risk, so
+  // the measurement runs one tick after the snapshot lands. A snapshot does
+  // not age in place, so the badge reflects the feed state at the moment it
+  // became observable.
+  const capturedAt = snapshot.capturedAt;
+  const [telemetryState, setTelemetryState] = useState<AtomicTelemetryState>("unavailable");
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (capturedAt != null && Number.isFinite(capturedAt)) {
+        const ageMs = Date.now() - capturedAt;
+        setTelemetryState(ageMs > TELEMETRY_FRESH_WINDOW_MS ? "stale" : "available");
+      } else {
+        setTelemetryState("unavailable");
+      }
+    }, 0);
+    return () => clearTimeout(id);
+  }, [capturedAt]);
+
   const handleProviderClick = useCallback(
     (providerId: string) => {
       options.onProviderClick?.(providerId);
@@ -404,6 +495,7 @@ export function AtomicTopologyRenderer({
             paused={paused}
             focusNodeId={focusNodeId}
             emptyStateLabel={options.emptyStateLabel}
+            sceneContext={sceneContext}
           />
         ) : (
           <div
@@ -429,6 +521,7 @@ export function AtomicTopologyRenderer({
         className="atomic-overlays"
         style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
       >
+        <AtomicTelemetryStatus state={telemetryState} capturedAt={capturedAt} />
         <AtomicLegend descriptors={descriptors} />
         <AtomicControls paused={paused} />
         <AtomicLabels
@@ -508,6 +601,18 @@ export function createAtomicTopologyInstance(
 
   let disposed = false;
 
+  // The renderer owns the bounded request-lifecycle event pool (M4): a stable
+  // ref handed to the host, populated from each snapshot's `lifecycle` stream
+  // on `update`, and cleared on `dispose`. The scene reads it per-frame
+  // (inside `useFrame`) for transient discharges — never React state.
+  const pool = createAtomicEventPool();
+
+  const ingestSnapshot = (snapshot: TopologySceneSnapshot): void => {
+    if (disposed) return;
+    const nowMs = Date.now();
+    for (const e of mapLifecycleToAtomicEvents(snapshot)) pool.ingest(e, nowMs);
+  };
+
   const render = (): void => {
     if (disposed) return;
     // `root.render` is a batched, idempotent React commit — calling it with the
@@ -520,6 +625,7 @@ export function createAtomicTopologyInstance(
         paused={state.paused}
         focusNodeId={state.focusNodeId}
         options={state.options}
+        eventPool={pool}
         onFocusRequest={(nodeId: string) => {
           if (disposed) return;
           state.focusNodeId = nodeId;
@@ -529,13 +635,15 @@ export function createAtomicTopologyInstance(
     );
   };
 
-  // Render the initial snapshot.
+  // Ingest the initial snapshot's lifecycle stream, then render it.
+  ingestSnapshot(initial);
   render();
 
   return {
     update(snapshot: TopologySceneSnapshot): void {
       if (disposed) return;
       state.snapshot = snapshot;
+      ingestSnapshot(snapshot);
       render();
     },
     resize(width: number, height: number): void {
@@ -556,6 +664,8 @@ export function createAtomicTopologyInstance(
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      // Release the event pool so no pooled events survive the teardown.
+      pool.clear();
       try {
         root.unmount();
       } catch {

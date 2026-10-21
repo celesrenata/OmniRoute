@@ -20,6 +20,8 @@
  * explicit unknown in `AtomicScene`).
  */
 import type { AtomVisualDescriptor, AtomicVisualState } from "../AtomicTopologyRenderer";
+import { QUALITY_BUDGETS } from "../quality";
+import { useAtomicSceneContext } from "./sceneContext";
 import { ElectronCloud } from "./ElectronCloud";
 
 /** World-space radius of the nucleus sphere. */
@@ -43,6 +45,7 @@ export function Nucleus({
   paused: boolean;
   focused: boolean;
 }) {
+  const { quality } = useAtomicSceneContext();
   const coreColor =
     NUCLEUS_STATE_COLOR[descriptor.visualState.state] ?? NUCLEUS_STATE_COLOR.healthy;
   // A focused atom glows more strongly (readable emphasis without orbiting).
@@ -62,7 +65,13 @@ export function Nucleus({
       </mesh>
 
       {/* A slow shell around the nucleus so the hub reads as "alive". */}
-      <ElectronCloud radius={NUCLEUS_RADIUS + 26} speed={0.4} paused={paused} color="#93c5fd" />
+      <ElectronCloud
+        radius={NUCLEUS_RADIUS + 26}
+        speed={0.4}
+        paused={paused}
+        color="#93c5fd"
+        electronCount={QUALITY_BUDGETS[quality].cloudParticles}
+      />
     </group>
   );
 }

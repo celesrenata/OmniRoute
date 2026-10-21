@@ -58,6 +58,7 @@ import { registerAtomicTopologyRenderer } from "@/plugins/atomic-topology";
 registerAtomicTopologyRenderer();
 import {
   normalizeTopology,
+  type TopologyLifecycleInput,
   type TopologyProviderEntry,
 } from "@/shared/topology/domain/normalizeTopology";
 
@@ -67,6 +68,12 @@ const FALLBACK_NOTICE = "Topology renderer unavailable — showing the 2D view."
 type Props = {
   providers?: TopologyProviderEntry[];
   activeRequests?: Array<{ provider?: string; model?: string }>;
+  /**
+   * Bounded live-request lifecycle events (M4), derived from the existing
+   * gated live-requests feed. Folded into the snapshot's `lifecycle` field;
+   * the 2D renderer ignores it. Absent → no lifecycle on the snapshot.
+   */
+  lifecycleEvents?: TopologyLifecycleInput[] | null;
   lastProvider?: string;
   errorProvider?: string;
 };
@@ -98,6 +105,7 @@ function resolveInitialRendererId(): string {
 export default function ProviderTopology({
   providers = [],
   activeRequests = [],
+  lifecycleEvents = null,
   lastProvider = "",
   errorProvider = "",
 }: Props) {
@@ -123,10 +131,20 @@ export default function ProviderTopology({
     setRendererId(id);
   };
 
-  // Core-owned data: renderer-neutral snapshot of the panel's inputs.
+  // Core-owned data: renderer-neutral snapshot of the panel's inputs. The
+  // bounded lifecycle stream (M4) is folded in here — it rides the same
+  // gated socket as `activeRequests`, so the snapshot carries exactly the
+  // live state the panel is observing (no second subscription).
   const snapshot = useMemo(
-    () => normalizeTopology({ providers, activeRequests, lastProvider, errorProvider }),
-    [providers, activeRequests, lastProvider, errorProvider]
+    () =>
+      normalizeTopology({
+        providers,
+        activeRequests,
+        lastProvider,
+        errorProvider,
+        lifecycleEvents,
+      }),
+    [providers, activeRequests, lifecycleEvents, lastProvider, errorProvider]
   );
 
   // Renderer options (localized empty state + delegated navigation).

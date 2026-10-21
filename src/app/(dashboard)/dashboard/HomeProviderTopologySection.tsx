@@ -35,7 +35,9 @@ export function HomeProviderTopologySection({
   const t = useTranslations("home");
   // #4596: gate the live-WS connection so it only opens while the topology
   // section is actually shown on the home page.
-  const { activeRequests: liveActiveRequests } = useLiveRequests({ enabled });
+  // M4: `lifecycleEvents` rides the SAME gated socket (no second WS) — it is
+  // a bounded, deduped view over the request started/completed/failed stream.
+  const { activeRequests: liveActiveRequests, lifecycleEvents } = useLiveRequests({ enabled });
   const activeRequests = selectActiveRequests(liveActiveRequests);
   const activeProviderCount = new Set(activeRequests.map(({ provider }) => provider)).size;
 
@@ -66,6 +68,7 @@ export function HomeProviderTopologySection({
       <ProviderTopology
         providers={providers}
         activeRequests={activeRequests}
+        lifecycleEvents={lifecycleEvents}
         lastProvider={lastProvider}
         errorProvider={errorProvider}
       />

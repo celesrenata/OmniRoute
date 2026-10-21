@@ -1,5 +1,5 @@
 /**
- * Renderer-neutral topology snapshot types (OR-ATOM-001 v2, T004 / M1).
+ * Renderer-neutral topology snapshot types (OR-ATOM-001 v2, T004 / M1 + M4).
  *
  * These types describe the *data* the topology panel observes — a set of atom
  * nodes (hub / provider / gpu) and the route links between them — in a shape
@@ -15,6 +15,15 @@
  *   physical devices. `AtomKind` keeps the member for forward compatibility.
  * - No fabricated telemetry: every `Observed<T>` records its `source` and
  *   `sampledAt`; a value we did not sample is left `null`.
+ *
+ * Invariants (M4 — live-request lifecycle):
+ * - The snapshot may carry a bounded, event-derived `lifecycle` observation
+ *   (see {@link TopologyLifecycleEvent}). It is derived ONLY from existing
+ *   request started/completed/failed events; the domain never fabricates
+ *   events, and every entry keeps the source event's timestamp as provenance.
+ * - Snapshot values are provenance-carrying and immutable: normalization
+ *   deep-freezes what it returns, so renderers may hold snapshots without
+ *   ever mutating core-owned data.
  */
 
 import type { TopologyLane } from "./lane";
@@ -46,6 +55,42 @@ export interface Observed<T> {
   stale?: boolean;
   /** Human-readable derivation basis (e.g. which live channel / log it came from). */
   basis?: string;
+}
+
+/**
+ * Live-request lifecycle transition observed on the existing gated
+ * live-requests feed (M4). The set of transitions is intentionally bounded to
+ * what the feed actually emits — started / completed / failed — so renderers
+ * can never be asked to animate a state the core has not observed.
+ */
+export type RequestLifecyclePhase = "started" | "completed" | "failed";
+
+/** Terminal outcome of a request. `error` covers both failed streams and
+ * completed-with-error payloads (`status: "error"`). */
+export type RequestLifecycleOutcome = "success" | "error" | "unknown";
+
+/**
+ * One bounded, provenance-carrying lifecycle event in the snapshot.
+ * Derived verbatim from a request started/completed/failed event: every field
+ * that the source did not carry is *absent* (never a fabricated placeholder),
+ * and `observedAt` is the source event's own timestamp — the renderer's
+ * discharge clock, not the snapshot capture time.
+ */
+export interface TopologyLifecycleEvent {
+  /** Source event kind (bounded set; see {@link RequestLifecyclePhase}). */
+  phase: RequestLifecyclePhase;
+  /** Request id from the source event (stable per logical request). */
+  requestId: string;
+  /** Provider the request was addressed to, when the source carried one. */
+  provider?: string;
+  /** Model the request targeted, when the source carried one. */
+  model?: string;
+  /** Terminal outcome; only meaningful for completed/failed phases. */
+  outcome?: RequestLifecycleOutcome;
+  /** Upstream error label, when a failed event carried one. */
+  error?: string;
+  /** Source event timestamp (epoch ms) — provenance, not capture time. */
+  observedAt: number;
 }
 
 /**
@@ -100,4 +145,11 @@ export interface TopologySceneSnapshot {
   nodes: TopologySceneNode[];
   /** All route links; empty when no provider routes are observed. */
   links: TopologySceneLink[];
+  /**
+   * Bounded live-request lifecycle events observed since the last snapshot
+   * window, each with its own source provenance (M4). **Absent** when no
+   * lifecycle input was given — an empty observation would falsely claim "we
+   * watched the feed and nothing happened", which the core cannot know.
+   */
+  lifecycle?: TopologyLifecycleEvent[];
 }

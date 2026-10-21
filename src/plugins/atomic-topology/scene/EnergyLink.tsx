@@ -27,6 +27,7 @@ import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
 import type { AtomVisualDescriptor, LinkVisualDescriptor } from "../AtomicTopologyRenderer";
+import { useAtomicSceneContext } from "./sceneContext";
 
 /** Base tube radius (world units) for a link. */
 const LINK_RADIUS = 6;
@@ -63,14 +64,36 @@ export function EnergyLink({
   const baseEmissive = animated ? 0.6 : 0.25;
   const opacity = descriptor.visualState.style.opacity;
   const color = descriptor.laneHue;
+  const { pool, reducedMotion, nowMs } = useAtomicSceneContext();
 
-  // Pulse the emissive for animated (active) links.
+  // M4/M6 — transient per-provider discharge flare (OR-ATOM-001 v2). The link
+  // flares brighter for its provider's live request-lifecycle events (a
+  // completed/started request brightens the route; a failed one tints it red),
+  // then decays back to the steady base. It is a *transient* emphasis read off
+  // the ambient event pool — it never changes the route's persistent visual
+  // state, so a failed request is not read as a failed provider route.
+  const providerId = target?.providerId;
+  // Reduced-motion static flare: a pure read of the pool keyed on the
+  // snapshot's capture clock (no wall clock during render). Animated mode
+  // flares per-frame on the wall clock inside the `useFrame` block below.
+  const discharge =
+    reducedMotion && pool && providerId
+      ? pool.effectsFor(providerId, nowMs)
+      : { intensity: 0, red: false };
+  const dischargeBoost = Math.min(1, Math.max(0, discharge.intensity)) * 0.5;
+  const emissiveColor = discharge.red ? "#ef4444" : color;
+
+  // Pulse the emissive for animated (active) links, and flare the link on a
+  // transient per-provider discharge (read from the pool each frame — the
+  // flare decays back to the base, so no persistent health change).
   useFrame((state) => {
-    if (!animated) return;
     const material = materialRef.current;
     if (!material) return;
+    // The discharge flare is the floor; the active-route pulse sits on top.
     material.emissiveIntensity =
-      baseEmissive + 0.4 * (0.5 + 0.5 * Math.sin(state.clock.elapsedTime * 3));
+      baseEmissive +
+      dischargeBoost +
+      (animated && !reducedMotion ? 0.4 * (0.5 + 0.5 * Math.sin(state.clock.elapsedTime * 3)) : 0);
   });
 
   if (!geometry) return null;
@@ -80,8 +103,8 @@ export function EnergyLink({
       <meshStandardMaterial
         ref={materialRef}
         color={color}
-        emissive={color}
-        emissiveIntensity={baseEmissive}
+        emissive={emissiveColor}
+        emissiveIntensity={baseEmissive + dischargeBoost}
         transparent
         opacity={opacity}
         roughness={0.3}

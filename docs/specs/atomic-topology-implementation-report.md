@@ -4,7 +4,14 @@ title: Atomic Topology Implementation Report (OR-ATOM-001 v2)
 
 # Atomic Topology Implementation Report (OR-ATOM-001 v2)
 
-Status: M1 + M3 (Phase A + Phase B) + M4-closure (lane data + orbit controls) implemented; M2 live-source wiring / M5 GPU atoms / M6 instancing+perf still gated (see §5).
+Status: M1, M2 (authenticated server-side Fleet Telemetry Gateway), M3
+(Phase A + Phase B), M4 (single gated-WebSocket lifecycle stream + lane data +
+orbit controls + bounded event pool/effects), and M6 hardening (quality
+ladder, reduced motion, document-hidden pause, WebGL context-loss guard,
+camera fit/focus, disposal) implemented. M5 GPU atoms are **explicitly
+unavailable, not pending** — no real external GPU/runtime telemetry source
+exists in the repository (§3, §4.5). M6 instancing/LOD/benchmarking remain
+deferred (§4.3).
 Spec: `prompt.md` (OR-ATOM-001 v2). Companion artifact:
 `docs/specs/atomic-topology-telemetry-matrix.md` (M0 audit).
 User guide: `docs/specs/atomic-topology-user-guide.md`.
@@ -52,46 +59,95 @@ dynamic import, so server and jsdom contexts load the plugin cheaply.
   (`LANE_HUES`, `modelColor`, `spinRadiansPerSecond`, `queueVibration`,
   `UNKNOWN_MODEL_COLOR`).
 - `layout.ts` — deterministic hub/ring placement.
-- `eventPool.ts` — bounded visual event-pool contract (capacity, high watermark,
-  max age) — pure, testable.
-- `AtomicTopologyRenderer.tsx` — Phase B: `mountAtomicTopologyRenderer` (typed
-  `AtomicWebGLUnsupportedError` when WebGL2 is absent), the pure
-  `resolveAtomDescriptors` / `resolveLinkDescriptors` data→visual bridge, and
-  `createAtomicTopologyInstance` (imperative instance driving the scene via
-  `update/resize/setPaused/focusNode/dispose`).
-- `scene/AtomicScene.tsx` + overlays (`AtomicLegend`, `AtomicControls`,
-  `AtomicLabels`, `AtomicTooltip`) — the client-side scene and DOM overlay
-  layer.
+- `eventPool.ts` — bounded request-lifecycle event pool:
+  `createAtomicEventPool` (capacity 512, high watermark, 60 s max age,
+  exact-dedupe) plus `mapLifecycleToAtomicEvents`, the pure bridge from the
+  snapshot's bounded `lifecycle` stream (fed by the single gated dashboard
+  WebSocket — see §4.4) into transient discharge effects the scene reads per
+  frame without per-frame React state.
+- `AtomicTopologyRenderer.tsx` — Phase B: the single client-only scene
+  surface. `mountAtomicTopologyRenderer` gates on WebGL2 (typed
+  `AtomicWebGLUnsupportedError` when absent, so the host falls back to 2D)
+  and loads the R3F scene through a client-only dynamic `import()`, so
+  `three`/`@react-three/fiber` never enter the static module graph; the pure
+  `resolveAtomDescriptors` / `resolveLinkDescriptors` data→visual bridge and
+  `createAtomicTopologyInstance` drive the scene imperatively via
+  `update/resize/setPaused/focusNode/dispose` (idempotent no-ops after
+  dispose).
+- `cameraFit.ts` — deterministic camera fit/focus math (pure
+  `computeCameraFit` / `computeCameraFocus` / `isUsableCameraFit`); the scene
+  consumes it in `CameraRig` (fit on mount, slide-on-focus — rotation stays
+  with the orbit controls).
+- `quality.ts` — pure quality-fallback ladder (`high`/`medium`/`low`/`none` +
+  `QUALITY_BUDGETS`) resolved from a coarse, bounded probe
+  (`resolveSceneQuality`); the scene scales antialias/DPR/segment budgets from
+  it.
+- `scene/AtomicScene.tsx` + scene primitives (`scene/AtomNode.tsx`,
+  `scene/ElectronCloud.tsx`, `scene/EnergyLink.tsx`, `scene/Nucleus.tsx`,
+  `scene/SceneOrbitControls.tsx`, `scene/ContextGuard.tsx`,
+  `scene/sceneContext.ts`) — the client-side R3F composition: lighting, hub
+  nucleus, provider atoms, energy links, orbit/zoom/pan, document-hidden
+  pause, WebGL context-loss guard, and the per-frame scene context (pool,
+  focus, reduced motion, quality, snapshot time).
+- `overlays/` — DOM overlay layer (`AtomicLegend`, `AtomicControls`,
+  `AtomicLabels`, `AtomicTooltip`, and `AtomicTelemetryStatus` — the
+  available/stale/unavailable feed-freshness badge, driven by the snapshot's
+  `capturedAt` + a fixed freshness window).
 
-### 1.3 Telemetry gateway + provenance (§9)
+### 1.3 Telemetry: authenticated server-side Fleet Telemetry Gateway (M2 / T005)
 
-- `src/shared/topology/telemetry/` — server-side gateway: source adapters,
-  `provenance.ts` (`Observed<T>` tags `source`/`sampledAt`; **absent values are
-  `null`, never `0`**), query-schema validation (window bounds, strict keys),
-  and normalization. Tested under `tests/unit/telemetry/`.
-- **Not yet consumed by the app**: no runtime telemetry source is configured in
-  this environment, so the scene renders from core-owned data only (M2 gate,
-  see §5). This is by design: the spec forbids presenting synthetic
-  telemetry-derived facts.
+- `src/shared/topology/telemetry/` — server-side gateway: `gateway.ts`
+  (bounded snapshot query, cache TTL, abort semantics), `gatewayServer.ts`
+  (one process-wide `FleetTelemetryGateway` whose **only** registered backend
+  is the OmniRoute-native adapter `providers/omniroute.ts`, imported
+  dynamically so the SQLite/rate-limit layer never enters the route's static
+  graph), `provenance.ts` (`Observed<T>` tags `source`/`sampledAt`; **absent
+  values are `null`, never `0`**), `httpQuery.ts` (strict query-schema
+  validation — window bounds, strict keys), `mergeSnapshots.ts`, and
+  `types.ts`. Tested under `tests/unit/telemetry/`.
+- `src/app/api/telemetry/fleet/route.ts` — `GET /api/telemetry/fleet`:
+  management-authenticated (`requireManagementAuth` before any data access),
+  force-dynamic, one bounded snapshot per call — no browser fan-out, no
+  per-atom queries, no external backend. Errors route through
+  `buildErrorBody` (hard rule #12).
+- **Hard limit — no external GPU/runtime source in the repository.** The M0
+  audit (companion matrix) found zero GPU/device-metric producers
+  (no `vram`/`gpu_util`/`temperature`/`power_draw`/`nvidia-smi`/NVML source,
+  no Prometheus/InfluxDB/Grafana client, no exporter/agent). The gateway
+  therefore keeps every GPU/runtime device fact `null` with documented
+  unavailable provenance (`unavailable:no-gpu-exporter-in-repo`): GPU atoms
+  and GPU metrics are unavailable by construction — not gated on
+  configuration, and never fabricated (§3, §4.5).
+- No dashboard consumer is wired to the endpoint in this checkout (verified
+  by source search: only the route, the matrix, and the tests reference
+  `/api/telemetry/fleet`), so the scene renders from core-owned snapshot
+  data. The gateway is the shipped, tested read-side surface.
 
 ### 1.4 Tests shipped
 
-- `tests/unit/atomic-topology/` — manifest, capabilities, visual encoding,
-  layout, event pool, plugin contract, and the Phase B lifecycle/descriptor
-  bridge (relocated from `tests/integration/atomic-topology/`, which had no
-  test collector — see §4.1); plus `sceneOrbitControls.test.ts` (orbit-control
-  presence + wiring, M4-closure).
-- `tests/unit/telemetry/` — gateway, provenance, query schema.
-- `tests/unit/topology/` — built-in 2D renderer + host-adjacent suites; plus
-  `lane.test.ts` and the lane blocks in `normalizeTopology.test.ts`
-  (M4-closure lane data).
+- `tests/unit/atomic-topology/` — capabilities, camera fit, visual encoding,
+  layout, event pool, plugin contract, and quality-ladder suites; the Phase B
+  lifecycle/descriptor bridge (relocated from
+  `tests/integration/atomic-topology/`, which had no test collector — see
+  §4.1); `sceneOrbitControls.test.ts` (orbit-control presence + wiring); and
+  `live-request-lifecycle-hook.test.tsx` (the gated-WebSocket lifecycle
+  stream).
+- `tests/unit/telemetry/` — gateway, native provider, provenance, snapshot
+  merge, query mapping, and the management-authenticated fleet route.
+- `tests/unit/topology/` — built-in 2D renderer, registry + preference, and
+  host-adjacent suites; `lane.test.ts` and the lane blocks in
+  `normalizeTopology.test.ts` (lane data); `lifecycle-normalization.test.ts`
+  (bounded lifecycle stream).
 - 5 pre-existing topology suites were updated to match the host refactor.
 
-Latest measured run (2026-10-12, M4-closure): **184** topology+atomic+telemetry
+Verification of these suites is recorded by the implementation work; this
+documentation pass adds no new measurements. The last dated measurement in
+this report — 2026-10-12 (M4-closure): **184** topology+atomic+telemetry
 node:test cases (183 pass, 1 skip, 0 fail — 109 in
 `tests/unit/topology` + `tests/unit/atomic-topology`, 75 in `telemetry`);
-**12** vitest host/2D cases (12 pass).
-`scripts/check/check-test-discovery.mjs`: PASS (orphaned tests eliminated).
+**12** vitest host/2D cases (12 pass);
+`scripts/check/check-test-discovery.mjs` PASS (orphaned tests eliminated) —
+predates some of the suites listed above.
 
 ## 2. Architecture / separation of responsibilities (spec §4.6)
 
@@ -106,8 +162,13 @@ node:test cases (183 pass, 1 skip, 0 fail — 109 in
 
 ## 3. Invariants held
 
-- **No synthetic GPU/device facts.** M1/M3 never emits `kind: "gpu"` nodes;
-  the type is forward-compatible only. Remote providers stay provider nodes.
+- **No synthetic GPU/device facts.** No core module emits `kind: "gpu"`
+  nodes — the type is forward-compatible only — and **no real external
+  GPU/runtime telemetry source exists in the repository** (M0 audit; the
+  gateway keeps GPU/runtime facts `null` with
+  `unavailable:no-gpu-exporter-in-repo` provenance). GPU atoms and GPU
+  metrics are therefore explicitly unavailable, not implemented. Remote
+  providers stay provider nodes.
 - **Absent ≠ zero.** Provenance carries `null` for unobserved values; the
   visual layer decays to neutral (idle/unknown) rather than inventing data.
 - **2D intact.** The default renderer is byte-for-byte the pre-plugin 2D
@@ -165,18 +226,21 @@ fabrication:
   still renders the neutral `unknown` hue — a coloring default, never an
   observed lane fact.
 
-### 4.3 Instancing / LOD / effect caps deferred — M6 release milestone
+### 4.3 Instancing / LOD / benchmarking deferred — M6 release milestone
 
-Atom meshes are drawn individually, not via `InstancedMesh`. The spec's §12
-performance items (instancing, LOD, effect caps, hidden-tab RAF pause,
-quality profiles, benchmarking) are explicitly the M6 [RELEASE] milestone.
-Deferring keeps the scene simple and correct; the current atom counts
-(provider scale, typically <100) are well within direct-draw budget. A
-profile-guided instancing pass is an M6 task, not an M1/M3 correctness item.
+Part of the M6 hardening has landed: the quality-fallback ladder
+(`quality.ts` → `QUALITY_BUDGETS` scaling antialias/DPR/segment budgets), the
+document-hidden RAF pause (`AtomicScene.tsx`), and the per-frame pooled
+effects (event pool discharges read in `useFrame`). Atom meshes are still
+drawn individually, not via `InstancedMesh`: the spec's §12 instancing, LOD,
+and benchmarking items remain the M6 [RELEASE] milestone. Deferring keeps the
+scene simple and correct; the current atom counts (provider scale, typically
+<100) are well within direct-draw budget. A profile-guided instancing pass
+is an M6 task, not an M1/M3 correctness item.
 
-### 4.4 Scene: orbit controls landed; motion still M4/M5 targets
+### 4.4 Scene: orbit controls + event-pool motion landed (M4/M6)
 
-`scene/AtomicScene.tsx` now mounts `scene/SceneOrbitControls.tsx` inside the
+`scene/AtomicScene.tsx` mounts `scene/SceneOrbitControls.tsx` inside the
 `<Canvas>`: the user can **orbit, zoom, and pan** around the hub
 (`three`'s `OrbitControls`, damped, distance-clamped to the scene's frustum).
 The component is SSR-safe — it renders `null` (no R3F primitive) and only
@@ -186,22 +250,50 @@ deliberately avoids `@react-three/drei` to keep the 3D dependency surface to
 `three` + `@react-three/fiber` (both already in the scene graph) and to own
 the damping + dispose lifecycle explicitly.
 
-Still deferred (M4/M5 visual targets per the spec's milestone plan):
-per-model nucleus particles and event-pool-driven motion. The event pool
-(§1.2) is a tested pure contract, but live feed events do not populate it
-yet, and M5 ("fleet GPU atoms + measured motion") is conditional on real
-telemetry data (§4.5).
+**Single gated WebSocket lifecycle stream.** Live request transitions arrive
+on the _same_ gated dashboard live-WebSocket that feeds the 2D panel —
+`useLiveRequests` derives a bounded, exact-deduped `LiveRequestLifecycleEvent`
+stream (cap 256, key `phase:requestId:observedAt`),
+`HomeProviderTopologySection` folds it into the host (no second socket), and
+`normalizeTopology.ts` bounds/dedupes it into the snapshot's `lifecycle`
+field (`MAX_LIFECYCLE_EVENTS = 256`; absent input → no field, never a fake
+empty feed). The Atomic adapter maps that bounded stream into the event pool
+on every `update` (`mapLifecycleToAtomicEvents` → `pool.ingest`), and the
+scene primitives read transient discharges per frame (`EnergyLink` flare,
+atom discharge) — animated in normal mode, a one-shot settle under reduced
+motion. No streaming ticks are lifecycle events; anything else is dropped,
+never guessed.
 
-### 4.5 Telemetry consumer not wired — M2 gate
+Still deferred (M6): instancing / LOD / benchmarking (§4.3). M5 ("fleet GPU
+atoms + measured motion") is **not pending configuration** — it is excluded
+by the repository's hard limit: no real external GPU/runtime telemetry source
+exists, so GPU atoms and GPU metrics remain explicitly unavailable (§3,
+§4.5).
 
-The gateway (§1.3) is implemented and tested but has **no app consumer** and
-no configured source (Grafana/Prometheus/Influx) in this environment. Wiring
-a live source, the 1–2 Hz fleet-snapshot query cadence, and stale-decay is
-the M2 milestone and is gated on the operator configuring a read-only
-datasource (spec §9.9). Until then the panel is correct by showing only
-core-owned facts.
+### 4.5 Telemetry: M2 endpoint shipped; no external source exists (hard limit)
 
-## 5. Gate & test evidence (2026-10-12)
+The Fleet Telemetry Gateway (§1.3) is implemented, tested, and served
+(`GET /api/telemetry/fleet`, management-authenticated). What is **not**
+shipped — and cannot be shipped from this repository — is any external
+telemetry source: the M0 audit found no Prometheus/InfluxDB/Grafana client,
+no exporter/agent process, and no GPU/device-metric producer anywhere in
+`src/` / `open-sse/`. Consequences:
+
+- GPU/runtime device facts in gateway snapshots are `null` with
+  `unavailable:no-gpu-exporter-in-repo` provenance — **never fabricated,
+  never `0`**. GPU atoms and GPU metrics stay explicitly unavailable (§3);
+  M5 is a hard boundary of the repository, not an unconfigured dependency.
+- The topology panel has no consumer wiring it to the endpoint in this
+  checkout; the scene renders from core-owned snapshot data (identity,
+  health, traffic, and the gated-WebSocket lifecycle stream). If an operator
+  later adds an external datasource, the read-side surface to consume is this
+  gateway — no browser fan-out, no per-atom queries.
+
+## 5. Gate & test evidence
+
+Verification of the current suites is recorded by the implementation work;
+this documentation pass adds no new measurements. The last dated run
+(2026-10-12, M4-closure) recorded:
 
 - `check-test-discovery.mjs` — PASS (6671 files, 32 collectors, no new orphans).
 - Topology + Atomic suites (incl. M4-closure) — 109 tests: 108 pass, 1 skip
@@ -216,31 +308,42 @@ core-owned facts.
 - Typecheck — no errors in plugin/host/topology files (remaining `tsc` errors
   are pre-existing baseline noise in `open-sse/` + `FlowCanvas` CSS import; one
   pre-existing WIP debt in `tests/unit/topology-provider-nodes-arc.test.ts`
-  line 84 — a stale `TopologyEntry` literal missing an `id` — predates this
-  change and is unrelated to lane/orbit work).
-- Live render — app boots; `/home` shows the Provider Topology card in 2D
-  (default), the 2D/3D toggle is present, console has no plugin-related errors.
-  Lane hues + orbitable camera in the live 3D view are confirmed by the
-  deterministic descriptor tests (`atomicSceneBridge`, `sceneOrbitControls`)
-  and the classifier unit tests; a manual WebGL2 screenshot pass is pending
-  (headless CI has no GPU context).
+  line 84 — a stale `TopologyEntry` literal missing an `id` — predates that
+  run and is unrelated to lane/orbit work).
+
+That run predates some suites now on disk (camera fit, quality, lifecycle
+hook, fleet route); the current scope is the suites listed in §1.4.
+
+- Last recorded live-render observation (2026-10-12): app boots; `/home`
+  shows the Provider Topology card in 2D (default), the 2D/3D toggle is
+  present, console has no plugin-related errors. Lane hues + orbitable
+  camera in the live 3D view are confirmed by the deterministic descriptor
+  tests (`atomicSceneBridge`, `sceneOrbitControls`) and the classifier unit
+  tests; a manual WebGL2 screenshot pass was pending (headless CI has no GPU
+  context).
 
 ## 6. File map
 
 ```
 src/shared/topology/
-  domain/{types,normalizeTopology,lane}.ts core data + snapshot + lane classifier
+  domain/{types,normalizeTopology,lane}.ts  core data + snapshot + lane + lifecycle
   renderer/{registry,types,BuiltinReactFlowRenderer}
-  telemetry/{gateway,provenance,...}       server-side, tested
+  telemetry/{gateway,gatewayServer,httpQuery,mergeSnapshots,provenance,
+             types,providers/omniroute}     server-side, tested
+src/app/api/telemetry/fleet/route.ts        management-authenticated fleet snapshot (M2)
+src/app/(dashboard)/
+  dashboard/HomeProviderTopologySection.tsx  feeds the gated-WS lifecycle stream
+  home/ProviderTopology.tsx                  host (owns data, 2D/3D toggle)
+  home/ProviderTopology2D.tsx                built-in 2D implementation
 src/plugins/atomic-topology/
-  index.ts manifest.ts capabilities.ts
+  index.ts manifest.ts capabilities.ts quality.ts cameraFit.ts
   visualEncoding.ts layout.ts eventPool.ts
   AtomicTopologyRenderer.tsx
-  scene/{AtomicScene,SceneOrbitControls}.tsx
-  overlays/{AtomicLegend,AtomicControls,AtomicLabels,AtomicTooltip}
-src/app/(dashboard)/home/
-  ProviderTopology.tsx                     host (owns data, 2D/3D toggle)
-  ProviderTopology2D.tsx                  built-in 2D implementation
-tests/unit/{atomic-topology,telemetry,topology}/   incl. lane + orbit-control suites
-docs/specs/atomic-topology-*.md           this report, matrix, user guide
+  scene/{AtomicScene,AtomNode,ElectronCloud,EnergyLink,Nucleus,
+         SceneOrbitControls,ContextGuard,sceneContext}
+  overlays/{AtomicLegend,AtomicControls,AtomicLabels,AtomicTooltip,
+            AtomicTelemetryStatus}
+tests/unit/{atomic-topology,telemetry,topology}/   incl. lane, lifecycle, orbit,
+                                                   quality, and camera-fit suites
+docs/specs/atomic-topology-*.md                  this report, matrix, user guide
 ```
