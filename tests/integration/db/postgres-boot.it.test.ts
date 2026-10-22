@@ -48,5 +48,30 @@ test(
       .get("pg_shim") as { c: number } | undefined;
     assert.ok(kv, "key_value is queryable after boot");
     assert.ok(typeof kv.c === "number");
+
+    // Regression guards for the non-fatal background-path errors seen in the pod:
+    // (1) module self-init DDL with AUTOINCREMENT via exec(); (2) a jobs upsert
+    // with datetime('now') + ? placeholders + hand-written ON CONFLICT.
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS _it_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, msg TEXT, created_at TEXT DEFAULT (datetime('now')))"
+    );
+    db.prepare("INSERT INTO _it_audit (msg) VALUES (?)").run("hello");
+    const auditCount = db.prepare("SELECT count(*)::int AS c FROM _it_audit").get() as {
+      c: number;
+    };
+    assert.ok(auditCount.c >= 1, "AUTOINCREMENT table accepts inserts on PostgreSQL");
+
+    db.exec("CREATE TABLE IF NOT EXISTS _it_jobs (id TEXT PRIMARY KEY, n BIGINT, updated_at TEXT)");
+    db.prepare(
+      "INSERT INTO _it_jobs (id, n, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(id) DO UPDATE SET n = excluded.n, updated_at = datetime('now')"
+    ).run("j1", 5);
+    const job = db.prepare("SELECT n::int AS n FROM _it_jobs WHERE id = ?").get("j1") as {
+      n: number;
+    };
+    assert.equal(job.n, 5, "jobs upsert with datetime('now') + ON CONFLICT works on PostgreSQL");
+
+    // Clean up the throwaway tables so repeat runs stay idempotent.
+    db.exec("DROP TABLE IF EXISTS _it_audit");
+    db.exec("DROP TABLE IF EXISTS _it_jobs");
   }
 );

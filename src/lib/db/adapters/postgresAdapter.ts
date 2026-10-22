@@ -86,6 +86,47 @@ function getPrimaryKeyColumns(client: unknown, table: string): string[] {
   return columns;
 }
 
+// Translates common SQLite-specific SQL into PostgreSQL equivalents. Applied to
+// both prepared statements and exec()'d DDL so background/lazy code paths that
+// emit SQLite dialect (module self-init CREATE TABLEs, DATETIME()/IFNULL()
+// scalars, COLLATE NOCASE) run on PostgreSQL instead of erroring. Conservative
+// and string-literal-aware where it matters; only well-known constructs are
+// rewritten, everything else passes through untouched.
+export function translateSqliteSql(sql: string): string {
+  let out = sql;
+
+  // --- DDL (CREATE TABLE) ---
+  // INTEGER PRIMARY KEY AUTOINCREMENT  ->  BIGSERIAL PRIMARY KEY (auto id).
+  out = out.replace(
+    /\b(?:INTEGER|INT)\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b/gi,
+    "BIGSERIAL PRIMARY KEY"
+  );
+  // Any stray AUTOINCREMENT keyword (already has PRIMARY KEY elsewhere) -> drop.
+  out = out.replace(/\s+AUTOINCREMENT\b/gi, "");
+
+  // --- COLLATE NOCASE ---
+  // Postgres has no NOCASE collation. Drop it in DDL/index/column contexts; the
+  // app's case-insensitive lookups that relied on it use LOWER()/ILIKE in the
+  // query layer, and dropping the collation keeps comparisons byte-exact
+  // (acceptable for the key/enum columns that carried it).
+  out = out.replace(/\s+COLLATE\s+NOCASE\b/gi, "");
+
+  // --- scalar functions ---
+  // DATETIME('now') / DATETIME("now")  ->  NOW(); other DATETIME(x) -> x::timestamptz.
+  out = out.replace(/\bDATETIME\(\s*['"]now['"]\s*\)/gi, "NOW()");
+  out = out.replace(/\bDATETIME\(\s*([^)]+?)\s*\)/gi, "($1)::timestamptz");
+  // strftime('%s','now') -> extract(epoch from now())::bigint (the common form);
+  // other strftime patterns are left for a fail-loud so we never ship a wrong one.
+  out = out.replace(
+    /\bSTRFTIME\(\s*['"]%s['"]\s*,\s*['"]now['"]\s*\)/gi,
+    "EXTRACT(EPOCH FROM NOW())::bigint"
+  );
+  // IFNULL(a, b) -> COALESCE(a, b) (identical semantics).
+  out = out.replace(/\bIFNULL\s*\(/gi, "COALESCE(");
+
+  return out;
+}
+
 // Helper that detects unsupported/unknown SQLite constructs
 function detectUnsupportedSyntax(sql: string): string | null {
   sql = sql.trim().toUpperCase();
@@ -96,17 +137,15 @@ function detectUnsupportedSyntax(sql: string): string | null {
     return null;
   }
 
-  // Check for unsupported SQLite functions or structures
+  // Check for genuinely unsupported SQLite functions (no safe translation yet).
+  // DATETIME/STRFTIME('%s','now')/IFNULL/AUTOINCREMENT/COLLATE NOCASE are handled
+  // by translateSqliteSql() before this runs, so they are intentionally NOT here.
   const unsupported = [
-    /DATETIME\(['"][^']*['"]\)/gi,
-    /STRFTIME\([^)]*\)/gi,
     /GROUP_CONCAT\([^)]*\)/gi,
     /JSON_EXTRACT\([^)]*\)/gi,
     /RANDOMBLOB\([^)]*\)/gi,
     /JSON_EACH\([^)]*\)/gi,
     /LAST_INSERT_ROWID\(\)/gi,
-    /IFNULL\([^)]*\)/gi,
-    /AUTOINCREMENT(?!\s)/gi, // AUTOINCREMENT without word boundary (but may be fine in some contexts)
   ];
 
   for (const regex of unsupported) {
@@ -435,7 +474,10 @@ export function createPostgresAdapter(config: {
         return { run, get, all };
       }
 
-      const { sql: translatedSql, numParams } = translateParams(sql);
+      const { sql: paramSql, numParams } = translateParams(sql);
+      // Rewrite SQLite dialect (DATETIME/IFNULL/COLLATE NOCASE/AUTOINCREMENT…)
+      // to PostgreSQL before the unsupported-construct gate and execution.
+      const translatedSql = translateSqliteSql(paramSql);
 
       // Check for unsupported constructs early to aid debugging
       const unsupported = detectUnsupportedSyntax(translatedSql);
@@ -463,11 +505,16 @@ export function createPostgresAdapter(config: {
       return {
         // run is for DML that returns row count
         run(...params: unknown[]): RunResult {
-          if (params.length !== numParams) {
+          // A statement with N placeholders must receive N params. But callers
+          // (and better-sqlite3) sometimes pass trailing args to a statement
+          // whose placeholders were already inlined/translated away (numParams
+          // === 0) — tolerate that by binding none, matching get()/all().
+          if (numParams > 0 && params.length !== numParams) {
             throw new Error(`Wrong parameter count: expected ${numParams}, got ${params.length}`);
           }
+          const bind = numParams === 0 ? [] : params;
 
-          client.querySync(finalSql, params);
+          client.querySync(finalSql, bind);
           return {
             changes: client.pq.cmdTuples(),
             // No equivalent in Postgres (OIDs are not assigned to rows).
@@ -477,21 +524,20 @@ export function createPostgresAdapter(config: {
 
         // get is for single-row results (e.g., SELECT *)
         get(...params: unknown[]): unknown {
-          if (params.length && params.length !== numParams) {
+          if (numParams > 0 && params.length && params.length !== numParams) {
             throw new Error(`Wrong parameter count: expected ${numParams}, got ${params.length}`);
           }
-
-          const result = client.querySync(finalSql, params);
+          const result = client.querySync(finalSql, numParams === 0 ? [] : params);
           return Array.isArray(result) && result.length >= 1 ? result[0] : result;
         },
 
         // all returns all rows
         all(...params: unknown[]): unknown[] {
-          if (params.length && params.length !== numParams) {
+          if (numParams > 0 && params.length && params.length !== numParams) {
             throw new Error(`Wrong parameter count: expected ${numParams}, got ${params.length}`);
           }
 
-          const result = client.querySync(finalSql, params);
+          const result = client.querySync(finalSql, numParams === 0 ? [] : params);
           return Array.isArray(result) ? result : [];
         },
       };
@@ -499,10 +545,10 @@ export function createPostgresAdapter(config: {
 
     // Executes a SQL string directly (for DDL, multi-statement, init)
     exec(sql: string): void {
-      // Convert any SQLite constructs within the query text if needed before execution
-      // But in practice this gets called for schema statements (which should be valid PG)
-      // Or sometimes we have multi-statement scripts
-      client.querySync(sql);
+      // Convert SQLite dialect (AUTOINCREMENT, DATETIME(), COLLATE NOCASE…) to
+      // PostgreSQL before executing. exec() carries module self-init CREATE TABLE
+      // DDL and multi-statement scripts that still use SQLite syntax.
+      client.querySync(translateSqliteSql(sql));
       // DDL does not return rows; the command result is intentionally discarded.
     },
 
