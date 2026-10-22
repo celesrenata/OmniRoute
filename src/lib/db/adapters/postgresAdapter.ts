@@ -227,15 +227,34 @@ export function translateSqliteSql(sql: string): string {
       translateStrftimeCall(fmt, timeArg, modifier)
   );
   // --- DATETIME() forms ---
-  // 2-arg relative form used for retention windows:
-  //   datetime('now', '-' || <n> || ' days')  ->  (NOW() - ((<n>) || ' days')::interval)
+  // datetime('now', '-' || <n> || ' days')  ->  (NOW() - ((<n>) || ' days')::interval)
   // Keep the value expression (a bound $n or literal) intact.
   out = out.replace(
     /\bDATETIME\(\s*['"]now['"]\s*,\s*'-'\s*\|\|\s*(.+?)\s*\|\|\s*'\s*days'\s*\)/gi,
     "(NOW() - (($1) || ' days')::interval)"
   );
+  // datetime('now', <modifier>) where <modifier> is a single bound param ($n)
+  // or a quoted SQLite interval literal ('-6 hours', '+1 month'). SQLite
+  // interval strings are valid PostgreSQL interval literals. OmniRoute's
+  // timestamp columns are TEXT in ISO-8601 (e.g. 2026-09-15T07:48:11.674Z), and
+  // SQLite's datetime() returns a string too, so callers compare text<->text.
+  // Emit ISO-8601 text (to_char) rather than a timestamptz, otherwise a
+  // `text_column >= datetime(...)` comparison fails with
+  // "operator does not exist: text >= timestamp with time zone".
+  //   datetime('now', $1) -> to_char((NOW() + ($1)::interval) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  out = out.replace(
+    /\bDATETIME\(\s*['"]now['"]\s*,\s*(\$\d+|'[^']*')\s*\)/gi,
+    "to_char((NOW() + ($1)::interval) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
+  );
   // datetime('now') / datetime("now")  ->  NOW().
   out = out.replace(/\bDATETIME\(\s*['"]now['"]\s*\)/gi, "NOW()");
+  // datetime(<epoch_seconds_expr>, 'unixepoch') -> to_timestamp(<expr>).
+  // The epoch expression may itself contain parentheses (e.g. a bucketing
+  // math expression), so match everything up to the literal `, 'unixepoch')`
+  // terminator rather than a bare `[^)]` group. Must run BEFORE the generic
+  // datetime(expr) rule below, otherwise the 2-arg form casts a record and
+  // yields "could not identify a comparison function for type unknown".
+  out = out.replace(/\bDATETIME\(\s*([\s\S]+?)\s*,\s*'unixepoch'\s*\)/gi, "to_timestamp($1)");
   // datetime(expr) -> (expr)::timestamptz. Covers the common case where the
   // argument is a TEXT ISO-8601 column (config_audit_log.timestamp) or a date
   // literal. Millisecond-epoch BIGINT columns are the minority and would need

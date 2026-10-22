@@ -107,6 +107,20 @@ test("instr(a,b) becomes strpos(a,b)", () => {
   assert.doesNotMatch(out, /\binstr\(/i);
 });
 
+test("datetime(now, $n interval) becomes ISO text via to_char", () => {
+  const out = translateSqliteSql("SELECT * FROM t WHERE ts >= datetime('now', $1)");
+  assert.match(out, /to_char\(\(NOW\(\) \+ \(\$1\)::interval\)/i);
+  assert.doesNotMatch(out, /\bdatetime\(/i);
+});
+
+test("datetime(epochExpr, unixepoch) becomes to_timestamp", () => {
+  const out = translateSqliteSql(
+    "SELECT datetime((strftime('%s', created_at) / 3600) * 3600, 'unixepoch') AS bucket"
+  );
+  assert.match(out, /to_timestamp\(/i);
+  assert.doesNotMatch(out, /unixepoch/i);
+});
+
 test("plain PostgreSQL passes through untouched", () => {
   const sql = "SELECT id, name FROM provider_connections WHERE enabled = true ORDER BY name";
   assert.equal(translateSqliteSql(sql), sql);
