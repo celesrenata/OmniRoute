@@ -87,5 +87,17 @@ test(
       .get({ id: "a", isActive: 1 }) as { a: number } | undefined;
     assert.ok(named && named.a === 1, "named @params bind correctly on PostgreSQL");
     db.exec("DROP TABLE IF EXISTS _it_named");
+
+    // Startup cleanup regression guards (previously non-fatal [Cleanup] errors):
+    // (a) datetime('now','-'||?||' days') retention window on a text timestamp;
+    // (b) RunResult.changes is a number (not pg-native's string);
+    // (c) freelist_count pragma shim is a no-op 0, not an "unimplemented pragma".
+    const del = db
+      .prepare(
+        "DELETE FROM config_audit_log WHERE datetime(timestamp) < datetime('now', '-' || ? || ' days')"
+      )
+      .run(30);
+    assert.equal(typeof del.changes, "number", "RunResult.changes is a number");
+    assert.equal(db.pragma("freelist_count", { simple: true }), 0, "freelist_count shim returns 0");
   }
 );

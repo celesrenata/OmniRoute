@@ -18,7 +18,7 @@ test("DATETIME('now') becomes NOW()", () => {
   assert.match(translateSqliteSql('INSERT INTO t(a) VALUES (DATETIME("now"))'), /NOW\(\)/i);
 });
 
-test("DATETIME(col) becomes a timestamptz cast", () => {
+test("DATETIME(col) maps to a timestamptz cast", () => {
   assert.match(translateSqliteSql("SELECT DATETIME(created_at)"), /\(created_at\)::timestamptz/i);
 });
 
@@ -36,6 +36,14 @@ test("strftime('%s','now') becomes epoch extract", () => {
     translateSqliteSql("SELECT strftime('%s','now')"),
     /EXTRACT\(EPOCH FROM NOW\(\)\)::bigint/i
   );
+});
+
+test("DATETIME('now','-'||$1||' days') becomes a NOW() - interval expression", () => {
+  const out = translateSqliteSql(
+    "DELETE FROM t WHERE datetime(ts) < datetime('now', '-' || $1 || ' days')"
+  );
+  assert.match(out, /NOW\(\) - \(\(\$1\) \|\| ' days'\)::interval/i);
+  assert.doesNotMatch(out, /DATETIME\(/i);
 });
 
 test("plain PostgreSQL passes through untouched", () => {

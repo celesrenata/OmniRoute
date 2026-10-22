@@ -157,8 +157,22 @@ export function translateSqliteSql(sql: string): string {
   out = out.replace(/\s+COLLATE\s+NOCASE\b/gi, "");
 
   // --- scalar functions ---
-  // DATETIME('now') / DATETIME("now")  ->  NOW(); other DATETIME(x) -> x::timestamptz.
+  // --- DATETIME() forms ---
+  // 2-arg relative form used for retention windows:
+  //   datetime('now', '-' || <n> || ' days')  ->  (NOW() - ((<n>) || ' days')::interval)
+  // Keep the value expression (a bound $n or literal) intact.
+  out = out.replace(
+    /\bDATETIME\(\s*['"]now['"]\s*,\s*'-'\s*\|\|\s*(.+?)\s*\|\|\s*'\s*days'\s*\)/gi,
+    "(NOW() - (($1) || ' days')::interval)"
+  );
+  // datetime('now') / datetime("now")  ->  NOW().
   out = out.replace(/\bDATETIME\(\s*['"]now['"]\s*\)/gi, "NOW()");
+  // datetime(expr) -> (expr)::timestamptz. Covers the common case where the
+  // argument is a TEXT ISO-8601 column (config_audit_log.timestamp) or a date
+  // literal. Millisecond-epoch BIGINT columns are the minority and would need
+  // to_timestamp(col/1000) — callers hitting that must translate explicitly;
+  // a blanket epoch-division guess here mis-handled the far more common TEXT
+  // ISO columns ("operator does not exist: text / numeric").
   out = out.replace(/\bDATETIME\(\s*([^)]+?)\s*\)/gi, "($1)::timestamptz");
   // strftime('%s','now') -> extract(epoch from now())::bigint (the common form);
   // other strftime patterns are left for a fail-loud so we never ship a wrong one.
@@ -589,7 +603,10 @@ export function createPostgresAdapter(config: {
         run(...params: unknown[]): RunResult {
           client.querySync(finalSql, resolveBind(params));
           return {
-            changes: client.pq.cmdTuples(),
+            // pg-native's pq.cmdTuples() returns the affected-row count as a
+            // STRING; better-sqlite3 callers expect RunResult.changes to be a
+            // number (e.g. `result.deleted = r.changes`), so coerce.
+            changes: Number(client.pq.cmdTuples()) || 0,
             // No equivalent in Postgres (OIDs are not assigned to rows).
             lastInsertRowid: 0,
           };
@@ -701,6 +718,14 @@ export function createPostgresAdapter(config: {
           } catch {
             return 1;
           }
+        }
+        case "freelist_count": {
+          // SQLite's free-page count drives VACUUM scheduling / space
+          // reclamation. PostgreSQL manages free space server-side via
+          // autovacuum, so there is no equivalent to report — return 0 so the
+          // reclaim/vacuum schedulers treat the DB as having nothing to reclaim
+          // (a no-op) instead of crashing on an unimplemented pragma.
+          return 0;
         }
         case "busy_timeout":
         case "synchronous":
