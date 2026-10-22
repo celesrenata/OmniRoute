@@ -1275,11 +1275,20 @@ export function getDbInstance(): SqliteDatabase {
     // database can already own call_logs/usage_history/provider_connections with an older
     // column set, where the CREATE TABLE is a no-op but the indexes still reference columns
     // the healers below are the ones adding.
-    db.exec(SCHEMA_TABLES_SQL);
-    ensureProviderConnectionsColumns(db);
-    ensureUsageHistoryColumns(db);
-    ensureCallLogsColumns(db);
-    db.exec(SCHEMA_INDEXES_SQL);
+    //
+    // PostgreSQL bootstraps from db/postgres/schema-pg.sql (applied out-of-band at
+    // provisioning time); the inline SCHEMA_SQL + SQLite column healers below emit
+    // raw SQLite DDL (INTEGER PRIMARY KEY AUTOINCREMENT, …) that PostgreSQL rejects,
+    // so skip them for the pg-native driver. The pragmas above are handled by the
+    // adapter's pragma shim and are safe to leave unconditional.
+    const isPostgresDriver = db.driver === "pg-native";
+    if (!isPostgresDriver) {
+      db.exec(SCHEMA_TABLES_SQL);
+      ensureProviderConnectionsColumns(db);
+      ensureUsageHistoryColumns(db);
+      ensureCallLogsColumns(db);
+      db.exec(SCHEMA_INDEXES_SQL);
+    }
 
     // ── Versioned Migrations ──
     // PostgreSQL bootstraps from the pre-generated db/postgres/schema-pg.sql
@@ -1287,7 +1296,6 @@ export function getDbInstance(): SqliteDatabase {
     // and the SQLite-only pragma/optimization tuning below are skipped entirely
     // for the pg-native driver — that DDL (AUTOINCREMENT, PRAGMA, mmap_size…) is
     // not valid PostgreSQL and the adapter does not translate raw exec() DDL.
-    const isPostgresDriver = db.driver === "pg-native";
     if (!isPostgresDriver) {
       // Auto-seed 001 as applied (the inline SCHEMA_SQL already created these tables)
       // then run any new migrations (002+)
