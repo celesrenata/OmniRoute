@@ -419,6 +419,20 @@ export function useProviderConnections(
     return text.trim() || fallback;
   };
 
+  // Normalize an API error value to a renderable string. The server's sanitized
+  // error envelope is an object (`{ message, type, code }`), so passing
+  // `data.error` straight into notify.error()/JSX throws React error #31
+  // ("Objects are not valid as a React child"). Always unwrap to a string.
+  const errorText = (value: unknown, fallback: string): string => {
+    if (typeof value === "string" && value.trim()) return value;
+    if (value && typeof value === "object") {
+      const obj = value as { message?: unknown; error?: unknown };
+      if (typeof obj.message === "string" && obj.message.trim()) return obj.message;
+      if (typeof obj.error === "string" && obj.error.trim()) return obj.error;
+    }
+    return fallback;
+  };
+
   const getAttachmentFilename = (res: Response, fallback: string): string => {
     const disposition = res.headers.get("content-disposition") || "";
     const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
@@ -487,12 +501,14 @@ export function useProviderConnections(
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         notify.error(
-          data.error ||
+          errorText(
+            data.error,
             providerText(
               t,
               "failedUpdateClaudeExtraUsagePolicy",
               "Failed to update Claude extra-usage policy"
             )
+          )
         );
         return;
       }
@@ -577,8 +593,10 @@ export function useProviderConnections(
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         notify.error(
-          data.error ||
+          errorText(
+            data.error,
             providerText(t, "failedUpdateCodexLimitPolicy", "Failed to update Codex limit policy")
+          )
         );
         return;
       }
@@ -632,12 +650,14 @@ export function useProviderConnections(
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         notify.error(
-          data.error ||
+          errorText(
+            data.error,
             providerText(
               t,
               "failedUpdateCliproxyRouting",
               "Failed to update upstream proxy routing"
             )
+          )
         );
         return;
       }
@@ -704,7 +724,7 @@ export function useProviderConnections(
       const res = await fetch(`/api/providers/${connectionId}/test`, { method: "POST" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        notify.error(data.error || t("failedRetestConnection"));
+        notify.error(errorText(data.error, t("failedRetestConnection")));
         return;
       }
       await fetchConnections();
@@ -732,7 +752,7 @@ export function useProviderConnections(
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        notify.error(data.error || t("failedClearConnectionCooldown"));
+        notify.error(errorText(data.error, t("failedClearConnectionCooldown")));
         return;
       }
       // Optimistically drop the cooldown locally so the row leaves the cooling
@@ -774,7 +794,7 @@ export function useProviderConnections(
           await fetchConnections();
         }
       } else {
-        notify.error(data.error || t("tokenRefreshFailed"));
+        notify.error(errorText(data.error, t("tokenRefreshFailed")));
       }
     } catch (error) {
       console.error("Error refreshing token:", error);
@@ -878,7 +898,9 @@ export function useProviderConnections(
         if (typeof onAfter === "function") await onAfter();
       } else {
         const data = await res.json();
-        notify.error(data.error || providerText(t, "batchDeleteFailed", "Batch delete failed"));
+        notify.error(
+          errorText(data.error, providerText(t, "batchDeleteFailed", "Batch delete failed"))
+        );
       }
     } catch {
       notify.error(providerText(t, "batchDeleteNetworkError", "Network error during batch delete"));
