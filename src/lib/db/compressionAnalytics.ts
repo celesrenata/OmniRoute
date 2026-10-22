@@ -149,7 +149,7 @@ export function insertCompressionAnalyticsRow(row: CompressionAnalyticsRow): voi
     row.original_tokens,
     row.compressed_tokens,
     row.tokens_saved,
-    row.duration_ms ?? null,
+    toFiniteInt(row.duration_ms),
     row.request_id ?? null,
     row.actual_prompt_tokens ?? null,
     row.actual_completion_tokens ?? null,
@@ -245,7 +245,7 @@ export function insertCompressionEngineBreakdown(rows: CompressionEngineBreakdow
         r.original_tokens,
         r.compressed_tokens,
         r.tokens_saved,
-        r.duration_ms ?? null
+        toFiniteInt(r.duration_ms)
       );
     }
   });
