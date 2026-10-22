@@ -604,10 +604,22 @@ export function createPostgresAdapter(config: {
       const resolveBind = (params: unknown[]): unknown[] =>
         resolveBindRaw(params).map((v) => (v === undefined ? null : v));
 
+      // Wraps pg-native errors with the translated SQL so a dialect/translation
+      // bug is diagnosable (pg-native's raw error is just e.g. 'syntax error at
+      // or near "$2"' with no statement text).
+      const exec1 = (bind: unknown[]): unknown => {
+        try {
+          return client.querySync(finalSql, bind);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(`${msg} | SQL: ${finalSql.slice(0, 300)}`);
+        }
+      };
+
       return {
         // run is for DML that returns row count
         run(...params: unknown[]): RunResult {
-          client.querySync(finalSql, resolveBind(params));
+          exec1(resolveBind(params));
           return {
             // pg-native's pq.cmdTuples() returns the affected-row count as a
             // STRING; better-sqlite3 callers expect RunResult.changes to be a
@@ -620,13 +632,13 @@ export function createPostgresAdapter(config: {
 
         // get is for single-row results (e.g., SELECT *)
         get(...params: unknown[]): unknown {
-          const result = client.querySync(finalSql, resolveBind(params));
+          const result = exec1(resolveBind(params));
           return Array.isArray(result) && result.length >= 1 ? result[0] : result;
         },
 
         // all returns all rows
         all(...params: unknown[]): unknown[] {
-          const result = client.querySync(finalSql, resolveBind(params));
+          const result = exec1(resolveBind(params));
           return Array.isArray(result) ? result : [];
         },
       };
