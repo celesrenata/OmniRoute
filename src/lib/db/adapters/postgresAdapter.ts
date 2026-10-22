@@ -569,7 +569,7 @@ export function createPostgresAdapter(config: {
       //   - positional statements: the spread args as-is.
       // A 0-placeholder statement always binds nothing (callers sometimes pass
       // trailing args to such statements; better-sqlite3 ignores them).
-      const resolveBind = (params: unknown[]): unknown[] => {
+      const resolveBindRaw = (params: unknown[]): unknown[] => {
         if (numParams === 0) return [];
         if (isNamed) {
           const obj =
@@ -597,6 +597,12 @@ export function createPostgresAdapter(config: {
         }
         return params;
       };
+      // Coerce `undefined` bind values to SQL NULL. pg-native stringifies an
+      // undefined parameter to the literal text "undefined", which then fails
+      // against non-text columns ('invalid input syntax for type integer:
+      // "undefined"'); better-sqlite3 binds a missing/undefined value as NULL.
+      const resolveBind = (params: unknown[]): unknown[] =>
+        resolveBindRaw(params).map((v) => (v === undefined ? null : v));
 
       return {
         // run is for DML that returns row count

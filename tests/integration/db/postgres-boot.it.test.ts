@@ -99,5 +99,14 @@ test(
       .run(30);
     assert.equal(typeof del.changes, "number", "RunResult.changes is a number");
     assert.equal(db.pragma("freelist_count", { simple: true }), 0, "freelist_count shim returns 0");
+
+    // undefined bind values must become SQL NULL, not the literal text
+    // "undefined" (which failed non-text columns: 'invalid input syntax for
+    // type integer: "undefined"').
+    db.exec("CREATE TABLE IF NOT EXISTS _it_undef (id TEXT, n BIGINT)");
+    db.prepare("INSERT INTO _it_undef (id, n) VALUES (?, ?)").run("u", undefined);
+    const u = db.prepare("SELECT n FROM _it_undef WHERE id = ?").get("u") as { n: number | null };
+    assert.equal(u.n, null, "undefined binds as NULL on PostgreSQL");
+    db.exec("DROP TABLE IF EXISTS _it_undef");
   }
 );
