@@ -12,7 +12,7 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-cache,targe
   --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-lists,target=/var/lib/apt/lists,sharing=locked \
   apt-get update \
   && apt-get upgrade -y \
-  && apt-get install -y --no-install-recommends libsecret-1-0 ca-certificates \
+  && apt-get install -y --no-install-recommends libsecret-1-0 libpq5 ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 # npm's *bundled* node_modules (brace-expansion, ip-address, tar, undici) are
@@ -71,7 +71,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-lists,target=/var/lib/apt/lists,sharing=locked \
   apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
+  && apt-get install -y --no-install-recommends python3 make g++ libpq-dev \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
@@ -110,6 +110,11 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,targe
       && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild --force_build=1) \
   && test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node \
   && node -e "require('better-sqlite3')(':memory:').close()" \
+  && (cd node_modules/libpq \
+      && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild --force_build=1) \
+  && (cd node_modules/pg-native \
+      && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild --force_build=1 || true) \
+  && node -e "require('pg-native'); console.log('pg-native loadable')" \
   && node -e "const wreq=require('wreq-js'); if(typeof wreq.createTransport!=='function') process.exit(1)"
 
 # Bundler for the image build. The DOCKERFILE default is webpack
@@ -264,6 +269,13 @@ COPY --chown=node:node --from=builder /app/.build/next/standalone ./
 # starts, so guarantee the complete package independent of trace behaviour.
 COPY --chown=node:node --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
 RUN test -f /app/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+# pg-native (PostgreSQL backend, DATABASE_DRIVER=postgres) and its libpq binding
+# are native addons the standalone trace does not reliably include. Copy them
+# explicitly so the driver factory can load them at runtime; libpq5 is installed
+# on the runner base so the addon resolves its shared library.
+COPY --chown=node:node --from=builder /app/node_modules/pg-native ./node_modules/pg-native
+COPY --chown=node:node --from=builder /app/node_modules/libpq ./node_modules/libpq
+RUN node -e "require('/app/node_modules/pg-native'); console.log('pg-native present in runner')"
 # migrations land at <standalone>/migrations via assembleStandalone; point the runtime at them.
 ENV OMNIROUTE_MIGRATIONS_DIR=/app/migrations
 

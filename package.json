@@ -393,6 +393,7 @@
     "js-tiktoken": "^1.0.20",
     "keytar": "^7.9.0",
     "onnxruntime-node": "1.30.0",
+    "pg-native": "^3.5.0",
     "sqlite-vec": "^0.1.9",
     "wreq-js": "3.2.0"
   },
@@ -473,6 +474,7 @@
       "better-sqlite3",
       "esbuild",
       "omniroute",
+      "pg-native",
       "sharp"
     ]
   },
@@ -482,6 +484,7 @@
     "@swc/core": true,
     "@parcel/watcher": true,
     "keytar": true,
+    "pg-native": true,
     "protobufjs": true,
     "unrs-resolver": true
   },
