@@ -1008,18 +1008,20 @@ html[dir="rtl"] :where(.material-symbols-outlined, .traffic-lights, .react-flow)
    host-owned 2D/Atomic view-mode toggle, so the controls sit top-center.
    -------------------------------------------------------------------------- */
 
+/* OR-ATOM-003 (V7): the legend is a small multi-section key — Lanes /
+   States / Events — so lane vs. health-state vs. transient-event colors are
+   never conflated. */
 .atomic-legend {
   position: absolute;
   left: 8px;
   bottom: 8px;
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: 60%;
-  padding: 4px 10px;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 46%;
+  padding: 6px 10px;
   border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 999px;
+  border-radius: 10px;
   background: rgba(15, 23, 42, 0.62);
   color: #e2e8f0;
   font-size: 10px;
@@ -1027,10 +1029,18 @@ html[dir="rtl"] :where(.material-symbols-outlined, .traffic-lights, .react-flow)
   backdrop-filter: blur(6px);
 }
 
+.atomic-legend__section {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
 .atomic-legend__title {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: rgba(226, 232, 240, 0.45);
+  min-width: 42px;
 }
 
 .atomic-legend__item {
@@ -1045,6 +1055,15 @@ html[dir="rtl"] :where(.material-symbols-outlined, .traffic-lights, .react-flow)
   border-radius: 999px;
 }
 
+/* Honest missing-data copy (e.g. "no active lane observable — not an error"). */
+.atomic-legend__note {
+  color: rgba(226, 232, 240, 0.55);
+  font-style: italic;
+}
+
+/* OR-ATOM-003 (V7): the control group — a Pause/Resume button + a Reset-view
+   button. The live/stale indicator lives solely in the telemetry badge
+   (top-right); the pause chip no longer carries a "live" dot. */
 .atomic-controls {
   position: absolute;
   top: 8px;
@@ -1052,36 +1071,53 @@ html[dir="rtl"] :where(.material-symbols-outlined, .traffic-lights, .react-flow)
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
+  gap: 2px;
+  padding: 2px;
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.72);
   color: #e2e8f0;
   font-size: 11px;
-  cursor: pointer;
   backdrop-filter: blur(6px);
-  transition:
-    border-color 120ms ease,
-    background 120ms ease;
 }
 
-.atomic-controls:hover,
-.atomic-controls:focus-visible {
-  border-color: rgba(226, 232, 240, 0.55);
+.atomic-controls__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.atomic-controls__btn:hover,
+.atomic-controls__btn:focus-visible {
   background: rgba(30, 41, 59, 0.9);
+  color: #f1f5f9;
   outline: none;
 }
 
-.atomic-controls__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #4ade80;
+.atomic-controls__btn:focus-visible {
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.5);
 }
 
-.atomic-controls--paused .atomic-controls__dot {
-  background: #fbbf24;
+.atomic-controls__icon {
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* Paused: amber icon tint (state, not "liveness" — no green dot anymore). */
+.atomic-controls--paused .atomic-controls__icon {
+  color: #fbbf24;
 }
 
 .atomic-tooltip {

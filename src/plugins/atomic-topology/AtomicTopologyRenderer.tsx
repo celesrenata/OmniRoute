@@ -371,6 +371,12 @@ export interface AtomicTopologyRendererProps {
   size: { width: number; height: number };
   /** Whether continuous animation is paused (host-driven via `setPaused`). */
   paused: boolean;
+  /**
+   * Monotonic reset token (OR-ATOM-003, V7): bumped on each "reset view"
+   * request so the scene's `CameraRig` re-applies the base fit. `0` until the
+   * first reset. Carried into the scene via {@link AtomicSceneContextValue}.
+   */
+  resetToken: number;
   /** The atom id the view should center on (host-driven via `focusNode`). */
   focusNodeId: string | null;
   /**
@@ -420,6 +426,7 @@ function canCreateWebGL2AtRender(): boolean {
 export function AtomicTopologyRenderer({
   snapshot,
   paused,
+  resetToken,
   focusNodeId,
   options,
   onFocusRequest,
@@ -510,6 +517,7 @@ export function AtomicTopologyRenderer({
     nowMs: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
     cameraState,
     fitRadius,
+    resetToken,
   };
 
   // Feed-freshness state for the telemetry badge (M6): `unavailable` when the
@@ -594,7 +602,7 @@ export function AtomicTopologyRenderer({
           onFocusRequest={onFocusRequest}
           cameraState={cameraState}
         />
-        <AtomicTooltip descriptor={focusedDescriptor} />
+        <AtomicTooltip descriptor={focusedDescriptor} capturedAt={capturedAt} />
       </div>
     </div>
   );
@@ -616,6 +624,8 @@ interface AtomicInstanceState {
   paused: boolean;
   focusNodeId: string | null;
   options: TopologyRendererOptions;
+  /** Monotonic "reset view" token (OR-ATOM-003, V7) — bumped on reset requests. */
+  resetToken: number;
 }
 
 /**
@@ -661,9 +671,37 @@ export function createAtomicTopologyInstance(
     paused: false,
     focusNodeId: null,
     options,
+    resetToken: 0,
   };
 
   let disposed = false;
+
+  // Delegated overlay controls (OR-ATOM-003, V7): the pause chip and the
+  // reset-view button in `overlays/AtomicControls.tsx` are presentational —
+  // they dispatch `window` CustomEvents, and this instance (the single owner
+  // of the animation state) is the listener. Wiring them here — rather than in
+  // the host panel — keeps the controls authoritative for every mount path and
+  // lets a bare renderer instance respond to the same chips. Both listeners
+  // are removed in `dispose()` so a destroyed instance never lingers on the
+  // `window` event bus.
+  const onTogglePause = (event: Event): void => {
+    if (disposed) return;
+    const detail =
+      event instanceof CustomEvent && typeof event.detail === "object" && event.detail !== null
+        ? (event.detail as { pause?: unknown }).pause
+        : !state.paused;
+    state.paused = detail === true;
+    render();
+  };
+  const onResetView = (): void => {
+    if (disposed) return;
+    // Monotonic: the scene's `CameraRig` re-applies the base fit when this
+    // changes, even while an atom is focused (reset frames the whole scene).
+    state.resetToken += 1;
+    render();
+  };
+  window.addEventListener("atomic:toggle-pause", onTogglePause);
+  window.addEventListener("atomic:reset-view", onResetView);
 
   // The renderer owns the bounded request-lifecycle event pool (M4): a stable
   // ref handed to the host, populated from each snapshot's `lifecycle` stream
@@ -687,6 +725,7 @@ export function createAtomicTopologyInstance(
         snapshot={state.snapshot}
         size={state.size}
         paused={state.paused}
+        resetToken={state.resetToken}
         focusNodeId={state.focusNodeId}
         options={state.options}
         eventPool={pool}
@@ -728,6 +767,10 @@ export function createAtomicTopologyInstance(
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      // Detach the delegated control listeners so a destroyed instance never
+      // keeps reacting to `atomic:toggle-pause` / `atomic:reset-view` events.
+      window.removeEventListener("atomic:toggle-pause", onTogglePause);
+      window.removeEventListener("atomic:reset-view", onResetView);
       // Release the event pool so no pooled events survive the teardown.
       pool.clear();
       try {

@@ -47,6 +47,20 @@ import {
 import type { AtomicCameraState } from "../scene/sceneContext";
 
 /**
+ * Hub-chip vertical offset (OR-ATOM-003, V2). `LABEL_OFFSET_Y` (-28, *above*
+ * the anchor) puts the hub chip directly on the nucleus — the hub is the
+ * origin and the largest 3D mass, so the label occludes the atom it names.
+ * The hub chip is instead anchored *below* the nucleus so it reads as a
+ * caption, not an occlusion. A local constant (not in `labelCollision.ts`)
+ * so the frozen `labelRect` / `LABEL_OFFSET_Y` pins stay untouched; the
+ * offset is applied to the projected `y` *before* `labelRect` and to the
+ * chip transform, keeping collision box and rendered chip consistent.
+ *
+ * +46: nucleus screen half-height + chip height (24) + clearance.
+ */
+const HUB_LABEL_OFFSET_Y = 46;
+
+/**
  * The atomic labels overlay.
  *
  * @param descriptors    the atom descriptors (one label/row per atom).
@@ -221,17 +235,27 @@ function ProjectedLabels({
         // Project every atom, build its chip rect, then resolve screen-space
         // collisions (V3 — OR-ATOM-002): the higher-priority label wins;
         // lower-priority labels that overlap a placed one are hidden.
+        //
+        // Hub-label offset (OR-ATOM-003, V2): the hub chip anchors *below*
+        // the nucleus (a positive downward offset) instead of on top of it.
+        // `labelRect` is left untouched (the frozen pins assert its
+        // `LABEL_OFFSET_Y` math), so the per-label offset is applied here to
+        // the projected `y` before the rect is computed — and the same
+        // offset drives the chip transform below, so the collision box and
+        // the rendered chip stay consistent.
         const entries = labels.map((descriptor) => {
           const p = project([descriptor.position.x, descriptor.position.y, descriptor.position.z]);
+          const yOff = descriptor.kind === "hub" ? HUB_LABEL_OFFSET_Y : LABEL_OFFSET_Y;
           return {
             descriptor,
             p,
+            yOff,
             rect: labelRect({
               id: descriptor.id,
               label: descriptor.label,
               state: descriptor.visualState.state,
               x: p.x,
-              y: p.y,
+              y: p.y + yOff,
               priority: labelPriority(descriptor, focusNodeId),
               viewportWidth: cameraState.viewportWidth,
               viewportHeight: cameraState.viewportHeight,
@@ -247,7 +271,7 @@ function ProjectedLabels({
             .map((v) => v.id)
         );
 
-        for (const { descriptor, p } of entries) {
+        for (const { descriptor, p, yOff } of entries) {
           const el = labelRefs.current[descriptor.id];
           if (!el) continue;
           // Hide when behind the camera, when projected far outside the
@@ -266,7 +290,9 @@ function ProjectedLabels({
           } else {
             el.style.visibility = "visible";
             el.style.pointerEvents = "auto";
-            el.style.transform = `translate(${p.x}px, ${p.y + LABEL_OFFSET_Y}px)`;
+            // Per-label offset: hub anchored below the nucleus (V2), other
+            // chips above the anchor (`LABEL_OFFSET_Y`) as before.
+            el.style.transform = `translate(${p.x}px, ${p.y + yOff}px)`;
           }
         }
       }

@@ -139,6 +139,7 @@ function CameraRig({ context }: { context: AtomicSceneContextValue }) {
   const focusPosition = context.focusTarget;
   const aspect = context.cameraAspect;
   const fitRadius = context.fitRadius;
+  const resetToken = context.resetToken;
 
   useEffect(() => {
     const focused = focusPosition
@@ -155,7 +156,7 @@ function CameraRig({ context }: { context: AtomicSceneContextValue }) {
     camera.near = fit.near;
     camera.far = fit.far;
     camera.updateProjectionMatrix();
-  }, [camera, focusPosition, aspect, fitRadius]);
+  }, [camera, focusPosition, aspect, fitRadius, resetToken]);
 
   return null;
 }

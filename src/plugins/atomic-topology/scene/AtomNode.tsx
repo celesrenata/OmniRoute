@@ -36,8 +36,16 @@
  * - **GPU device atoms (`kind: "gpu"`)**: rendered forward-compatibly like a
  *   provider; a discharge is applied only when the event carries a matching
  *   `providerId`.
+ * - **Nucleus (OR-ATOM-003, V4):** the atom is a dense instanced
+ *   proton/neutron cluster (a single `InstancedMesh`, 1 draw call) on a
+ *   Fibonacci sphere — the same layered nuclear body as the hub, scaled to
+ *   the atom. When in-flight model colors are observed the cluster cycles
+ *   through those *observed* colors; with no observation it falls back to
+ *   the neutral proton/neutron palette (never a fabricated composition).
+ *   The cluster geometry is the pure, unit-tested
+ *   `atomNucleusParticleField` in `./geometry`.
  */
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
@@ -45,6 +53,13 @@ import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
 import { QUALITY_BUDGETS } from "../quality";
 import { useAtomicSceneContext } from "./sceneContext";
 import { ElectronCloud } from "./ElectronCloud";
+import {
+  ATOM_NUCLEUS_CLUSTER_RADIUS_FACTOR,
+  ATOM_NUCLEUS_COUNT_HIGH,
+  ATOM_NUCLEUS_COUNT_LOW,
+  ATOM_NUCLEUS_PARTICLE_RADIUS,
+  atomNucleusParticleField,
+} from "./geometry";
 
 /** World-space radius of a ring atom's core sphere. */
 const ATOM_RADIUS = 22;
@@ -144,31 +159,41 @@ export function AtomNode({
   const scale = (focused ? FOCUS_SCALE : 1) + dischargeIntensity * DISCHARGE_SCALE;
   const emissiveColor = discharge.red ? FAILED_DISCHARGE_COLOR : descriptor.laneHue;
 
-  // Model-composition particles (OR-ATOM-002 item 5): up to 3 small spheres,
-  // one per *observed* in-flight model color, arranged in a fixed band around
-  // the core. When no models are observed the atom is a single neutral core —
-  // no fabricated "composition" particles.
-  const modelParticles = useMemo(
-    () =>
-      descriptor.modelColors.map((color, i) => {
-        const angle = (i / Math.max(1, descriptor.modelColors.length)) * Math.PI * 2 + 0.6;
-        return {
-          color,
-          position: [
-            Math.cos(angle) * ATOM_RADIUS * 0.62,
-            Math.sin(angle * 1.7) * ATOM_RADIUS * 0.4,
-            Math.sin(angle) * ATOM_RADIUS * 0.62,
-          ] as [number, number, number],
-        };
-      }),
-    [descriptor.modelColors]
+  // Dense nucleus cluster (OR-ATOM-003, V4): a single instanced mesh on a
+  // Fibonacci sphere — layered body, 1 draw call, deterministic layout.
+  // Palette: *observed* in-flight model colors when present, neutral
+  // proton/neutron alternation otherwise (no fabricated composition).
+  const nucleusCount = quality === "low" ? ATOM_NUCLEUS_COUNT_LOW : ATOM_NUCLEUS_COUNT_HIGH;
+  const nucleusRadius = ATOM_RADIUS * ATOM_NUCLEUS_CLUSTER_RADIUS_FACTOR;
+  const nucleusParticles = useMemo(
+    () => atomNucleusParticleField(nucleusCount, nucleusRadius, descriptor.modelColors),
+    [nucleusCount, nucleusRadius, descriptor.modelColors]
   );
+
+  const clusterRef = useRef<THREE.InstancedMesh | null>(null);
+
+  // Set instance matrices + colors once (deterministic layout).
+  useEffect(() => {
+    const mesh = clusterRef.current;
+    if (!mesh) return;
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < nucleusCount; i += 1) {
+      const [x, y, z] = nucleusParticles[i].position;
+      dummy.position.set(x, y, z);
+      dummy.scale.setScalar(ATOM_NUCLEUS_PARTICLE_RADIUS);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      mesh.setColorAt(i, new THREE.Color(nucleusParticles[i].color));
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, [nucleusParticles, nucleusCount]);
 
   return (
     <group ref={groupRef} position={basePosition}>
-      {/* Core sphere — the neutral/first-model base color. */}
+      {/* Core sphere — the neutral/lane base body under the cluster. */}
       <mesh scale={scale}>
-        <sphereGeometry args={[ATOM_RADIUS * 0.82, 32, 32]} />
+        <sphereGeometry args={[ATOM_RADIUS * 0.62, 32, 32]} />
         <meshStandardMaterial
           ref={materialRef}
           color={descriptor.color}
@@ -178,19 +203,23 @@ export function AtomNode({
           metalness={0.25}
         />
       </mesh>
-      {/* One particle per observed in-flight model (≤3); honest, no fake GPU. */}
-      {modelParticles.map((particle, i) => (
-        <mesh key={i} position={particle.position} scale={scale}>
-          <sphereGeometry args={[ATOM_RADIUS * 0.34, 20, 20]} />
-          <meshStandardMaterial
-            color={particle.color}
-            emissive={particle.color}
-            emissiveIntensity={emissiveIntensity * 0.7}
-            roughness={0.35}
-            metalness={0.2}
-          />
-        </mesh>
-      ))}
+      {/* Dense instanced nucleus cluster (V4): observed model colors or the
+          neutral proton/neutron palette — 1 draw call per atom. */}
+      <instancedMesh
+        ref={clusterRef}
+        args={[undefined, undefined, nucleusCount]}
+        key={nucleusCount}
+        scale={scale}
+      >
+        <sphereGeometry args={[1, 10, 10]} />
+        <meshStandardMaterial
+          color="#ffffff"
+          emissive="#ffffff"
+          emissiveIntensity={0.35}
+          roughness={0.35}
+          metalness={0.15}
+        />
+      </instancedMesh>
 
       {/* Electron cloud spinning at the per-atom speed (frozen when paused or
           reduced-motion; the discharge pulse does not touch the cloud). */}

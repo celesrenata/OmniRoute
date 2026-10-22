@@ -172,6 +172,41 @@ row-per-request, and the in-memory pending map is the only live in-flight view.
 - No push channel exists: no Prometheus exposition endpoint, no OTLP exporter,
   no agent process, no WireGuard-managed telemetry network.
 
+## 7.1 OR-ATOM-003 — what the visual scene derives from this matrix
+
+The topology scene (`src/plugins/atomic-topology/scene/`) consumes the fleet
+telemetry snapshot and renders **only** what this matrix says is available. The
+deliberate visual treatments, mapped to the gaps above:
+
+- **Per-runtime spin / TPS is not rendered from telemetry.** Output tok/s
+  (`X-OmniRoute-Tokens-Per-Second`) is a per-request derived value
+  (§2, "Derived (with provenance)") — it is never attributed to a runtime,
+  node, or GPU in the topology snapshot. The scene therefore resolves the
+  spin state to `mode: "unavailable"` and applies the neutral slow spin
+  (0.1 rad/s reference) rather than scaling the spin rate from any fabricated
+  per-runtime throughput. Fabricating a per-atom TPS from the request-level
+  value would conflate request throughput with runtime utilization, which no
+  producer in this repository can support.
+- **GPU identity / VRAM / utilization / temperature / power** have zero
+  producers (§7), so atom bodies and halos never encode GPU state; the
+  "GPU runtime" node role renders its _observed_ provider-connection state
+  (idle / active / degraded) with no device-metric overlay.
+- **Job lanes are opaque HMAC fingerprints** (§5), so lane hues are a
+  presentation choice: a stable hue per lane identity, with an honest neutral
+  hue for `"unknown"` (lane not observed) — never a color that implies a
+  specific provider or product.
+- **Queue depth is per provider + connection**, not per atom, so the queue
+  vibration visual is keyed to the observed per-connection queue where
+  available and left neutral otherwise; there is no per-atom queue count.
+- **Failed requests are transient events**, not route-health state: the red
+  link flash is a short decaying transient from the request lifecycle event
+  pool and returns to the neutral filament; there is no persistent red on a
+  route because of a failed request.
+
+These choices are pinned by the pure geometry/encoding tests in
+`tests/unit/atomic-topology/` (including `geometry.test.ts` for the nucleus
+cluster and shell configuration math).
+
 ## 8. Centralized collection decision (M0)
 
 - M2 shipped (T005): the endpoint itself now exists — `GET /api/telemetry/fleet`

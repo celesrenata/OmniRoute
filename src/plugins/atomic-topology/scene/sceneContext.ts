@@ -38,7 +38,9 @@ export interface SceneWorldPosition {
  * focus → same pivot. Non-finite coordinates clamp to 0 rather than corrupt
  * the pivot.
  */
-export function resolveOrbitTarget(focusTarget: SceneWorldPosition | null): [number, number, number] {
+export function resolveOrbitTarget(
+  focusTarget: SceneWorldPosition | null
+): [number, number, number] {
   if (!focusTarget) return [0, 0, 0];
   const { x, y, z } = focusTarget;
   return [Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0, Number.isFinite(z) ? z : 0];
@@ -137,6 +139,13 @@ export interface AtomicSceneContextValue {
    * layout radius. Computed by the adapter, read by the scene's `CameraRig`.
    */
   fitRadius: number;
+  /**
+   * Monotonic reset token (OR-ATOM-003, V7): bumped by the "reset view"
+   * request so the scene's `CameraRig` re-applies the base fit even while a
+   * focus is active (a reset re-frames the whole scene, it does not preserve
+   * the focused framing). `0` until the first reset request.
+   */
+  resetToken: number;
 }
 
 /**
@@ -158,6 +167,7 @@ export function useAtomicSceneContext(): AtomicSceneContextValue {
       nowMs: 0,
       cameraState: createAtomicCameraState(),
       fitRadius: 1010,
+      resetToken: 0,
     }
   );
 }
