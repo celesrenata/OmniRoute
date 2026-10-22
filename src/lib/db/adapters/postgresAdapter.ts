@@ -245,6 +245,10 @@ export function translateSqliteSql(sql: string): string {
   out = out.replace(/\bDATETIME\(\s*([^)]+?)\s*\)/gi, "($1)::timestamptz");
   // IFNULL(a, b) -> COALESCE(a, b) (identical semantics).
   out = out.replace(/\bIFNULL\s*\(/gi, "COALESCE(");
+  // SQLite instr(haystack, needle) -> PostgreSQL strpos(haystack, needle):
+  // identical argument order, both 1-based with 0 when not found. (substr() is
+  // already compatible between SQLite and PostgreSQL, so it is left as-is.)
+  out = out.replace(/\bINSTR\s*\(/gi, "strpos(");
 
   // SQLite `x IS ?` / `x IS NOT ?` is a NULL-safe comparison against a bound
   // value; PostgreSQL's `IS` only accepts NULL/TRUE/FALSE/DISTINCT FROM, so a

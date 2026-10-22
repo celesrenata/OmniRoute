@@ -101,6 +101,12 @@ test("nested datetime(strftime(...)) translates both", () => {
   assert.match(out, /to_char/i);
 });
 
+test("instr(a,b) becomes strpos(a,b)", () => {
+  const out = translateSqliteSql("SELECT instr(requested_model, '/') FROM t");
+  assert.match(out, /strpos\(requested_model, '\/'\)/i);
+  assert.doesNotMatch(out, /\binstr\(/i);
+});
+
 test("plain PostgreSQL passes through untouched", () => {
   const sql = "SELECT id, name FROM provider_connections WHERE enabled = true ORDER BY name";
   assert.equal(translateSqliteSql(sql), sql);
