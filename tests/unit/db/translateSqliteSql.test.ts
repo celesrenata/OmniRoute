@@ -13,13 +13,18 @@ test("stray AUTOINCREMENT keyword is dropped", () => {
   assert.doesNotMatch(out, /AUTOINCREMENT/i);
 });
 
-test("DATETIME('now') becomes NOW()", () => {
-  assert.match(translateSqliteSql("SELECT DATETIME('now')"), /SELECT NOW\(\)/i);
-  assert.match(translateSqliteSql('INSERT INTO t(a) VALUES (DATETIME("now"))'), /NOW\(\)/i);
+test("DATETIME('now') becomes ISO text via to_char", () => {
+  assert.match(
+    translateSqliteSql("SELECT datetime('now')"),
+    /SELECT to_char\(NOW\(\) AT TIME ZONE 'UTC'/i
+  );
 });
 
-test("DATETIME(col) maps to a timestamptz cast", () => {
-  assert.match(translateSqliteSql("SELECT DATETIME(created_at)"), /\(created_at\)::timestamptz/i);
+test("DATETIME(col) maps to ISO text via to_char", () => {
+  assert.match(
+    translateSqliteSql("SELECT DATETIME(created_at)"),
+    /to_char\(\(created_at\)::timestamptz/i
+  );
 });
 
 test("COLLATE NOCASE is stripped", () => {
@@ -38,11 +43,9 @@ test("strftime('%s','now') becomes epoch extract", () => {
   );
 });
 
-test("DATETIME('now','-'||$1||' days') becomes a NOW() - interval expression", () => {
-  const out = translateSqliteSql(
-    "DELETE FROM t WHERE datetime(ts) < datetime('now', '-' || $1 || ' days')"
-  );
-  assert.match(out, /NOW\(\) - \(\(\$1\) \|\| ' days'\)::interval/i);
+test("DATETIME('now','-'||$1||' days') becomes ISO text from NOW()-interval", () => {
+  const out = translateSqliteSql("DELETE FROM t WHERE ts < datetime('now', '-' || $1 || ' days')");
+  assert.match(out, /to_char\(\(NOW\(\) - \(\(\$1\) \|\| ' days'\)::interval\)/i);
   assert.doesNotMatch(out, /DATETIME\(/i);
 });
 

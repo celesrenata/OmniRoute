@@ -231,7 +231,15 @@ export function translateSqliteSql(sql: string): string {
   // Keep the value expression (a bound $n or literal) intact.
   out = out.replace(
     /\bDATETIME\(\s*['"]now['"]\s*,\s*'-'\s*\|\|\s*(.+?)\s*\|\|\s*'\s*days'\s*\)/gi,
-    "(NOW() - (($1) || ' days')::interval)"
+    "to_char((NOW() - (($1) || ' days')::interval) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
+  );
+  // date('now') -> ISO date text 'YYYY-MM-DD' (SQLite date() shape). The TEXT
+  // timestamp columns it is compared against start with that prefix, so a
+  // lexical `created_at >= date('now')` keeps working ('operator does not
+  // exist: text >= date' otherwise).
+  out = out.replace(
+    /\bDATE\(\s*['"]now['"]\s*\)/gi,
+    "to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD')"
   );
   // datetime('now', <modifier>) where <modifier> is a single bound param ($n)
   // or a quoted SQLite interval literal ('-6 hours', '+1 month'). SQLite
@@ -247,7 +255,10 @@ export function translateSqliteSql(sql: string): string {
     "to_char((NOW() + ($1)::interval) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
   );
   // datetime('now') / datetime("now")  ->  NOW().
-  out = out.replace(/\bDATETIME\(\s*['"]now['"]\s*\)/gi, "NOW()");
+  out = out.replace(
+    /\bDATETIME\(\s*['"]now['"]\s*\)/gi,
+    "to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
+  );
   // datetime(<epoch_seconds_expr>, 'unixepoch') -> to_timestamp(<expr>).
   // The epoch expression may itself contain parentheses (e.g. a bucketing
   // math expression), so match everything up to the literal `, 'unixepoch')`
@@ -261,7 +272,18 @@ export function translateSqliteSql(sql: string): string {
   // to_timestamp(col/1000) — callers hitting that must translate explicitly;
   // a blanket epoch-division guess here mis-handled the far more common TEXT
   // ISO columns ("operator does not exist: text / numeric").
-  out = out.replace(/\bDATETIME\(\s*([^)]+?)\s*\)/gi, "($1)::timestamptz");
+  // datetime(expr) -> ISO-8601 TEXT in the stored column format. OmniRoute
+  // stores all timestamps as ISO text and compares them lexically (as SQLite's
+  // datetime() returns text), so keep datetime() text-typed end to end. Parsing
+  // via ::timestamptz then to_char() normalizes a TEXT ISO column or literal and
+  // keeps `datetime(col) < datetime('now', …)` a text<->text comparison (both
+  // sides of this rule family emit the same format). Returning a bare
+  // ::timestamptz instead made `timestamptz < text` / `text < timestamptz`
+  // mismatches depending on which side wrapped the column.
+  out = out.replace(
+    /\bDATETIME\(\s*([^)]+?)\s*\)/gi,
+    "to_char(($1)::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
+  );
   // IFNULL(a, b) -> COALESCE(a, b) (identical semantics).
   out = out.replace(/\bIFNULL\s*\(/gi, "COALESCE(");
   // SQLite instr(haystack, needle) -> PostgreSQL strpos(haystack, needle):
@@ -299,6 +321,13 @@ export function translateSqliteSql(sql: string): string {
   // intact. Runs after translateParams, so the operand is already `$n`.
   out = out.replace(/\bIS\s+NOT\s+(\$\d+)\b/gi, "IS DISTINCT FROM $1");
   out = out.replace(/\bIS\s+(\$\d+)\b/gi, "IS NOT DISTINCT FROM $1");
+
+  // SQLite scalar max(a,b)/min(a,b) (2+ args) -> PostgreSQL greatest()/least().
+  // PG max()/min() are aggregate-only, so `max(a, b)` as a row scalar errors
+  // ("function max(bigint, bigint) does not exist"). A single-arg max(x) is the
+  // aggregate and is left untouched (negative lookahead for a comma).
+  out = out.replace(/\bMAX\s*\(([^(),]+,[^()]*)\)/gi, "GREATEST($1)");
+  out = out.replace(/\bMIN\s*\(([^(),]+,[^()]*)\)/gi, "LEAST($1)");
 
   return out;
 }
