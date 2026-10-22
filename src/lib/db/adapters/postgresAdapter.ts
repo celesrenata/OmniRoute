@@ -183,6 +183,15 @@ export function translateSqliteSql(sql: string): string {
   // IFNULL(a, b) -> COALESCE(a, b) (identical semantics).
   out = out.replace(/\bIFNULL\s*\(/gi, "COALESCE(");
 
+  // SQLite `x IS ?` / `x IS NOT ?` is a NULL-safe comparison against a bound
+  // value; PostgreSQL's `IS` only accepts NULL/TRUE/FALSE/DISTINCT FROM, so a
+  // bound placeholder there is a syntax error ('syntax error at or near "$2"').
+  // Rewrite to the NULL-safe `IS [NOT] DISTINCT FROM $n`. Only placeholders
+  // ($n) are rewritten — `IS NULL`, `IS NOT NULL`, `IS TRUE/FALSE` are left
+  // intact. Runs after translateParams, so the operand is already `$n`.
+  out = out.replace(/\bIS\s+NOT\s+(\$\d+)\b/gi, "IS DISTINCT FROM $1");
+  out = out.replace(/\bIS\s+(\$\d+)\b/gi, "IS NOT DISTINCT FROM $1");
+
   return out;
 }
 

@@ -46,6 +46,22 @@ test("DATETIME('now','-'||$1||' days') becomes a NOW() - interval expression", (
   assert.doesNotMatch(out, /DATETIME\(/i);
 });
 
+test("IS $n (null-safe) becomes IS NOT DISTINCT FROM", () => {
+  assert.match(
+    translateSqliteSql("SELECT * FROM a WHERE a.scope = $1 AND a.scope_id IS $2"),
+    /scope_id IS NOT DISTINCT FROM \$2/i
+  );
+});
+
+test("IS NOT $n becomes IS DISTINCT FROM", () => {
+  assert.match(translateSqliteSql("SELECT * FROM a WHERE x IS NOT $1"), /x IS DISTINCT FROM \$1/i);
+});
+
+test("IS NULL / IS NOT NULL are left untouched", () => {
+  const sql = "SELECT * FROM a WHERE x IS NULL AND y IS NOT NULL";
+  assert.equal(translateSqliteSql(sql), sql);
+});
+
 test("plain PostgreSQL passes through untouched", () => {
   const sql = "SELECT id, name FROM provider_connections WHERE enabled = true ORDER BY name";
   assert.equal(translateSqliteSql(sql), sql);
