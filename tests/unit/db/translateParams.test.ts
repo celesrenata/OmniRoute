@@ -82,3 +82,36 @@ test("translateParams should handle complex edge cases", () => {
   assert.strictEqual(result.sql, "SELECT * FROM test WHERE a = 'a?' AND b = '??' AND c = $1");
   assert.strictEqual(result.numParams, 1);
 });
+
+test("translateParams maps @named params to $n with ordered names", () => {
+  const r = translateParams("UPDATE t SET is_active = @isActive WHERE provider = @provider");
+  assert.strictEqual(r.sql, "UPDATE t SET is_active = $1 WHERE provider = $2");
+  assert.strictEqual(r.numParams, 2);
+  assert.deepStrictEqual(r.names, ["isActive", "provider"]);
+});
+
+test("translateParams reuses the slot for a repeated named param", () => {
+  const r = translateParams("INSERT INTO t (a, b) VALUES (@x, @x)");
+  assert.strictEqual(r.sql, "INSERT INTO t (a, b) VALUES ($1, $1)");
+  assert.strictEqual(r.numParams, 1);
+  assert.deepStrictEqual(r.names, ["x"]);
+});
+
+test("translateParams supports :name and $name styles", () => {
+  const r = translateParams("SELECT * FROM t WHERE a = :foo AND b = $bar");
+  assert.strictEqual(r.sql, "SELECT * FROM t WHERE a = $1 AND b = $2");
+  assert.deepStrictEqual(r.names, ["foo", "bar"]);
+});
+
+test("translateParams leaves :: casts and $1 positionals untouched", () => {
+  const r = translateParams("SELECT x::timestamptz, $1 FROM t WHERE y = ?");
+  // $1 is a literal already-positional token (digit after $), :: is a cast.
+  assert.match(r.sql, /x::timestamptz/);
+  assert.match(r.sql, /\$1 FROM/);
+});
+
+test("translateParams does not treat @ inside a string literal as a param", () => {
+  const r = translateParams("SELECT * FROM t WHERE email = 'a@b.com' AND id = @id");
+  assert.strictEqual(r.sql, "SELECT * FROM t WHERE email = 'a@b.com' AND id = $1");
+  assert.deepStrictEqual(r.names, ["id"]);
+});

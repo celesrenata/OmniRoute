@@ -25,10 +25,25 @@ import { runtimeRequire } from "./runtimeRequire";
 // Helper that converts SQLite-style '?' parameters to PostgreSQL '$1' style,
 // skipping any '?' that lives inside a single-quoted string literal.
 // Exported for unit coverage (tests/unit/db/translateParams.test.ts).
-export function translateParams(sql: string): { sql: string; numParams: number } {
+// Converts SQLite-style parameters to PostgreSQL positional `$n`, skipping any
+// token inside a single-quoted string literal. Handles BOTH better-sqlite3
+// styles:
+//   - anonymous positional  `?`               -> $1, $2 … (bound from an array)
+//   - named `@name` / `:name` / `$name`       -> $1, $2 … (bound from an object)
+// For named params the first occurrence of each distinct name claims the next
+// positional slot; repeat uses of the same name reuse that slot (SQLite
+// semantics). `names` is the ordered list of distinct bind names ([] for
+// anonymous). Exported for unit coverage (tests/unit/db/translateParams.test.ts).
+export function translateParams(sql: string): {
+  sql: string;
+  numParams: number;
+  names: string[];
+} {
   let newSql = "";
   let paramCount = 0;
   let inString = false;
+  const names: string[] = [];
+  const nameToIndex = new Map<string, number>();
   for (let i = 0; i < sql.length; i++) {
     const ch = sql[i];
     if (ch === "'") {
@@ -42,14 +57,44 @@ export function translateParams(sql: string): { sql: string; numParams: number }
       newSql += ch;
       continue;
     }
-    if (ch === "?" && !inString) {
+    if (inString) {
+      newSql += ch;
+      continue;
+    }
+    if (ch === "?") {
       paramCount++;
       newSql += `$${paramCount}`;
       continue;
     }
+    // Named parameter: @name / :name / $name followed by an identifier.
+    // (A bare `$1` already-positional token also matches `$`; the identifier
+    // regex requires a leading letter/underscore so `$1` is left alone. The
+    // PostgreSQL `::type` cast is guarded explicitly so `::timestamptz` is not
+    // misread as a `:timestamptz` bind.)
+    if (ch === ":" && sql[i + 1] === ":") {
+      newSql += "::";
+      i++;
+      continue;
+    }
+    if (ch === "@" || ch === ":" || ch === "$") {
+      const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(sql.slice(i + 1));
+      if (m) {
+        const name = m[0];
+        let idx = nameToIndex.get(name);
+        if (idx === undefined) {
+          paramCount++;
+          idx = paramCount;
+          nameToIndex.set(name, idx);
+          names.push(name);
+        }
+        newSql += `$${idx}`;
+        i += name.length; // skip the name chars (the sigil char is consumed by the loop step)
+        continue;
+      }
+    }
     newSql += ch;
   }
-  return { sql: newSql, numParams: paramCount };
+  return { sql: newSql, numParams: paramCount, names };
 }
 
 // Cache of primary keys per table, resolved once from information_schema.
@@ -474,7 +519,7 @@ export function createPostgresAdapter(config: {
         return { run, get, all };
       }
 
-      const { sql: paramSql, numParams } = translateParams(sql);
+      const { sql: paramSql, numParams, names } = translateParams(sql);
       // Rewrite SQLite dialect (DATETIME/IFNULL/COLLATE NOCASE/AUTOINCREMENT…)
       // to PostgreSQL before the unsupported-construct gate and execution.
       const translatedSql = translateSqliteSql(paramSql);
@@ -501,20 +546,48 @@ export function createPostgresAdapter(config: {
           ? translateInsertOrReplace(translatedSql, pk)
           : translateInsertOrIgnore(translatedSql, pk);
       }
+      const isNamed = names.length > 0;
+
+      // Resolves a better-sqlite3 call signature into the positional array
+      // pg-native needs. Supports:
+      //   - named statements: a single object arg { name: value } (or a bare
+      //     value when there is exactly one name) reordered to the `names` order;
+      //   - positional statements: the spread args as-is.
+      // A 0-placeholder statement always binds nothing (callers sometimes pass
+      // trailing args to such statements; better-sqlite3 ignores them).
+      const resolveBind = (params: unknown[]): unknown[] => {
+        if (numParams === 0) return [];
+        if (isNamed) {
+          const obj =
+            params.length === 1 && params[0] !== null && typeof params[0] === "object"
+              ? (params[0] as Record<string, unknown>)
+              : undefined;
+          if (obj) {
+            return names.map((n) => {
+              if (!(n in obj)) {
+                throw new Error(
+                  `[postgresAdapter] missing named parameter "${n}" for: ${sql.slice(0, 120)}`
+                );
+              }
+              return obj[n];
+            });
+          }
+          // Single named param can also be supplied positionally.
+          if (names.length === 1 && params.length === 1) return params;
+          throw new Error(
+            `[postgresAdapter] named statement expects an object with {${names.join(", ")}}: ${sql.slice(0, 120)}`
+          );
+        }
+        if (params.length !== numParams) {
+          throw new Error(`Wrong parameter count: expected ${numParams}, got ${params.length}`);
+        }
+        return params;
+      };
 
       return {
         // run is for DML that returns row count
         run(...params: unknown[]): RunResult {
-          // A statement with N placeholders must receive N params. But callers
-          // (and better-sqlite3) sometimes pass trailing args to a statement
-          // whose placeholders were already inlined/translated away (numParams
-          // === 0) — tolerate that by binding none, matching get()/all().
-          if (numParams > 0 && params.length !== numParams) {
-            throw new Error(`Wrong parameter count: expected ${numParams}, got ${params.length}`);
-          }
-          const bind = numParams === 0 ? [] : params;
-
-          client.querySync(finalSql, bind);
+          client.querySync(finalSql, resolveBind(params));
           return {
             changes: client.pq.cmdTuples(),
             // No equivalent in Postgres (OIDs are not assigned to rows).
@@ -524,20 +597,13 @@ export function createPostgresAdapter(config: {
 
         // get is for single-row results (e.g., SELECT *)
         get(...params: unknown[]): unknown {
-          if (numParams > 0 && params.length && params.length !== numParams) {
-            throw new Error(`Wrong parameter count: expected ${numParams}, got ${params.length}`);
-          }
-          const result = client.querySync(finalSql, numParams === 0 ? [] : params);
+          const result = client.querySync(finalSql, resolveBind(params));
           return Array.isArray(result) && result.length >= 1 ? result[0] : result;
         },
 
         // all returns all rows
         all(...params: unknown[]): unknown[] {
-          if (numParams > 0 && params.length && params.length !== numParams) {
-            throw new Error(`Wrong parameter count: expected ${numParams}, got ${params.length}`);
-          }
-
-          const result = client.querySync(finalSql, numParams === 0 ? [] : params);
+          const result = client.querySync(finalSql, resolveBind(params));
           return Array.isArray(result) ? result : [];
         },
       };

@@ -73,5 +73,19 @@ test(
     // Clean up the throwaway tables so repeat runs stay idempotent.
     db.exec("DROP TABLE IF EXISTS _it_audit");
     db.exec("DROP TABLE IF EXISTS _it_jobs");
+
+    // Named-parameter (@name) round-trip — the dominant live-pod failure class
+    // ("column isactive does not exist" / "operator does not exist: @ text"):
+    // better-sqlite3 named params must map to $n bound from an object.
+    db.exec("CREATE TABLE IF NOT EXISTS _it_named (id TEXT PRIMARY KEY, is_active BIGINT)");
+    db.prepare("INSERT INTO _it_named (id, is_active) VALUES (@id, @isActive)").run({
+      id: "a",
+      isActive: 1,
+    });
+    const named = db
+      .prepare("SELECT is_active::int AS a FROM _it_named WHERE id = @id AND is_active = @isActive")
+      .get({ id: "a", isActive: 1 }) as { a: number } | undefined;
+    assert.ok(named && named.a === 1, "named @params bind correctly on PostgreSQL");
+    db.exec("DROP TABLE IF EXISTS _it_named");
   }
 );
