@@ -121,6 +121,30 @@ test("datetime(epochExpr, unixepoch) becomes to_timestamp", () => {
   assert.doesNotMatch(out, /unixepoch/i);
 });
 
+test("json_extract(col, $.key) becomes jsonb #>> path", () => {
+  const out = translateSqliteSql("SELECT json_extract(data, '$.workspaceId') FROM t");
+  assert.match(out, /\(data\)::jsonb #>> '\{workspaceId\}'/i);
+  assert.doesNotMatch(out, /json_extract/i);
+});
+
+test("json_extract nested path becomes multi-key jsonb path", () => {
+  assert.match(translateSqliteSql("SELECT json_extract(d, '$.a.b') FROM t"), /#>> '\{a,b\}'/i);
+});
+
+test("group_concat becomes string_agg with default comma", () => {
+  assert.match(
+    translateSqliteSql("SELECT group_concat(name) FROM t"),
+    /string_agg\(\(name\)::text, ','\)/i
+  );
+});
+
+test("group_concat with sep becomes string_agg with that sep", () => {
+  assert.match(
+    translateSqliteSql("SELECT group_concat(name, '; ') FROM t"),
+    /string_agg\(\(name\)::text, '; '\)/i
+  );
+});
+
 test("plain PostgreSQL passes through untouched", () => {
   const sql = "SELECT id, name FROM provider_connections WHERE enabled = true ORDER BY name";
   assert.equal(translateSqliteSql(sql), sql);

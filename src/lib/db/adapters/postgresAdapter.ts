@@ -269,6 +269,28 @@ export function translateSqliteSql(sql: string): string {
   // already compatible between SQLite and PostgreSQL, so it is left as-is.)
   out = out.replace(/\bINSTR\s*\(/gi, "strpos(");
 
+  // --- JSON (SQLite JSON1 -> PostgreSQL jsonb) ---
+  // json_extract(expr, '$.a.b') -> (expr)::jsonb #>> '{a,b}' (text result,
+  // matching SQLite which returns the scalar as text). Top-level '$.key'
+  // becomes #>> '{key}'. Only simple dotted paths are handled.
+  // NOTE: json_each()/json_valid() are intentionally NOT translated here — they
+  // appear only inside nested CASE/table-function expressions that a regex
+  // cannot balance safely, so those few queries are rewritten at the source
+  // (PG-compatible jsonb_array_elements) instead.
+  out = out.replace(
+    /\bJSON_EXTRACT\s*\(\s*([\s\S]+?)\s*,\s*'\$\.?([^']*)'\s*\)/gi,
+    (_m, expr: string, path: string) => {
+      const parts = path.split(".").filter(Boolean);
+      return `(${expr})::jsonb #>> '{${parts.join(",")}}'`;
+    }
+  );
+  // group_concat(x[, sep]) -> string_agg(x::text, sep|','). SQLite's default
+  // separator is ','.
+  out = out.replace(
+    /\bGROUP_CONCAT\s*\(\s*([^,()]+?)\s*(?:,\s*('[^']*')\s*)?\)/gi,
+    (_m, expr: string, sep?: string) => `string_agg((${expr})::text, ${sep || "','"})`
+  );
+
   // SQLite `x IS ?` / `x IS NOT ?` is a NULL-safe comparison against a bound
   // value; PostgreSQL's `IS` only accepts NULL/TRUE/FALSE/DISTINCT FROM, so a
   // bound placeholder there is a syntax error ('syntax error at or near "$2"').
@@ -294,13 +316,7 @@ function detectUnsupportedSyntax(sql: string): string | null {
   // Check for genuinely unsupported SQLite functions (no safe translation yet).
   // DATETIME/STRFTIME('%s','now')/IFNULL/AUTOINCREMENT/COLLATE NOCASE are handled
   // by translateSqliteSql() before this runs, so they are intentionally NOT here.
-  const unsupported = [
-    /GROUP_CONCAT\([^)]*\)/gi,
-    /JSON_EXTRACT\([^)]*\)/gi,
-    /RANDOMBLOB\([^)]*\)/gi,
-    /JSON_EACH\([^)]*\)/gi,
-    /LAST_INSERT_ROWID\(\)/gi,
-  ];
+  const unsupported = [/RANDOMBLOB\([^)]*\)/gi, /LAST_INSERT_ROWID\(\)/gi];
 
   for (const regex of unsupported) {
     if (regex.test(sql)) {

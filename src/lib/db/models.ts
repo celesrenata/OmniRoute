@@ -526,9 +526,34 @@ export async function getActiveProvidersWithSyncedModel(modelId: string): Promis
   if (!modelId) return [];
 
   const db = getDbInstance();
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT pc.provider AS provider
+  // SQLite JSON1 (json_each/json_valid/json_extract) and PostgreSQL jsonb use
+  // different, non-interchangeable syntax for walking a JSON array, so pick the
+  // dialect by driver rather than relying on the adapter's text translation
+  // (the nested CASE/json_valid inside json_each cannot be regex-translated).
+  const isPg = db.driver === "pg-native";
+  const sql = isPg
+    ? `SELECT DISTINCT pc.provider AS provider
+       FROM provider_connections pc
+       JOIN key_value kv
+         ON kv.namespace = 'syncedAvailableModels'
+        AND kv.key = pc.provider || ':' || pc.id
+       JOIN LATERAL jsonb_array_elements(
+         CASE WHEN kv.value IS JSON ARRAY THEN kv.value::jsonb ELSE '[]'::jsonb END
+       ) AS synced_model(value) ON true
+       WHERE pc.is_active = 1
+         AND COALESCE(synced_model.value->>'id', synced_model.value->>'name', synced_model.value->>'model') = ?
+       UNION
+       SELECT DISTINCT pc.provider AS provider
+       FROM provider_connections pc
+       JOIN key_value kv
+         ON kv.namespace = 'customModels'
+        AND kv.key = pc.provider
+       JOIN LATERAL jsonb_array_elements(
+         CASE WHEN kv.value IS JSON ARRAY THEN kv.value::jsonb ELSE '[]'::jsonb END
+       ) AS custom_model(value) ON true
+       WHERE pc.is_active = 1
+         AND COALESCE(custom_model.value->>'id', custom_model.value->>'name', custom_model.value->>'model') = ?`
+    : `SELECT DISTINCT pc.provider AS provider
        FROM provider_connections pc
        JOIN key_value kv
          ON kv.namespace = 'syncedAvailableModels'
@@ -552,9 +577,8 @@ export async function getActiveProvidersWithSyncedModel(modelId: string): Promis
            json_extract(custom_model.value, '$.id'),
            json_extract(custom_model.value, '$.name'),
            json_extract(custom_model.value, '$.model')
-         ) = ?`
-    )
-    .all(modelId, modelId) as Array<{ provider?: unknown }>;
+         ) = ?`;
+  const rows = db.prepare(sql).all(modelId, modelId) as Array<{ provider?: unknown }>;
 
   return rows
     .map((row) => row.provider)
