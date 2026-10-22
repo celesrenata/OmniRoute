@@ -727,6 +727,15 @@ export function createPostgresAdapter(config: {
           // (a no-op) instead of crashing on an unimplemented pragma.
           return 0;
         }
+        case "quick_check":
+        case "integrity_check": {
+          // SQLite page-level corruption checks. PostgreSQL has no equivalent
+          // client pragma (integrity is enforced server-side), so report the
+          // healthy sentinel the callers assert on. `quick_check` is read with
+          // { simple: true } as a bare string; `integrity_check` is read as a
+          // row array [{ integrity_check: "ok" }].
+          return name === "quick_check" ? "ok" : [{ integrity_check: "ok" }];
+        }
         case "busy_timeout":
         case "synchronous":
         case "temp_store":
