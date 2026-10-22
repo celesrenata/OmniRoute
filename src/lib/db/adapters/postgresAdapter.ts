@@ -147,9 +147,16 @@ function translateInsertOrReplace(sql: string, conflictColumns: string[]): strin
     );
   }
   const updateCols = columns.filter((c) => !conflictCols.includes(c));
-  let translated = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${values
-    .map((_, i) => `$${i + 1}`)
-    .join(", ")})`;
+  // Preserve each VALUES entry verbatim. By the time this runs, translateParams()
+  // has already rewritten any `?` to `$n`, so `values` holds the final mix of
+  // SQL literals ('schema_version', 1, NULL) and positional placeholders ($1…).
+  // Re-numbering every entry as $1..$n (the previous behavior) corrupted
+  // literal-only statements — e.g. db_meta's inline
+  // VALUES ('schema_version','1') became VALUES ($1,$2) with no bound params,
+  // producing "bind message supplies 0 parameters, but prepared statement
+  // requires 2".
+  const valuesSql = values.map((v) => v.trim()).join(", ");
+  let translated = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${valuesSql})`;
   translated += ` ON CONFLICT (${conflictCols.join(", ")})`;
   if (updateCols.length === 0) {
     translated += " DO NOTHING";
@@ -183,9 +190,10 @@ function translateInsertOrIgnore(sql: string, conflictColumns: string[]): string
       `[postgresAdapter] INSERT OR IGNORE on ${table}: primary key (${conflictColumns.join(", ")}) not present in the column list (${columns.join(", ")})`
     );
   }
-  return `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${values
-    .map((_, i) => `$${i + 1}`)
-    .join(", ")}) ON CONFLICT (${conflictCols.join(", ")}) DO NOTHING`;
+  // Preserve VALUES verbatim (literals + already-translated $n placeholders);
+  // see translateInsertOrReplace for why re-numbering as $1..$n is wrong.
+  const valuesSql = values.map((v) => v.trim()).join(", ");
+  return `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${valuesSql}) ON CONFLICT (${conflictCols.join(", ")}) DO NOTHING`;
 }
 
 // Helper to get a new PG client (this can be cached/reused for multiple stmts)
