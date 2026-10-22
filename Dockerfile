@@ -269,13 +269,13 @@ COPY --chown=node:node --from=builder /app/.build/next/standalone ./
 # starts, so guarantee the complete package independent of trace behaviour.
 COPY --chown=node:node --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
 RUN test -f /app/node_modules/better-sqlite3/build/Release/better_sqlite3.node
-# pg-native (PostgreSQL backend, DATABASE_DRIVER=postgres) and its libpq binding
-# are native addons the standalone trace does not reliably include. Copy them
-# explicitly so the driver factory can load them at runtime; libpq5 is installed
-# on the runner base so the addon resolves its shared library.
-COPY --chown=node:node --from=builder /app/node_modules/pg-native ./node_modules/pg-native
-COPY --chown=node:node --from=builder /app/node_modules/libpq ./node_modules/libpq
-RUN node -e "require('/app/node_modules/pg-native'); console.log('pg-native present in runner')"
+# pg-native (PostgreSQL backend, DATABASE_DRIVER=postgres) and its full runtime
+# dependency closure are bundled into the standalone tree via
+# assembleStandalone.mjs EXTRA_MODULE_ENTRIES (the adapter loads pg-native through
+# a runtime-dynamic require the Next.js tracer cannot see). libpq5 is installed on
+# the runner base so the native addon resolves its shared library. Verify the
+# whole closure loads here so a missing dep fails the build, not the pod.
+RUN node -e "require('/app/node_modules/pg-native'); console.log('pg-native loadable in runner')"
 # migrations land at <standalone>/migrations via assembleStandalone; point the runtime at them.
 ENV OMNIROUTE_MIGRATIONS_DIR=/app/migrations
 

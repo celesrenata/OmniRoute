@@ -163,6 +163,45 @@ export const EXTRA_MODULE_ENTRIES = [
     dest: ["node_modules", "pino-pretty"],
   },
   { label: "split2", src: ["node_modules", "split2"], dest: ["node_modules", "split2"] },
+  // pg-native (PostgreSQL backend, DATABASE_DRIVER=postgres) is loaded through a
+  // runtime-dynamic require in src/lib/db/adapters/postgresAdapter.ts, so the
+  // Next.js tracer never sees it. Copy pg-native and its full runtime dependency
+  // closure (libpq native binding + the `bindings`/`file-uri-to-path` resolver it
+  // uses, plus the pg-types value parsers) so the adapter can load in the
+  // standalone image; otherwise DATABASE_DRIVER=postgres throws
+  // "Cannot find module 'bindings'" and the driver factory silently falls back
+  // to SQLite. The native .node under libpq/build is handled like better-sqlite3.
+  { label: "pg-native", src: ["node_modules", "pg-native"], dest: ["node_modules", "pg-native"] },
+  { label: "libpq", src: ["node_modules", "libpq"], dest: ["node_modules", "libpq"] },
+  { label: "bindings", src: ["node_modules", "bindings"], dest: ["node_modules", "bindings"] },
+  {
+    label: "file-uri-to-path",
+    src: ["node_modules", "file-uri-to-path"],
+    dest: ["node_modules", "file-uri-to-path"],
+  },
+  { label: "pg-types", src: ["node_modules", "pg-types"], dest: ["node_modules", "pg-types"] },
+  { label: "pg-int8", src: ["node_modules", "pg-int8"], dest: ["node_modules", "pg-int8"] },
+  {
+    label: "postgres-array",
+    src: ["node_modules", "postgres-array"],
+    dest: ["node_modules", "postgres-array"],
+  },
+  {
+    label: "postgres-bytea",
+    src: ["node_modules", "postgres-bytea"],
+    dest: ["node_modules", "postgres-bytea"],
+  },
+  {
+    label: "postgres-date",
+    src: ["node_modules", "postgres-date"],
+    dest: ["node_modules", "postgres-date"],
+  },
+  {
+    label: "postgres-interval",
+    src: ["node_modules", "postgres-interval"],
+    dest: ["node_modules", "postgres-interval"],
+  },
+  { label: "xtend", src: ["node_modules", "xtend"], dest: ["node_modules", "xtend"] },
   {
     // The esbuild-bundled compression worker (colocate-standalone.mjs,
     // --packages=external) keeps these as runtime imports, but the Next.js
