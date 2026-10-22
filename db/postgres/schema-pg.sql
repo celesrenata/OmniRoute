@@ -3,6 +3,7 @@
 -- Idempotent: CREATE TABLE/INDEX IF NOT EXISTS.
 
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 --TABLE:_omniroute_migrations
 CREATE TABLE IF NOT EXISTS _omniroute_migrations (
@@ -125,7 +126,7 @@ CREATE TABLE IF NOT EXISTS api_key_token_limits (
 CREATE TABLE IF NOT EXISTS api_keys (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  key TEXT NOT NULL UNIQUE,
+  "key" TEXT NOT NULL UNIQUE,
   machine_id TEXT,
   allowed_models TEXT DEFAULT '[]',
   no_log INTEGER NOT NULL DEFAULT 0,
@@ -169,7 +170,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 --TABLE:audit_log
 CREATE TABLE IF NOT EXISTS audit_log (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  timestamp TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+  "timestamp" TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   action TEXT NOT NULL,
   actor TEXT NOT NULL DEFAULT 'system',
   target TEXT,
@@ -207,7 +208,7 @@ CREATE TABLE IF NOT EXISTS badge_definitions (
 
 --TABLE:cache_metrics
 CREATE TABLE IF NOT EXISTS cache_metrics (
-  key TEXT PRIMARY KEY,
+  "key" TEXT PRIMARY KEY,
   value INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -215,7 +216,7 @@ CREATE TABLE IF NOT EXISTS cache_metrics (
 --TABLE:call_logs
 CREATE TABLE IF NOT EXISTS call_logs (
   id TEXT PRIMARY KEY,
-  timestamp TEXT NOT NULL,
+  "timestamp" TEXT NOT NULL,
   method TEXT,
   path TEXT,
   status INTEGER,
@@ -231,7 +232,7 @@ CREATE TABLE IF NOT EXISTS call_logs (
   tokens_cache_creation INTEGER DEFAULT NULL,
   tokens_reasoning INTEGER DEFAULT NULL,
   tokens_compressed INTEGER DEFAULT NULL,
-  cache_source TEXT DEFAULT "upstream",
+  cache_source TEXT DEFAULT 'upstream',
   request_type TEXT,
   source_format TEXT,
   target_format TEXT,
@@ -363,7 +364,7 @@ CREATE TABLE IF NOT EXISTS community_servers (
 --TABLE:compression_analytics
 CREATE TABLE IF NOT EXISTS compression_analytics (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  timestamp TEXT NOT NULL,
+  "timestamp" TEXT NOT NULL,
   combo_id TEXT,
   provider TEXT,
   mode TEXT NOT NULL,
@@ -423,7 +424,7 @@ CREATE TABLE IF NOT EXISTS compression_combos (
 --TABLE:compression_engine_breakdown
 CREATE TABLE IF NOT EXISTS compression_engine_breakdown (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  timestamp TEXT NOT NULL,
+  "timestamp" TEXT NOT NULL,
   request_id TEXT,
   engine TEXT NOT NULL,
   original_tokens INTEGER NOT NULL DEFAULT 0,
@@ -435,7 +436,7 @@ CREATE TABLE IF NOT EXISTS compression_engine_breakdown (
 --TABLE:compression_run_telemetry
 CREATE TABLE IF NOT EXISTS compression_run_telemetry (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  timestamp INTEGER NOT NULL,
+  "timestamp" INTEGER NOT NULL,
   request_id TEXT,
   model TEXT,
   provider TEXT,
@@ -452,7 +453,7 @@ CREATE TABLE IF NOT EXISTS compression_run_telemetry (
 --TABLE:config_audit_log
 CREATE TABLE IF NOT EXISTS config_audit_log (
   id TEXT PRIMARY KEY,
-  timestamp TEXT NOT NULL,
+  "timestamp" TEXT NOT NULL,
   action TEXT NOT NULL,
   target TEXT NOT NULL,
   target_id TEXT NOT NULL,
@@ -466,7 +467,7 @@ CREATE TABLE IF NOT EXISTS config_audit_log (
 
 --TABLE:context_handoffs
 CREATE TABLE IF NOT EXISTS context_handoffs (
-  id TEXT PRIMARY KEY DEFAULT lower(hex(randomblob(8))),
+  id TEXT PRIMARY KEY DEFAULT lower(encode(gen_random_bytes(8), 'hex')),
   session_id TEXT NOT NULL,
   combo_name TEXT NOT NULL,
   from_account TEXT NOT NULL,
@@ -488,7 +489,7 @@ CREATE TABLE IF NOT EXISTS conversation_turn_nodes (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL,
   parent_id TEXT,
-  role TEXT NOT NULL,
+  "role" TEXT NOT NULL,
   content_hash TEXT NOT NULL DEFAULT '',
   last_correlation_id TEXT,
   first_seen_at TEXT NOT NULL,
@@ -500,7 +501,7 @@ CREATE TABLE IF NOT EXISTS daily_usage_summary (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
-  date TEXT NOT NULL,
+  "date" TEXT NOT NULL,
   total_requests INTEGER NOT NULL DEFAULT 0,
   total_input_tokens INTEGER NOT NULL DEFAULT 0,
   total_output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -510,7 +511,7 @@ CREATE TABLE IF NOT EXISTS daily_usage_summary (
 
 --TABLE:db_meta
 CREATE TABLE IF NOT EXISTS db_meta (
-  key TEXT PRIMARY KEY,
+  "key" TEXT PRIMARY KEY,
   value TEXT
 );
 
@@ -573,7 +574,7 @@ CREATE TABLE IF NOT EXISTS domain_cost_history (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   api_key_id TEXT NOT NULL,
   cost DOUBLE PRECISION NOT NULL,
-  timestamp INTEGER NOT NULL
+  "timestamp" INTEGER NOT NULL
 );
 
 --TABLE:domain_fallback_chains
@@ -764,7 +765,7 @@ CREATE TABLE IF NOT EXISTS key_groups (
 --TABLE:key_value
 CREATE TABLE IF NOT EXISTS key_value (
   namespace TEXT NOT NULL,
-  key TEXT NOT NULL,
+  "key" TEXT NOT NULL,
   value TEXT NOT NULL,
   PRIMARY KEY (namespace, key)
 );
@@ -817,7 +818,7 @@ CREATE TABLE IF NOT EXISTS memories (
   api_key_id TEXT NOT NULL,
   session_id TEXT,
   type TEXT NOT NULL CHECK (type IN ('factual', 'episodic', 'procedural', 'semantic')),
-  key TEXT,
+  "key" TEXT,
   content TEXT NOT NULL,
   metadata TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -959,7 +960,7 @@ CREATE TABLE IF NOT EXISTS middleware_logs (
   mutated INTEGER NOT NULL DEFAULT 0,
   skipped INTEGER NOT NULL DEFAULT 0,
   error TEXT,
-  timestamp TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+  "timestamp" TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   FOREIGN KEY (hook_name) REFERENCES middleware_hooks(name) ON DELETE CASCADE
 );
 
@@ -1129,7 +1130,7 @@ CREATE TABLE IF NOT EXISTS provider_connections (
   consecutive_use_count INTEGER DEFAULT 0,
   rate_limit_protection INTEGER DEFAULT 0,
   last_used_at TEXT,
-  group TEXT,
+  "group" TEXT,
   max_concurrent INTEGER,
   proxy_enabled INTEGER NOT NULL DEFAULT 1,
   per_key_proxy_enabled INTEGER NOT NULL DEFAULT 0,
@@ -1216,7 +1217,7 @@ CREATE TABLE IF NOT EXISTS provider_quota_state (
 --TABLE:proxy_logs
 CREATE TABLE IF NOT EXISTS proxy_logs (
   id TEXT PRIMARY KEY,
-  timestamp TEXT NOT NULL,
+  "timestamp" TEXT NOT NULL,
   status TEXT,
   proxy_type TEXT,
   proxy_host TEXT,
@@ -1493,7 +1494,7 @@ CREATE TABLE IF NOT EXISTS reasoning_routing_rules (
 --TABLE:registered_keys
 CREATE TABLE IF NOT EXISTS registered_keys (
   id TEXT PRIMARY KEY,
-  key TEXT NOT NULL UNIQUE,
+  "key" TEXT NOT NULL UNIQUE,
   key_prefix TEXT NOT NULL,
   name TEXT NOT NULL,
   provider TEXT NOT NULL DEFAULT '',
@@ -1549,7 +1550,7 @@ CREATE TABLE IF NOT EXISTS request_cost_ledger (
   amount_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
   service_tier TEXT NOT NULL DEFAULT 'standard',
   success INTEGER NOT NULL DEFAULT 1,
-  timestamp TEXT NOT NULL,
+  "timestamp" TEXT NOT NULL,
   request_id TEXT
 );
 
@@ -1557,7 +1558,7 @@ CREATE TABLE IF NOT EXISTS request_cost_ledger (
 CREATE TABLE IF NOT EXISTS request_detail_logs (
   id TEXT PRIMARY KEY,
   call_log_id TEXT,
-  timestamp TEXT NOT NULL,
+  "timestamp" TEXT NOT NULL,
   client_request TEXT,
   translated_request TEXT,
   provider_response TEXT,
@@ -1754,7 +1755,7 @@ CREATE TABLE IF NOT EXISTS tier_assignments (
 
 --TABLE:tier_config
 CREATE TABLE IF NOT EXISTS tier_config (
-  key TEXT PRIMARY KEY,
+  "key" TEXT PRIMARY KEY,
   value TEXT NOT NULL,
   updated_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -1807,7 +1808,7 @@ CREATE TABLE IF NOT EXISTS usage_history (
   latency_ms INTEGER DEFAULT 0,
   ttft_ms INTEGER DEFAULT 0,
   error_code TEXT,
-  timestamp TEXT NOT NULL,
+  "timestamp" TEXT NOT NULL,
   combo_strategy TEXT DEFAULT 'direct',
   endpoint TEXT,
   cpa_auth_index TEXT
@@ -2040,7 +2041,7 @@ CREATE TABLE IF NOT EXISTS proxy_assignments (
   proxy_id TEXT NOT NULL,
   scope TEXT NOT NULL,
   scope_id TEXT,
-  position INTEGER NOT NULL DEFAULT 0,
+  "position" INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   UNIQUE(scope, scope_id, proxy_id),
@@ -2196,772 +2197,858 @@ CREATE TABLE IF NOT EXISTS vec_memories (
 
 -- ── Indexes ──
 --INDEX:a2a_task_events:idx_a2ae_task
-CREATE INDEX IF NOT EXISTS idx_a2ae_task ON a2a_task_events (task_id);
+CREATE INDEX IF NOT EXISTS idx_a2ae_task ON a2a_task_events (  task_id);
 
 --INDEX:a2a_task_events:idx_a2ae_type
-CREATE INDEX IF NOT EXISTS idx_a2ae_type ON a2a_task_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_a2ae_type ON a2a_task_events (  event_type);
 
 --INDEX:a2a_tasks:idx_a2a_created
-CREATE INDEX IF NOT EXISTS idx_a2a_created ON a2a_tasks (created_at);
+CREATE INDEX IF NOT EXISTS idx_a2a_created ON a2a_tasks (  created_at);
 
 --INDEX:a2a_tasks:idx_a2a_skill
-CREATE INDEX IF NOT EXISTS idx_a2a_skill ON a2a_tasks (skill_id);
+CREATE INDEX IF NOT EXISTS idx_a2a_skill ON a2a_tasks (  skill_id);
 
 --INDEX:a2a_tasks:idx_a2a_state
-CREATE INDEX IF NOT EXISTS idx_a2a_state ON a2a_tasks (state);
+CREATE INDEX IF NOT EXISTS idx_a2a_state ON a2a_tasks (  state);
 
 --INDEX:agent_bridge_mappings:idx_agent_bridge_mappings_agent
-CREATE INDEX IF NOT EXISTS idx_agent_bridge_mappings_agent ON agent_bridge_mappings (agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_bridge_mappings_agent ON agent_bridge_mappings (  agent_id);
 
 --INDEX:agentic_conversations:idx_agentic_conversations_api_key
-CREATE INDEX IF NOT EXISTS idx_agentic_conversations_api_key ON agentic_conversations (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_agentic_conversations_api_key ON agentic_conversations (  api_key_id);
 
 --INDEX:agentic_conversations:idx_agentic_conversations_fingerprint
-CREATE INDEX IF NOT EXISTS idx_agentic_conversations_fingerprint ON agentic_conversations (fingerprint_hash);
+CREATE INDEX IF NOT EXISTS idx_agentic_conversations_fingerprint ON agentic_conversations (  fingerprint_hash);
 
 --INDEX:agentic_conversations:idx_agentic_conversations_last_seen
-CREATE INDEX IF NOT EXISTS idx_agentic_conversations_last_seen ON agentic_conversations (last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_agentic_conversations_last_seen ON agentic_conversations (  last_seen_at);
 
 --INDEX:api_key_quota_counters:idx_akqc_dim_bucket
-CREATE INDEX IF NOT EXISTS idx_akqc_dim_bucket ON api_key_quota_counters (dimension_key, bucket_index);
+CREATE INDEX IF NOT EXISTS idx_akqc_dim_bucket ON api_key_quota_counters (  dimension_key,
+  bucket_index);
 
 --INDEX:api_key_quota_counters:idx_akqc_updated_at
-CREATE INDEX IF NOT EXISTS idx_akqc_updated_at ON api_key_quota_counters (updated_at);
+CREATE INDEX IF NOT EXISTS idx_akqc_updated_at ON api_key_quota_counters (  updated_at);
 
 --INDEX:api_key_token_limit_reset_logs:idx_aktlrl_limit_id
-CREATE INDEX IF NOT EXISTS idx_aktlrl_limit_id ON api_key_token_limit_reset_logs (limit_id);
+CREATE INDEX IF NOT EXISTS idx_aktlrl_limit_id ON api_key_token_limit_reset_logs (  limit_id);
 
 --INDEX:api_key_token_limits:idx_aktl_api_key_id
-CREATE INDEX IF NOT EXISTS idx_aktl_api_key_id ON api_key_token_limits (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_aktl_api_key_id ON api_key_token_limits (  api_key_id);
 
 --INDEX:api_keys:idx_ak_key
-CREATE INDEX IF NOT EXISTS idx_ak_key ON api_keys (key);
+CREATE INDEX IF NOT EXISTS idx_ak_key ON api_keys (  "key");
 
 --INDEX:api_keys:idx_api_keys_expires_at
-CREATE INDEX IF NOT EXISTS idx_api_keys_expires_at ON api_keys (expires_at);
+CREATE INDEX IF NOT EXISTS idx_api_keys_expires_at ON api_keys (  expires_at);
 
 --INDEX:api_keys:idx_api_keys_revoked_at
-CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_at ON api_keys (revoked_at);
+CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_at ON api_keys (  revoked_at);
 
 --INDEX:audit_log:idx_audit_action
-CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log (action);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log (  action);
 
 --INDEX:audit_log:idx_audit_actor
-CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log (actor);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log (  actor);
 
 --INDEX:audit_log:idx_audit_request_id
-CREATE INDEX IF NOT EXISTS idx_audit_request_id ON audit_log (request_id);
+CREATE INDEX IF NOT EXISTS idx_audit_request_id ON audit_log (  request_id);
 
 --INDEX:audit_log:idx_audit_resource_type
-CREATE INDEX IF NOT EXISTS idx_audit_resource_type ON audit_log (resource_type);
+CREATE INDEX IF NOT EXISTS idx_audit_resource_type ON audit_log (  resource_type);
 
 --INDEX:audit_log:idx_audit_status
-CREATE INDEX IF NOT EXISTS idx_audit_status ON audit_log (status);
+CREATE INDEX IF NOT EXISTS idx_audit_status ON audit_log (  status);
 
 --INDEX:audit_log:idx_audit_timestamp
-CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log (timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log (  "timestamp");
 
 --INDEX:auto_candidate_overrides:idx_auto_candidate_overrides_key_channel
-CREATE INDEX IF NOT EXISTS idx_auto_candidate_overrides_key_channel ON auto_candidate_overrides (api_key_id, auto_channel);
+CREATE INDEX IF NOT EXISTS idx_auto_candidate_overrides_key_channel ON auto_candidate_overrides (  api_key_id,
+  auto_channel);
 
 --INDEX:batch_item_checkpoints:idx_batch_item_checkpoints_batch_status
-CREATE INDEX IF NOT EXISTS idx_batch_item_checkpoints_batch_status ON batch_item_checkpoints (batch_id, status);
+CREATE INDEX IF NOT EXISTS idx_batch_item_checkpoints_batch_status ON batch_item_checkpoints (  batch_id,
+  status);
 
 --INDEX:batches:idx_batches_api_key
-CREATE INDEX IF NOT EXISTS idx_batches_api_key ON batches (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_batches_api_key ON batches (  api_key_id);
 
 --INDEX:batches:idx_batches_status
-CREATE INDEX IF NOT EXISTS idx_batches_status ON batches (status);
+CREATE INDEX IF NOT EXISTS idx_batches_status ON batches (  status);
 
 --INDEX:call_logs:idx_call_logs_combo_name_timestamp
-CREATE INDEX IF NOT EXISTS idx_call_logs_combo_name_timestamp ON call_logs (combo_name, timestamp);
+CREATE INDEX IF NOT EXISTS idx_call_logs_combo_name_timestamp ON call_logs (  combo_name,
+  "timestamp");
 
 --INDEX:call_logs:idx_call_logs_request_type
-CREATE INDEX IF NOT EXISTS idx_call_logs_request_type ON call_logs (request_type);
+CREATE INDEX IF NOT EXISTS idx_call_logs_request_type ON call_logs (  request_type);
 
 --INDEX:call_logs:idx_call_logs_requested_model
-CREATE INDEX IF NOT EXISTS idx_call_logs_requested_model ON call_logs (requested_model);
+CREATE INDEX IF NOT EXISTS idx_call_logs_requested_model ON call_logs (  requested_model);
 
 --INDEX:call_logs:idx_cl_combo_target
-CREATE INDEX IF NOT EXISTS idx_cl_combo_target ON call_logs (combo_name, combo_execution_key, timestamp);
+CREATE INDEX IF NOT EXISTS idx_cl_combo_target ON call_logs (  combo_name,
+  combo_execution_key,
+  "timestamp");
 
 --INDEX:call_logs:idx_cl_correlation_id
-CREATE INDEX IF NOT EXISTS idx_cl_correlation_id ON call_logs (correlation_id);
+CREATE INDEX IF NOT EXISTS idx_cl_correlation_id ON call_logs (  correlation_id);
 
 --INDEX:call_logs:idx_cl_provider_timestamp
-CREATE INDEX IF NOT EXISTS idx_cl_provider_timestamp ON call_logs (provider, timestamp);
+CREATE INDEX IF NOT EXISTS idx_cl_provider_timestamp ON call_logs (  provider,
+  "timestamp");
 
 --INDEX:call_logs:idx_cl_request_provider
-CREATE INDEX IF NOT EXISTS idx_cl_request_provider ON call_logs (request_type, provider);
+CREATE INDEX IF NOT EXISTS idx_cl_request_provider ON call_logs (  request_type,
+  provider);
 
 --INDEX:call_logs:idx_cl_response_id
-CREATE INDEX IF NOT EXISTS idx_cl_response_id ON call_logs (response_id);
+CREATE INDEX IF NOT EXISTS idx_cl_response_id ON call_logs (  response_id);
 
 --INDEX:call_logs:idx_cl_session_tag
-CREATE INDEX IF NOT EXISTS idx_cl_session_tag ON call_logs (session_tag);
+CREATE INDEX IF NOT EXISTS idx_cl_session_tag ON call_logs (  session_tag);
 
 --INDEX:call_logs:idx_cl_status
-CREATE INDEX IF NOT EXISTS idx_cl_status ON call_logs (status);
+CREATE INDEX IF NOT EXISTS idx_cl_status ON call_logs (  status);
 
 --INDEX:call_logs:idx_cl_timestamp
-CREATE INDEX IF NOT EXISTS idx_cl_timestamp ON call_logs (timestamp);
+CREATE INDEX IF NOT EXISTS idx_cl_timestamp ON call_logs (  "timestamp");
 
 --INDEX:ccr_blocks:idx_ccr_blocks_expires
-CREATE INDEX IF NOT EXISTS idx_ccr_blocks_expires ON ccr_blocks (expires_at);
+CREATE INDEX IF NOT EXISTS idx_ccr_blocks_expires ON ccr_blocks (  expires_at);
 
 --INDEX:cli_access_tokens:idx_cli_access_tokens_hash
-CREATE INDEX IF NOT EXISTS idx_cli_access_tokens_hash ON cli_access_tokens (token_hash);
+CREATE INDEX IF NOT EXISTS idx_cli_access_tokens_hash ON cli_access_tokens (  token_hash);
 
 --INDEX:combo_adaptation_state:idx_cas_combo
-CREATE INDEX IF NOT EXISTS idx_cas_combo ON combo_adaptation_state (combo_id);
+CREATE INDEX IF NOT EXISTS idx_cas_combo ON combo_adaptation_state (  combo_id);
 
 --INDEX:combos:idx_combos_cache_protection
-CREATE INDEX IF NOT EXISTS idx_combos_cache_protection ON combos (context_cache_protection);
+CREATE INDEX IF NOT EXISTS idx_combos_cache_protection ON combos (  context_cache_protection);
 
 --INDEX:command_code_auth_sessions:idx_command_code_auth_sessions_state_hash
-CREATE INDEX IF NOT EXISTS idx_command_code_auth_sessions_state_hash ON command_code_auth_sessions (state_hash);
+CREATE INDEX IF NOT EXISTS idx_command_code_auth_sessions_state_hash ON command_code_auth_sessions (  state_hash);
 
 --INDEX:command_code_auth_sessions:idx_command_code_auth_sessions_status_expires
-CREATE INDEX IF NOT EXISTS idx_command_code_auth_sessions_status_expires ON command_code_auth_sessions (status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_command_code_auth_sessions_status_expires ON command_code_auth_sessions (  status,
+  expires_at);
 
 --INDEX:compression_analytics:idx_compression_analytics_combo_engine
-CREATE INDEX IF NOT EXISTS idx_compression_analytics_combo_engine ON compression_analytics (compression_combo_id, engine);
+CREATE INDEX IF NOT EXISTS idx_compression_analytics_combo_engine ON compression_analytics (  compression_combo_id,
+  engine);
 
 --INDEX:compression_analytics:idx_compression_analytics_provider
-CREATE INDEX IF NOT EXISTS idx_compression_analytics_provider ON compression_analytics (provider);
+CREATE INDEX IF NOT EXISTS idx_compression_analytics_provider ON compression_analytics (  provider);
 
 --INDEX:compression_analytics:idx_compression_analytics_provider_timestamp
-CREATE INDEX IF NOT EXISTS idx_compression_analytics_provider_timestamp ON compression_analytics (provider, timestamp);
+CREATE INDEX IF NOT EXISTS idx_compression_analytics_provider_timestamp ON compression_analytics (  provider,
+  "timestamp");
 
 --INDEX:compression_analytics:idx_compression_analytics_receipt_source
-CREATE INDEX IF NOT EXISTS idx_compression_analytics_receipt_source ON compression_analytics (receipt_source);
+CREATE INDEX IF NOT EXISTS idx_compression_analytics_receipt_source ON compression_analytics (  receipt_source);
 
 --INDEX:compression_analytics:idx_compression_analytics_request_id
-CREATE INDEX IF NOT EXISTS idx_compression_analytics_request_id ON compression_analytics (request_id);
+CREATE INDEX IF NOT EXISTS idx_compression_analytics_request_id ON compression_analytics (  request_id);
 
 --INDEX:compression_analytics:idx_compression_analytics_timestamp
-CREATE INDEX IF NOT EXISTS idx_compression_analytics_timestamp ON compression_analytics (timestamp);
+CREATE INDEX IF NOT EXISTS idx_compression_analytics_timestamp ON compression_analytics (  "timestamp");
 
 --INDEX:compression_cache_stats:idx_compression_cache_stats_created
-CREATE INDEX IF NOT EXISTS idx_compression_cache_stats_created ON compression_cache_stats (created_at);
+CREATE INDEX IF NOT EXISTS idx_compression_cache_stats_created ON compression_cache_stats (  created_at);
 
 --INDEX:compression_cache_stats:idx_compression_cache_stats_provider
-CREATE INDEX IF NOT EXISTS idx_compression_cache_stats_provider ON compression_cache_stats (provider);
+CREATE INDEX IF NOT EXISTS idx_compression_cache_stats_provider ON compression_cache_stats (  provider);
 
 --INDEX:compression_combo_assignments:idx_compression_combo_assignments_combo
-CREATE INDEX IF NOT EXISTS idx_compression_combo_assignments_combo ON compression_combo_assignments (compression_combo_id);
+CREATE INDEX IF NOT EXISTS idx_compression_combo_assignments_combo ON compression_combo_assignments (  compression_combo_id);
 
 --INDEX:compression_combo_assignments:idx_compression_combo_assignments_routing
-CREATE INDEX IF NOT EXISTS idx_compression_combo_assignments_routing ON compression_combo_assignments (routing_combo_id);
+CREATE INDEX IF NOT EXISTS idx_compression_combo_assignments_routing ON compression_combo_assignments (  routing_combo_id);
 
 --INDEX:compression_combos:idx_compression_combos_default
-CREATE INDEX IF NOT EXISTS idx_compression_combos_default ON compression_combos (is_default);
+CREATE INDEX IF NOT EXISTS idx_compression_combos_default ON compression_combos (  is_default);
 
 --INDEX:compression_engine_breakdown:idx_ceb_engine_ts
-CREATE INDEX IF NOT EXISTS idx_ceb_engine_ts ON compression_engine_breakdown (engine, timestamp);
+CREATE INDEX IF NOT EXISTS idx_ceb_engine_ts ON compression_engine_breakdown (  engine,
+  "timestamp");
 
 --INDEX:compression_engine_breakdown:idx_ceb_request
-CREATE INDEX IF NOT EXISTS idx_ceb_request ON compression_engine_breakdown (request_id);
+CREATE INDEX IF NOT EXISTS idx_ceb_request ON compression_engine_breakdown (  request_id);
 
 --INDEX:config_audit_log:idx_config_audit_log_created
-CREATE INDEX IF NOT EXISTS idx_config_audit_log_created ON config_audit_log (timestamp);
+CREATE INDEX IF NOT EXISTS idx_config_audit_log_created ON config_audit_log (  "timestamp");
 
 --INDEX:config_audit_log:idx_config_audit_log_target_created
-CREATE INDEX IF NOT EXISTS idx_config_audit_log_target_created ON config_audit_log (target, timestamp);
+CREATE INDEX IF NOT EXISTS idx_config_audit_log_target_created ON config_audit_log (  target,
+  "timestamp");
 
 --INDEX:connection_runtime_state:idx_crs_warmup_until
-CREATE INDEX IF NOT EXISTS idx_crs_warmup_until ON connection_runtime_state (warmup_circuit_until) WHERE warmup_circuit_until IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_crs_warmup_until ON connection_runtime_state (  warmup_circuit_until) WHERE warmup_circuit_until IS NOT NULL;
 
 --INDEX:context_handoffs:idx_context_handoffs_expires
-CREATE INDEX IF NOT EXISTS idx_context_handoffs_expires ON context_handoffs (expires_at);
+CREATE INDEX IF NOT EXISTS idx_context_handoffs_expires ON context_handoffs (  expires_at);
 
 --INDEX:context_handoffs:idx_context_handoffs_last_model
-CREATE INDEX IF NOT EXISTS idx_context_handoffs_last_model ON context_handoffs (session_id, combo_name, last_model);
+CREATE INDEX IF NOT EXISTS idx_context_handoffs_last_model ON context_handoffs (  session_id,
+  combo_name,
+  last_model);
 
 --INDEX:context_handoffs:idx_context_handoffs_session
-CREATE INDEX IF NOT EXISTS idx_context_handoffs_session ON context_handoffs (session_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_context_handoffs_session ON context_handoffs (  session_id,
+  expires_at);
 
 --INDEX:context_handoffs:idx_context_handoffs_session_combo
-CREATE UNIQUE INDEX IF NOT EXISTS idx_context_handoffs_session_combo ON context_handoffs (session_id, combo_name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_context_handoffs_session_combo ON context_handoffs (  session_id,
+  combo_name);
 
 --INDEX:conversation_turn_nodes:idx_turn_nodes_content_hash
-CREATE INDEX IF NOT EXISTS idx_turn_nodes_content_hash ON conversation_turn_nodes (conversation_id, content_hash);
+CREATE INDEX IF NOT EXISTS idx_turn_nodes_content_hash ON conversation_turn_nodes (  conversation_id,
+  content_hash);
 
 --INDEX:conversation_turn_nodes:idx_turn_nodes_conversation
-CREATE INDEX IF NOT EXISTS idx_turn_nodes_conversation ON conversation_turn_nodes (conversation_id);
+CREATE INDEX IF NOT EXISTS idx_turn_nodes_conversation ON conversation_turn_nodes (  conversation_id);
 
 --INDEX:conversation_turn_nodes:idx_turn_nodes_last_seen
-CREATE INDEX IF NOT EXISTS idx_turn_nodes_last_seen ON conversation_turn_nodes (last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_turn_nodes_last_seen ON conversation_turn_nodes (  last_seen_at);
 
 --INDEX:conversation_turn_nodes:idx_turn_nodes_parent
-CREATE INDEX IF NOT EXISTS idx_turn_nodes_parent ON conversation_turn_nodes (parent_id);
+CREATE INDEX IF NOT EXISTS idx_turn_nodes_parent ON conversation_turn_nodes (  parent_id);
 
 --INDEX:daily_usage_summary:idx_daily_usage_date
-CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage_summary (date);
+CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage_summary (  "date");
 
 --INDEX:daily_usage_summary:idx_daily_usage_model_date
-CREATE INDEX IF NOT EXISTS idx_daily_usage_model_date ON daily_usage_summary (model, date);
+CREATE INDEX IF NOT EXISTS idx_daily_usage_model_date ON daily_usage_summary (  model,
+  "date");
 
 --INDEX:daily_usage_summary:idx_daily_usage_provider_date
-CREATE INDEX IF NOT EXISTS idx_daily_usage_provider_date ON daily_usage_summary (provider, date);
+CREATE INDEX IF NOT EXISTS idx_daily_usage_provider_date ON daily_usage_summary (  provider,
+  "date");
 
 --INDEX:daily_usage_summary:idx_daily_usage_provider_model_date
-CREATE INDEX IF NOT EXISTS idx_daily_usage_provider_model_date ON daily_usage_summary (provider, model, date);
+CREATE INDEX IF NOT EXISTS idx_daily_usage_provider_model_date ON daily_usage_summary (  provider,
+  model,
+  "date");
 
 --INDEX:daily_usage_summary:idx_daily_usage_provider_model_date_composite
-CREATE INDEX IF NOT EXISTS idx_daily_usage_provider_model_date_composite ON daily_usage_summary (provider, model, date);
+CREATE INDEX IF NOT EXISTS idx_daily_usage_provider_model_date_composite ON daily_usage_summary (  provider,
+  model,
+  "date");
 
 --INDEX:daily_usage_summary:idx_daily_usage_unique
-CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_usage_unique ON daily_usage_summary (provider, model, date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_usage_unique ON daily_usage_summary (  provider,
+  model,
+  "date");
 
 --INDEX:discovery_results:idx_discovery_results_provider
-CREATE INDEX IF NOT EXISTS idx_discovery_results_provider ON discovery_results (provider_id);
+CREATE INDEX IF NOT EXISTS idx_discovery_results_provider ON discovery_results (  provider_id);
 
 --INDEX:discovery_results:idx_discovery_results_status
-CREATE INDEX IF NOT EXISTS idx_discovery_results_status ON discovery_results (status);
+CREATE INDEX IF NOT EXISTS idx_discovery_results_status ON discovery_results (  status);
 
 --INDEX:domain_budget_reset_logs:idx_dbrl_key_reset
-CREATE INDEX IF NOT EXISTS idx_dbrl_key_reset ON domain_budget_reset_logs (api_key_id, reset_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dbrl_key_reset ON domain_budget_reset_logs (  api_key_id,
+  reset_at DESC);
 
 --INDEX:domain_cost_history:idx_dch_key
-CREATE INDEX IF NOT EXISTS idx_dch_key ON domain_cost_history (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_dch_key ON domain_cost_history (  api_key_id);
 
 --INDEX:domain_cost_history:idx_dch_key_timestamp
-CREATE INDEX IF NOT EXISTS idx_dch_key_timestamp ON domain_cost_history (api_key_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_dch_key_timestamp ON domain_cost_history (  api_key_id,
+  "timestamp");
 
 --INDEX:domain_cost_history:idx_dch_ts
-CREATE INDEX IF NOT EXISTS idx_dch_ts ON domain_cost_history (timestamp);
+CREATE INDEX IF NOT EXISTS idx_dch_ts ON domain_cost_history (  "timestamp");
 
 --INDEX:eval_cases:idx_eval_cases_suite_order
-CREATE INDEX IF NOT EXISTS idx_eval_cases_suite_order ON eval_cases (suite_id, sort_order ASC, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_eval_cases_suite_order ON eval_cases (  suite_id,
+  sort_order ASC,
+  created_at ASC);
 
 --INDEX:eval_runs:idx_eval_runs_created_at
-CREATE INDEX IF NOT EXISTS idx_eval_runs_created_at ON eval_runs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_created_at ON eval_runs (  created_at DESC);
 
 --INDEX:eval_runs:idx_eval_runs_group_id
-CREATE INDEX IF NOT EXISTS idx_eval_runs_group_id ON eval_runs (run_group_id);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_group_id ON eval_runs (  run_group_id);
 
 --INDEX:eval_runs:idx_eval_runs_suite_created_at
-CREATE INDEX IF NOT EXISTS idx_eval_runs_suite_created_at ON eval_runs (suite_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_suite_created_at ON eval_runs (  suite_id,
+  created_at DESC);
 
 --INDEX:eval_suites:idx_eval_suites_updated_at
-CREATE INDEX IF NOT EXISTS idx_eval_suites_updated_at ON eval_suites (updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_eval_suites_updated_at ON eval_suites (  updated_at DESC);
 
 --INDEX:exclusive_connection_leases:idx_exclusive_lease_active_connection
-CREATE UNIQUE INDEX IF NOT EXISTS idx_exclusive_lease_active_connection ON exclusive_connection_leases (connection_id) WHERE state = 'ACTIVE';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exclusive_lease_active_connection ON exclusive_connection_leases (  connection_id) WHERE state = 'ACTIVE';
 
 --INDEX:exclusive_connection_leases:idx_exclusive_lease_active_owner
-CREATE UNIQUE INDEX IF NOT EXISTS idx_exclusive_lease_active_owner ON exclusive_connection_leases (lease_owner_hash) WHERE state = 'ACTIVE';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exclusive_lease_active_owner ON exclusive_connection_leases (  lease_owner_hash) WHERE state = 'ACTIVE';
 
 --INDEX:exclusive_connection_leases:idx_exclusive_lease_expiry
-CREATE INDEX IF NOT EXISTS idx_exclusive_lease_expiry ON exclusive_connection_leases (state, expires_at);
+CREATE INDEX IF NOT EXISTS idx_exclusive_lease_expiry ON exclusive_connection_leases (  state,
+  expires_at);
 
 --INDEX:exclusive_connection_leases:idx_exclusive_lease_owner_history
-CREATE INDEX IF NOT EXISTS idx_exclusive_lease_owner_history ON exclusive_connection_leases (lease_owner_hash, generation, id);
+CREATE INDEX IF NOT EXISTS idx_exclusive_lease_owner_history ON exclusive_connection_leases (  lease_owner_hash,
+  generation,
+  id);
 
 --INDEX:files:idx_files_api_key
-CREATE INDEX IF NOT EXISTS idx_files_api_key ON files (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_files_api_key ON files (  api_key_id);
 
 --INDEX:free_proxies:idx_free_proxies_in_pool
-CREATE INDEX IF NOT EXISTS idx_free_proxies_in_pool ON free_proxies (in_pool);
+CREATE INDEX IF NOT EXISTS idx_free_proxies_in_pool ON free_proxies (  in_pool);
 
 --INDEX:free_proxies:idx_free_proxies_quality
-CREATE INDEX IF NOT EXISTS idx_free_proxies_quality ON free_proxies (quality_score DESC);
+CREATE INDEX IF NOT EXISTS idx_free_proxies_quality ON free_proxies (  quality_score DESC);
 
 --INDEX:free_proxies:idx_free_proxies_source
-CREATE INDEX IF NOT EXISTS idx_free_proxies_source ON free_proxies (source);
+CREATE INDEX IF NOT EXISTS idx_free_proxies_source ON free_proxies (  source);
 
 --INDEX:group_model_permissions:idx_group_permissions_group
-CREATE INDEX IF NOT EXISTS idx_group_permissions_group ON group_model_permissions (group_id);
+CREATE INDEX IF NOT EXISTS idx_group_permissions_group ON group_model_permissions (  group_id);
 
 --INDEX:hourly_usage_summary:idx_hourly_usage_date
-CREATE INDEX IF NOT EXISTS idx_hourly_usage_date ON hourly_usage_summary (date_hour);
+CREATE INDEX IF NOT EXISTS idx_hourly_usage_date ON hourly_usage_summary (  date_hour);
 
 --INDEX:hourly_usage_summary:idx_hourly_usage_model_date
-CREATE INDEX IF NOT EXISTS idx_hourly_usage_model_date ON hourly_usage_summary (model, date_hour);
+CREATE INDEX IF NOT EXISTS idx_hourly_usage_model_date ON hourly_usage_summary (  model,
+  date_hour);
 
 --INDEX:hourly_usage_summary:idx_hourly_usage_provider_date
-CREATE INDEX IF NOT EXISTS idx_hourly_usage_provider_date ON hourly_usage_summary (provider, date_hour);
+CREATE INDEX IF NOT EXISTS idx_hourly_usage_provider_date ON hourly_usage_summary (  provider,
+  date_hour);
 
 --INDEX:hourly_usage_summary:idx_hourly_usage_provider_model_date
-CREATE INDEX IF NOT EXISTS idx_hourly_usage_provider_model_date ON hourly_usage_summary (provider, model, date_hour);
+CREATE INDEX IF NOT EXISTS idx_hourly_usage_provider_model_date ON hourly_usage_summary (  provider,
+  model,
+  date_hour);
 
 --INDEX:hourly_usage_summary:idx_hourly_usage_provider_model_date_composite
-CREATE INDEX IF NOT EXISTS idx_hourly_usage_provider_model_date_composite ON hourly_usage_summary (provider, model, date_hour);
+CREATE INDEX IF NOT EXISTS idx_hourly_usage_provider_model_date_composite ON hourly_usage_summary (  provider,
+  model,
+  date_hour);
 
 --INDEX:hourly_usage_summary:idx_hourly_usage_unique
-CREATE UNIQUE INDEX IF NOT EXISTS idx_hourly_usage_unique ON hourly_usage_summary (provider, model, date_hour);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hourly_usage_unique ON hourly_usage_summary (  provider,
+  model,
+  date_hour);
 
 --INDEX:inspector_custom_hosts:idx_inspector_custom_hosts_enabled
-CREATE INDEX IF NOT EXISTS idx_inspector_custom_hosts_enabled ON inspector_custom_hosts (enabled);
+CREATE INDEX IF NOT EXISTS idx_inspector_custom_hosts_enabled ON inspector_custom_hosts (  enabled);
 
 --INDEX:inspector_session_requests:idx_inspector_session_requests_sid
-CREATE INDEX IF NOT EXISTS idx_inspector_session_requests_sid ON inspector_session_requests (session_id);
+CREATE INDEX IF NOT EXISTS idx_inspector_session_requests_sid ON inspector_session_requests (  session_id);
 
 --INDEX:invite_tokens:idx_invite_tokens_code
-CREATE INDEX IF NOT EXISTS idx_invite_tokens_code ON invite_tokens (code);
+CREATE INDEX IF NOT EXISTS idx_invite_tokens_code ON invite_tokens (  code);
 
 --INDEX:invite_tokens:idx_invite_tokens_token_hash
-CREATE INDEX IF NOT EXISTS idx_invite_tokens_token_hash ON invite_tokens (token_hash);
+CREATE INDEX IF NOT EXISTS idx_invite_tokens_token_hash ON invite_tokens (  token_hash);
 
 --INDEX:job_runs:idx_jr_job_id
-CREATE INDEX IF NOT EXISTS idx_jr_job_id ON job_runs (job_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jr_job_id ON job_runs (  job_id,
+  started_at DESC);
 
 --INDEX:job_runs:idx_jr_started_at
-CREATE INDEX IF NOT EXISTS idx_jr_started_at ON job_runs (started_at);
+CREATE INDEX IF NOT EXISTS idx_jr_started_at ON job_runs (  started_at);
 
 --INDEX:key_group_members:idx_group_members_group
-CREATE INDEX IF NOT EXISTS idx_group_members_group ON key_group_members (group_id);
+CREATE INDEX IF NOT EXISTS idx_group_members_group ON key_group_members (  group_id);
 
 --INDEX:key_group_members:idx_group_members_key
-CREATE INDEX IF NOT EXISTS idx_group_members_key ON key_group_members (key_id);
+CREATE INDEX IF NOT EXISTS idx_group_members_key ON key_group_members (  key_id);
 
 --INDEX:leaderboard:idx_leaderboard_scope_score
-CREATE INDEX IF NOT EXISTS idx_leaderboard_scope_score ON leaderboard (scope, score DESC, api_key_id);
+CREATE INDEX IF NOT EXISTS idx_leaderboard_scope_score ON leaderboard (  scope,
+  score DESC,
+  api_key_id);
 
 --INDEX:log_export_destinations:idx_log_export_destinations_enabled
-CREATE INDEX IF NOT EXISTS idx_log_export_destinations_enabled ON log_export_destinations (enabled);
+CREATE INDEX IF NOT EXISTS idx_log_export_destinations_enabled ON log_export_destinations (  enabled);
 
 --INDEX:mcp_tool_audit:idx_mta_apikey
-CREATE INDEX IF NOT EXISTS idx_mta_apikey ON mcp_tool_audit (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_mta_apikey ON mcp_tool_audit (  api_key_id);
 
 --INDEX:mcp_tool_audit:idx_mta_created
-CREATE INDEX IF NOT EXISTS idx_mta_created ON mcp_tool_audit (created_at);
+CREATE INDEX IF NOT EXISTS idx_mta_created ON mcp_tool_audit (  created_at);
 
 --INDEX:mcp_tool_audit:idx_mta_tool
-CREATE INDEX IF NOT EXISTS idx_mta_tool ON mcp_tool_audit (tool_name);
+CREATE INDEX IF NOT EXISTS idx_mta_tool ON mcp_tool_audit (  tool_name);
 
 --INDEX:memories:idx_memories_api_key
-CREATE INDEX IF NOT EXISTS idx_memories_api_key ON memories (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_memories_api_key ON memories (  api_key_id);
 
 --INDEX:memories:idx_memories_expires
-CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories (expires_at);
+CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories (  expires_at);
 
 --INDEX:memories:idx_memories_memory_id
-CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_memory_id ON memories (memory_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_memory_id ON memories (  memory_id);
 
 --INDEX:memories:idx_memories_needs_reindex
-CREATE INDEX IF NOT EXISTS idx_memories_needs_reindex ON memories (needs_reindex) WHERE needs_reindex = 1;
+CREATE INDEX IF NOT EXISTS idx_memories_needs_reindex ON memories (  needs_reindex) WHERE needs_reindex = 1;
 
 --INDEX:memories:idx_memories_session
-CREATE INDEX IF NOT EXISTS idx_memories_session ON memories (session_id);
+CREATE INDEX IF NOT EXISTS idx_memories_session ON memories (  session_id);
 
 --INDEX:memories:idx_memories_type
-CREATE INDEX IF NOT EXISTS idx_memories_type ON memories (type);
+CREATE INDEX IF NOT EXISTS idx_memories_type ON memories (  type);
 
 --INDEX:memory_audit:idx_memory_audit_key_time
-CREATE INDEX IF NOT EXISTS idx_memory_audit_key_time ON memory_audit (api_key_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_audit_key_time ON memory_audit (  api_key_id,
+  created_at);
 
 --INDEX:memory_feedback:idx_memory_feedback_key
-CREATE INDEX IF NOT EXISTS idx_memory_feedback_key ON memory_feedback (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_key ON memory_feedback (  api_key_id);
 
 --INDEX:memory_feedback:idx_memory_feedback_memory
-CREATE INDEX IF NOT EXISTS idx_memory_feedback_memory ON memory_feedback (memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_memory ON memory_feedback (  memory_id);
 
 --INDEX:memory_provenance:idx_memory_provenance_memory
-CREATE INDEX IF NOT EXISTS idx_memory_provenance_memory ON memory_provenance (memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_provenance_memory ON memory_provenance (  memory_id);
 
 --INDEX:memory_reindex_jobs:idx_memory_reindex_jobs_status
-CREATE INDEX IF NOT EXISTS idx_memory_reindex_jobs_status ON memory_reindex_jobs (status);
+CREATE INDEX IF NOT EXISTS idx_memory_reindex_jobs_status ON memory_reindex_jobs (  status);
 
 --INDEX:memory_retrieval_events:idx_memory_retrieval_events_key
-CREATE INDEX IF NOT EXISTS idx_memory_retrieval_events_key ON memory_retrieval_events (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_memory_retrieval_events_key ON memory_retrieval_events (  api_key_id);
 
 --INDEX:memory_revisions:idx_memory_revisions_memory
-CREATE INDEX IF NOT EXISTS idx_memory_revisions_memory ON memory_revisions (memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_revisions_memory ON memory_revisions (  memory_id);
 
 --INDEX:middleware_hooks:idx_middleware_hooks_enabled
-CREATE INDEX IF NOT EXISTS idx_middleware_hooks_enabled ON middleware_hooks (enabled, priority);
+CREATE INDEX IF NOT EXISTS idx_middleware_hooks_enabled ON middleware_hooks (  enabled,
+  priority);
 
 --INDEX:middleware_hooks:idx_middleware_hooks_scope
-CREATE INDEX IF NOT EXISTS idx_middleware_hooks_scope ON middleware_hooks (scope_type, combo_id);
+CREATE INDEX IF NOT EXISTS idx_middleware_hooks_scope ON middleware_hooks (  scope_type,
+  combo_id);
 
 --INDEX:middleware_logs:idx_middleware_logs_hook
-CREATE INDEX IF NOT EXISTS idx_middleware_logs_hook ON middleware_logs (hook_name, timestamp);
+CREATE INDEX IF NOT EXISTS idx_middleware_logs_hook ON middleware_logs (  hook_name,
+  "timestamp");
 
 --INDEX:middleware_logs:idx_middleware_logs_request
-CREATE INDEX IF NOT EXISTS idx_middleware_logs_request ON middleware_logs (request_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_middleware_logs_request ON middleware_logs (  request_id,
+  "timestamp");
 
 --INDEX:model_capability_overrides:idx_model_capability_overrides_key
-CREATE INDEX IF NOT EXISTS idx_model_capability_overrides_key ON model_capability_overrides (override_key);
+CREATE INDEX IF NOT EXISTS idx_model_capability_overrides_key ON model_capability_overrides (  override_key);
 
 --INDEX:model_combo_mappings:idx_mcm_enabled
-CREATE INDEX IF NOT EXISTS idx_mcm_enabled ON model_combo_mappings (enabled);
+CREATE INDEX IF NOT EXISTS idx_mcm_enabled ON model_combo_mappings (  enabled);
 
 --INDEX:model_combo_mappings:idx_mcm_priority
-CREATE INDEX IF NOT EXISTS idx_mcm_priority ON model_combo_mappings (priority DESC);
+CREATE INDEX IF NOT EXISTS idx_mcm_priority ON model_combo_mappings (  priority DESC);
 
 --INDEX:model_context_overrides:idx_mco_source
-CREATE INDEX IF NOT EXISTS idx_mco_source ON model_context_overrides (source);
+CREATE INDEX IF NOT EXISTS idx_mco_source ON model_context_overrides (  source);
 
 --INDEX:model_intelligence:idx_mi_expires
-CREATE INDEX IF NOT EXISTS idx_mi_expires ON model_intelligence (expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_mi_expires ON model_intelligence (  expires_at) WHERE expires_at IS NOT NULL;
 
 --INDEX:model_intelligence:idx_mi_model_category
-CREATE INDEX IF NOT EXISTS idx_mi_model_category ON model_intelligence (model, category);
+CREATE INDEX IF NOT EXISTS idx_mi_model_category ON model_intelligence (  model,
+  category);
 
 --INDEX:model_intelligence:idx_mi_source
-CREATE INDEX IF NOT EXISTS idx_mi_source ON model_intelligence (source);
+CREATE INDEX IF NOT EXISTS idx_mi_source ON model_intelligence (  source);
 
 --INDEX:playground_presets:idx_playground_presets_endpoint
-CREATE INDEX IF NOT EXISTS idx_playground_presets_endpoint ON playground_presets (endpoint);
+CREATE INDEX IF NOT EXISTS idx_playground_presets_endpoint ON playground_presets (  endpoint);
 
 --INDEX:playground_presets:idx_playground_presets_name
-CREATE INDEX IF NOT EXISTS idx_playground_presets_name ON playground_presets (name);
+CREATE INDEX IF NOT EXISTS idx_playground_presets_name ON playground_presets (  name);
 
 --INDEX:plugin_analytics:idx_plugin_analytics_created
-CREATE INDEX IF NOT EXISTS idx_plugin_analytics_created ON plugin_analytics (created_at);
+CREATE INDEX IF NOT EXISTS idx_plugin_analytics_created ON plugin_analytics (  created_at);
 
 --INDEX:plugin_analytics:idx_plugin_analytics_name
-CREATE INDEX IF NOT EXISTS idx_plugin_analytics_name ON plugin_analytics (plugin_name);
+CREATE INDEX IF NOT EXISTS idx_plugin_analytics_name ON plugin_analytics (  plugin_name);
 
 --INDEX:plugins:idx_plugins_enabled
-CREATE INDEX IF NOT EXISTS idx_plugins_enabled ON plugins (enabled);
+CREATE INDEX IF NOT EXISTS idx_plugins_enabled ON plugins (  enabled);
 
 --INDEX:plugins:idx_plugins_name
-CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins (name);
+CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins (  name);
 
 --INDEX:plugins:idx_plugins_status
-CREATE INDEX IF NOT EXISTS idx_plugins_status ON plugins (status);
+CREATE INDEX IF NOT EXISTS idx_plugins_status ON plugins (  status);
 
 --INDEX:provider_connections:idx_pc_active
-CREATE INDEX IF NOT EXISTS idx_pc_active ON provider_connections (is_active);
+CREATE INDEX IF NOT EXISTS idx_pc_active ON provider_connections (  is_active);
 
 --INDEX:provider_connections:idx_pc_auth_active_refresh
-CREATE INDEX IF NOT EXISTS idx_pc_auth_active_refresh ON provider_connections (auth_type, is_active, refresh_token);
+CREATE INDEX IF NOT EXISTS idx_pc_auth_active_refresh ON provider_connections (  auth_type,
+  is_active,
+  refresh_token);
 
 --INDEX:provider_connections:idx_pc_max_concurrent
-CREATE INDEX IF NOT EXISTS idx_pc_max_concurrent ON provider_connections (provider, max_concurrent);
+CREATE INDEX IF NOT EXISTS idx_pc_max_concurrent ON provider_connections (  provider,
+  max_concurrent);
 
 --INDEX:provider_connections:idx_pc_priority
-CREATE INDEX IF NOT EXISTS idx_pc_priority ON provider_connections (provider, priority);
+CREATE INDEX IF NOT EXISTS idx_pc_priority ON provider_connections (  provider,
+  priority);
 
 --INDEX:provider_connections:idx_pc_provider
-CREATE INDEX IF NOT EXISTS idx_pc_provider ON provider_connections (provider);
+CREATE INDEX IF NOT EXISTS idx_pc_provider ON provider_connections (  provider);
 
 --INDEX:provider_connections:idx_pc_provider_auth_type
-CREATE INDEX IF NOT EXISTS idx_pc_provider_auth_type ON provider_connections (provider, auth_type);
+CREATE INDEX IF NOT EXISTS idx_pc_provider_auth_type ON provider_connections (  provider,
+  auth_type);
 
 --INDEX:provider_plans:idx_provider_plans_provider
-CREATE INDEX IF NOT EXISTS idx_provider_plans_provider ON provider_plans (provider);
+CREATE INDEX IF NOT EXISTS idx_provider_plans_provider ON provider_plans (  provider);
 
 --INDEX:provider_quota_reset_events:idx_provider_quota_reset_events_connection_window
-CREATE INDEX IF NOT EXISTS idx_provider_quota_reset_events_connection_window ON provider_quota_reset_events (connection_id, window_key, window_resets_at);
+CREATE INDEX IF NOT EXISTS idx_provider_quota_reset_events_connection_window ON provider_quota_reset_events (  connection_id,
+  window_key,
+  window_resets_at);
 
 --INDEX:provider_quota_reset_events:idx_provider_quota_reset_events_provider_observed
-CREATE INDEX IF NOT EXISTS idx_provider_quota_reset_events_provider_observed ON provider_quota_reset_events (provider, observed_at);
+CREATE INDEX IF NOT EXISTS idx_provider_quota_reset_events_provider_observed ON provider_quota_reset_events (  provider,
+  observed_at);
 
 --INDEX:provider_quota_state:idx_pqs_connection
-CREATE INDEX IF NOT EXISTS idx_pqs_connection ON provider_quota_state (connection_id);
+CREATE INDEX IF NOT EXISTS idx_pqs_connection ON provider_quota_state (  connection_id);
 
 --INDEX:provider_quota_state:idx_pqs_reset
-CREATE INDEX IF NOT EXISTS idx_pqs_reset ON provider_quota_state (window_reset) WHERE window_reset IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pqs_reset ON provider_quota_state (  window_reset) WHERE window_reset IS NOT NULL;
 
 --INDEX:proxy_assignments:idx_proxy_assignments_proxy_id
-CREATE INDEX IF NOT EXISTS idx_proxy_assignments_proxy_id ON proxy_assignments (proxy_id);
+CREATE INDEX IF NOT EXISTS idx_proxy_assignments_proxy_id ON proxy_assignments (  proxy_id);
 
 --INDEX:proxy_assignments:idx_proxy_assignments_scope
-CREATE INDEX IF NOT EXISTS idx_proxy_assignments_scope ON proxy_assignments (scope, scope_id);
+CREATE INDEX IF NOT EXISTS idx_proxy_assignments_scope ON proxy_assignments (  scope,
+  scope_id);
 
 --INDEX:proxy_logs:idx_pl_provider
-CREATE INDEX IF NOT EXISTS idx_pl_provider ON proxy_logs (provider);
+CREATE INDEX IF NOT EXISTS idx_pl_provider ON proxy_logs (  provider);
 
 --INDEX:proxy_logs:idx_pl_status
-CREATE INDEX IF NOT EXISTS idx_pl_status ON proxy_logs (status);
+CREATE INDEX IF NOT EXISTS idx_pl_status ON proxy_logs (  status);
 
 --INDEX:proxy_logs:idx_pl_timestamp
-CREATE INDEX IF NOT EXISTS idx_pl_timestamp ON proxy_logs (timestamp);
+CREATE INDEX IF NOT EXISTS idx_pl_timestamp ON proxy_logs (  "timestamp");
 
 --INDEX:proxy_registry:idx_proxy_registry_country
-CREATE INDEX IF NOT EXISTS idx_proxy_registry_country ON proxy_registry (country_code);
+CREATE INDEX IF NOT EXISTS idx_proxy_registry_country ON proxy_registry (  country_code);
 
 --INDEX:proxy_registry:idx_proxy_registry_host
-CREATE INDEX IF NOT EXISTS idx_proxy_registry_host ON proxy_registry (host);
+CREATE INDEX IF NOT EXISTS idx_proxy_registry_host ON proxy_registry (  host);
 
 --INDEX:proxy_registry:idx_proxy_registry_quality
-CREATE INDEX IF NOT EXISTS idx_proxy_registry_quality ON proxy_registry (quality_score DESC);
+CREATE INDEX IF NOT EXISTS idx_proxy_registry_quality ON proxy_registry (  quality_score DESC);
 
 --INDEX:proxy_registry:idx_proxy_registry_source
-CREATE INDEX IF NOT EXISTS idx_proxy_registry_source ON proxy_registry (source);
+CREATE INDEX IF NOT EXISTS idx_proxy_registry_source ON proxy_registry (  source);
 
 --INDEX:proxy_registry:idx_proxy_registry_status
-CREATE INDEX IF NOT EXISTS idx_proxy_registry_status ON proxy_registry (status);
+CREATE INDEX IF NOT EXISTS idx_proxy_registry_status ON proxy_registry (  status);
 
 --INDEX:proxy_registry:idx_proxy_registry_subscription
-CREATE INDEX IF NOT EXISTS idx_proxy_registry_subscription ON proxy_registry (subscription_id);
+CREATE INDEX IF NOT EXISTS idx_proxy_registry_subscription ON proxy_registry (  subscription_id);
 
 --INDEX:proxy_subscriptions:idx_proxy_subscriptions_enabled
-CREATE INDEX IF NOT EXISTS idx_proxy_subscriptions_enabled ON proxy_subscriptions (enabled);
+CREATE INDEX IF NOT EXISTS idx_proxy_subscriptions_enabled ON proxy_subscriptions (  enabled);
 
 --INDEX:proxy_subscriptions:idx_proxy_subscriptions_last_error
-CREATE INDEX IF NOT EXISTS idx_proxy_subscriptions_last_error ON proxy_subscriptions (last_error_at);
+CREATE INDEX IF NOT EXISTS idx_proxy_subscriptions_last_error ON proxy_subscriptions (  last_error_at);
 
 --INDEX:quota_allocation_model_caps:idx_qamc_pool_key
-CREATE INDEX IF NOT EXISTS idx_qamc_pool_key ON quota_allocation_model_caps (pool_id, api_key_id);
+CREATE INDEX IF NOT EXISTS idx_qamc_pool_key ON quota_allocation_model_caps (  pool_id,
+  api_key_id);
 
 --INDEX:quota_allocations:idx_quota_allocations_apikey
-CREATE INDEX IF NOT EXISTS idx_quota_allocations_apikey ON quota_allocations (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_quota_allocations_apikey ON quota_allocations (  api_key_id);
 
 --INDEX:quota_consumption:idx_quota_consumption_dim_bucket
-CREATE INDEX IF NOT EXISTS idx_quota_consumption_dim_bucket ON quota_consumption (dimension_key, bucket_index);
+CREATE INDEX IF NOT EXISTS idx_quota_consumption_dim_bucket ON quota_consumption (  dimension_key,
+  bucket_index);
 
 --INDEX:quota_consumption:idx_quota_consumption_updated_at
-CREATE INDEX IF NOT EXISTS idx_quota_consumption_updated_at ON quota_consumption (updated_at);
+CREATE INDEX IF NOT EXISTS idx_quota_consumption_updated_at ON quota_consumption (  updated_at);
 
 --INDEX:quota_pool_connections:idx_quota_pool_connections_pool
-CREATE INDEX IF NOT EXISTS idx_quota_pool_connections_pool ON quota_pool_connections (pool_id);
+CREATE INDEX IF NOT EXISTS idx_quota_pool_connections_pool ON quota_pool_connections (  pool_id);
 
 --INDEX:quota_pools:idx_quota_pools_connection
-CREATE INDEX IF NOT EXISTS idx_quota_pools_connection ON quota_pools (connection_id);
+CREATE INDEX IF NOT EXISTS idx_quota_pools_connection ON quota_pools (  connection_id);
 
 --INDEX:quota_schedules:idx_quota_schedules_pool
-CREATE INDEX IF NOT EXISTS idx_quota_schedules_pool ON quota_schedules (pool_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_quota_schedules_pool ON quota_schedules (  pool_id,
+  enabled);
 
 --INDEX:quota_snapshots:idx_quota_snapshots_connection_time
-CREATE INDEX IF NOT EXISTS idx_quota_snapshots_connection_time ON quota_snapshots (connection_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_quota_snapshots_connection_time ON quota_snapshots (  connection_id,
+  created_at);
 
 --INDEX:quota_snapshots:idx_quota_snapshots_created_at
-CREATE INDEX IF NOT EXISTS idx_quota_snapshots_created_at ON quota_snapshots (created_at);
+CREATE INDEX IF NOT EXISTS idx_quota_snapshots_created_at ON quota_snapshots (  created_at);
 
 --INDEX:quota_snapshots:idx_quota_snapshots_provider_time
-CREATE INDEX IF NOT EXISTS idx_quota_snapshots_provider_time ON quota_snapshots (provider, created_at);
+CREATE INDEX IF NOT EXISTS idx_quota_snapshots_provider_time ON quota_snapshots (  provider,
+  created_at);
 
 --INDEX:reasoning_cache:idx_reasoning_cache_created
-CREATE INDEX IF NOT EXISTS idx_reasoning_cache_created ON reasoning_cache (created_at);
+CREATE INDEX IF NOT EXISTS idx_reasoning_cache_created ON reasoning_cache (  created_at);
 
 --INDEX:reasoning_cache:idx_reasoning_cache_expires
-CREATE INDEX IF NOT EXISTS idx_reasoning_cache_expires ON reasoning_cache (expires_at);
+CREATE INDEX IF NOT EXISTS idx_reasoning_cache_expires ON reasoning_cache (  expires_at);
 
 --INDEX:reasoning_cache:idx_reasoning_cache_model
-CREATE INDEX IF NOT EXISTS idx_reasoning_cache_model ON reasoning_cache (model);
+CREATE INDEX IF NOT EXISTS idx_reasoning_cache_model ON reasoning_cache (  model);
 
 --INDEX:reasoning_cache:idx_reasoning_cache_provider
-CREATE INDEX IF NOT EXISTS idx_reasoning_cache_provider ON reasoning_cache (provider);
+CREATE INDEX IF NOT EXISTS idx_reasoning_cache_provider ON reasoning_cache (  provider);
 
 --INDEX:reasoning_routing_rules:idx_reasoning_rules_api_key
-CREATE INDEX IF NOT EXISTS idx_reasoning_rules_api_key ON reasoning_routing_rules (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_reasoning_rules_api_key ON reasoning_routing_rules (  api_key_id);
 
 --INDEX:reasoning_routing_rules:idx_reasoning_rules_combo
-CREATE INDEX IF NOT EXISTS idx_reasoning_rules_combo ON reasoning_routing_rules (combo_id);
+CREATE INDEX IF NOT EXISTS idx_reasoning_rules_combo ON reasoning_routing_rules (  combo_id);
 
 --INDEX:reasoning_routing_rules:idx_reasoning_rules_connection
-CREATE INDEX IF NOT EXISTS idx_reasoning_rules_connection ON reasoning_routing_rules (connection_id);
+CREATE INDEX IF NOT EXISTS idx_reasoning_rules_connection ON reasoning_routing_rules (  connection_id);
 
 --INDEX:reasoning_routing_rules:idx_reasoning_rules_enabled
-CREATE INDEX IF NOT EXISTS idx_reasoning_rules_enabled ON reasoning_routing_rules (enabled, scope, priority DESC);
+CREATE INDEX IF NOT EXISTS idx_reasoning_rules_enabled ON reasoning_routing_rules (  enabled,
+  scope,
+  priority DESC);
 
 --INDEX:registered_keys:idx_registered_keys_account
-CREATE INDEX IF NOT EXISTS idx_registered_keys_account ON registered_keys (account_id);
+CREATE INDEX IF NOT EXISTS idx_registered_keys_account ON registered_keys (  account_id);
 
 --INDEX:registered_keys:idx_registered_keys_active
-CREATE INDEX IF NOT EXISTS idx_registered_keys_active ON registered_keys (is_active);
+CREATE INDEX IF NOT EXISTS idx_registered_keys_active ON registered_keys (  is_active);
 
 --INDEX:registered_keys:idx_registered_keys_idempotency
-CREATE INDEX IF NOT EXISTS idx_registered_keys_idempotency ON registered_keys (idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_registered_keys_idempotency ON registered_keys (  idempotency_key);
 
 --INDEX:registered_keys:idx_registered_keys_provider
-CREATE INDEX IF NOT EXISTS idx_registered_keys_provider ON registered_keys (provider);
+CREATE INDEX IF NOT EXISTS idx_registered_keys_provider ON registered_keys (  provider);
 
 --INDEX:relay_logs:idx_relay_logs_created
-CREATE INDEX IF NOT EXISTS idx_relay_logs_created ON relay_logs (created_at);
+CREATE INDEX IF NOT EXISTS idx_relay_logs_created ON relay_logs (  created_at);
 
 --INDEX:relay_logs:idx_relay_logs_token
-CREATE INDEX IF NOT EXISTS idx_relay_logs_token ON relay_logs (token_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_relay_logs_token ON relay_logs (  token_id,
+  created_at);
 
 --INDEX:relay_rate_limits:idx_relay_rate_limits_window
-CREATE INDEX IF NOT EXISTS idx_relay_rate_limits_window ON relay_rate_limits (token_id, window_start);
+CREATE INDEX IF NOT EXISTS idx_relay_rate_limits_window ON relay_rate_limits (  token_id,
+  window_start);
 
 --INDEX:relay_tokens:idx_relay_tokens_prefix
-CREATE INDEX IF NOT EXISTS idx_relay_tokens_prefix ON relay_tokens (token_prefix);
+CREATE INDEX IF NOT EXISTS idx_relay_tokens_prefix ON relay_tokens (  token_prefix);
 
 --INDEX:request_cost_ledger:idx_rcl_api_key_timestamp
-CREATE INDEX IF NOT EXISTS idx_rcl_api_key_timestamp ON request_cost_ledger (api_key_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_rcl_api_key_timestamp ON request_cost_ledger (  api_key_id,
+  "timestamp");
 
 --INDEX:request_cost_ledger:idx_rcl_timestamp
-CREATE INDEX IF NOT EXISTS idx_rcl_timestamp ON request_cost_ledger (timestamp);
+CREATE INDEX IF NOT EXISTS idx_rcl_timestamp ON request_cost_ledger (  "timestamp");
 
 --INDEX:request_detail_logs:idx_rdl_call_log_id
-CREATE INDEX IF NOT EXISTS idx_rdl_call_log_id ON request_detail_logs (call_log_id);
+CREATE INDEX IF NOT EXISTS idx_rdl_call_log_id ON request_detail_logs (  call_log_id);
 
 --INDEX:request_detail_logs:idx_rdl_timestamp
-CREATE INDEX IF NOT EXISTS idx_rdl_timestamp ON request_detail_logs (timestamp);
+CREATE INDEX IF NOT EXISTS idx_rdl_timestamp ON request_detail_logs (  "timestamp");
 
 --INDEX:routing_decisions:idx_rd_combo
-CREATE INDEX IF NOT EXISTS idx_rd_combo ON routing_decisions (combo_id);
+CREATE INDEX IF NOT EXISTS idx_rd_combo ON routing_decisions (  combo_id);
 
 --INDEX:routing_decisions:idx_rd_created
-CREATE INDEX IF NOT EXISTS idx_rd_created ON routing_decisions (created_at);
+CREATE INDEX IF NOT EXISTS idx_rd_created ON routing_decisions (  created_at);
 
 --INDEX:routing_decisions:idx_rd_provider
-CREATE INDEX IF NOT EXISTS idx_rd_provider ON routing_decisions (provider_selected);
+CREATE INDEX IF NOT EXISTS idx_rd_provider ON routing_decisions (  provider_selected);
 
 --INDEX:routing_decisions:idx_rd_request
-CREATE INDEX IF NOT EXISTS idx_rd_request ON routing_decisions (request_id);
+CREATE INDEX IF NOT EXISTS idx_rd_request ON routing_decisions (  request_id);
 
 --INDEX:script_vault:idx_script_vault_created_by
-CREATE INDEX IF NOT EXISTS idx_script_vault_created_by ON script_vault (created_by);
+CREATE INDEX IF NOT EXISTS idx_script_vault_created_by ON script_vault (  created_by);
 
 --INDEX:script_vault:idx_script_vault_name
-CREATE INDEX IF NOT EXISTS idx_script_vault_name ON script_vault (name);
+CREATE INDEX IF NOT EXISTS idx_script_vault_name ON script_vault (  name);
 
 --INDEX:script_vault:idx_script_vault_status
-CREATE INDEX IF NOT EXISTS idx_script_vault_status ON script_vault (status);
+CREATE INDEX IF NOT EXISTS idx_script_vault_status ON script_vault (  status);
 
 --INDEX:script_vault:idx_script_vault_tags
-CREATE INDEX IF NOT EXISTS idx_script_vault_tags ON script_vault (tags);
+CREATE INDEX IF NOT EXISTS idx_script_vault_tags ON script_vault (  tags);
 
 --INDEX:script_vault:idx_script_vault_updated_at
-CREATE INDEX IF NOT EXISTS idx_script_vault_updated_at ON script_vault (updated_at);
+CREATE INDEX IF NOT EXISTS idx_script_vault_updated_at ON script_vault (  updated_at);
 
 --INDEX:semantic_cache:idx_sc_model
-CREATE INDEX IF NOT EXISTS idx_sc_model ON semantic_cache (model);
+CREATE INDEX IF NOT EXISTS idx_sc_model ON semantic_cache (  model);
 
 --INDEX:semantic_cache:idx_sc_sig
-CREATE INDEX IF NOT EXISTS idx_sc_sig ON semantic_cache (signature);
+CREATE INDEX IF NOT EXISTS idx_sc_sig ON semantic_cache (  signature);
 
 --INDEX:server_tool_executions:idx_server_tool_executions_created
-CREATE INDEX IF NOT EXISTS idx_server_tool_executions_created ON server_tool_executions (created_at);
+CREATE INDEX IF NOT EXISTS idx_server_tool_executions_created ON server_tool_executions (  created_at);
 
 --INDEX:server_tool_executions:idx_server_tool_executions_status_expiry
-CREATE INDEX IF NOT EXISTS idx_server_tool_executions_status_expiry ON server_tool_executions (status, claim_expires_at);
+CREATE INDEX IF NOT EXISTS idx_server_tool_executions_status_expiry ON server_tool_executions (  status,
+  claim_expires_at);
 
 --INDEX:session_account_affinity:idx_saa_last_seen
-CREATE INDEX IF NOT EXISTS idx_saa_last_seen ON session_account_affinity (last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_saa_last_seen ON session_account_affinity (  last_seen_at);
 
 --INDEX:session_account_affinity:idx_saa_provider
-CREATE INDEX IF NOT EXISTS idx_saa_provider ON session_account_affinity (provider);
+CREATE INDEX IF NOT EXISTS idx_saa_provider ON session_account_affinity (  provider);
 
 --INDEX:session_model_history:idx_session_model_history_cleanup
-CREATE INDEX IF NOT EXISTS idx_session_model_history_cleanup ON session_model_history (used_at);
+CREATE INDEX IF NOT EXISTS idx_session_model_history_cleanup ON session_model_history (  used_at);
 
 --INDEX:session_model_history:idx_session_model_history_lookup
-CREATE INDEX IF NOT EXISTS idx_session_model_history_lookup ON session_model_history (session_id, combo_name, used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_model_history_lookup ON session_model_history (  session_id,
+  combo_name,
+  used_at DESC);
 
 --INDEX:skill_agent_grants:idx_skill_agent_grants_agent
-CREATE INDEX IF NOT EXISTS idx_skill_agent_grants_agent ON skill_agent_grants (agent_id);
+CREATE INDEX IF NOT EXISTS idx_skill_agent_grants_agent ON skill_agent_grants (  agent_id);
 
 --INDEX:skill_collection_members:idx_skill_collection_members_coll
-CREATE INDEX IF NOT EXISTS idx_skill_collection_members_coll ON skill_collection_members (collection_id);
+CREATE INDEX IF NOT EXISTS idx_skill_collection_members_coll ON skill_collection_members (  collection_id);
 
 --INDEX:skill_execution_approvals:idx_skill_execution_approvals_skill
-CREATE INDEX IF NOT EXISTS idx_skill_execution_approvals_skill ON skill_execution_approvals (skill_id);
+CREATE INDEX IF NOT EXISTS idx_skill_execution_approvals_skill ON skill_execution_approvals (  skill_id);
 
 --INDEX:skill_executions:idx_skill_executions_api_key
-CREATE INDEX IF NOT EXISTS idx_skill_executions_api_key ON skill_executions (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_skill_executions_api_key ON skill_executions (  api_key_id);
 
 --INDEX:skill_executions:idx_skill_executions_created
-CREATE INDEX IF NOT EXISTS idx_skill_executions_created ON skill_executions (created_at);
+CREATE INDEX IF NOT EXISTS idx_skill_executions_created ON skill_executions (  created_at);
 
 --INDEX:skill_executions:idx_skill_executions_skill
-CREATE INDEX IF NOT EXISTS idx_skill_executions_skill ON skill_executions (skill_id);
+CREATE INDEX IF NOT EXISTS idx_skill_executions_skill ON skill_executions (  skill_id);
 
 --INDEX:skill_executions:idx_skill_executions_status
-CREATE INDEX IF NOT EXISTS idx_skill_executions_status ON skill_executions (status);
+CREATE INDEX IF NOT EXISTS idx_skill_executions_status ON skill_executions (  status);
 
 --INDEX:skill_import_jobs:idx_skill_import_jobs_status
-CREATE INDEX IF NOT EXISTS idx_skill_import_jobs_status ON skill_import_jobs (status);
+CREATE INDEX IF NOT EXISTS idx_skill_import_jobs_status ON skill_import_jobs (  status);
 
 --INDEX:skill_package_files:idx_skill_package_files_package
-CREATE INDEX IF NOT EXISTS idx_skill_package_files_package ON skill_package_files (package_id);
+CREATE INDEX IF NOT EXISTS idx_skill_package_files_package ON skill_package_files (  package_id);
 
 --INDEX:skill_packages:idx_skill_packages_domain
-CREATE INDEX IF NOT EXISTS idx_skill_packages_domain ON skill_packages (domain);
+CREATE INDEX IF NOT EXISTS idx_skill_packages_domain ON skill_packages (  domain);
 
 --INDEX:skill_packages:idx_skill_packages_source
-CREATE INDEX IF NOT EXISTS idx_skill_packages_source ON skill_packages (source_id);
+CREATE INDEX IF NOT EXISTS idx_skill_packages_source ON skill_packages (  source_id);
 
 --INDEX:skills:idx_skills_api_key
-CREATE INDEX IF NOT EXISTS idx_skills_api_key ON skills (api_key_id);
+CREATE INDEX IF NOT EXISTS idx_skills_api_key ON skills (  api_key_id);
 
 --INDEX:skills:idx_skills_mode
-CREATE INDEX IF NOT EXISTS idx_skills_mode ON skills (mode);
+CREATE INDEX IF NOT EXISTS idx_skills_mode ON skills (  mode);
 
 --INDEX:skills:idx_skills_name
-CREATE INDEX IF NOT EXISTS idx_skills_name ON skills (name);
+CREATE INDEX IF NOT EXISTS idx_skills_name ON skills (  name);
 
 --INDEX:skills:idx_skills_source_provider
-CREATE INDEX IF NOT EXISTS idx_skills_source_provider ON skills (source_provider);
+CREATE INDEX IF NOT EXISTS idx_skills_source_provider ON skills (  source_provider);
 
 --INDEX:sync_tokens:idx_sync_tokens_created_at
-CREATE INDEX IF NOT EXISTS idx_sync_tokens_created_at ON sync_tokens (created_at);
+CREATE INDEX IF NOT EXISTS idx_sync_tokens_created_at ON sync_tokens (  created_at);
 
 --INDEX:sync_tokens:idx_sync_tokens_last_used_at
-CREATE INDEX IF NOT EXISTS idx_sync_tokens_last_used_at ON sync_tokens (last_used_at);
+CREATE INDEX IF NOT EXISTS idx_sync_tokens_last_used_at ON sync_tokens (  last_used_at);
 
 --INDEX:sync_tokens:idx_sync_tokens_revoked_at
-CREATE INDEX IF NOT EXISTS idx_sync_tokens_revoked_at ON sync_tokens (revoked_at);
+CREATE INDEX IF NOT EXISTS idx_sync_tokens_revoked_at ON sync_tokens (  revoked_at);
 
 --INDEX:sync_tokens:idx_sync_tokens_sync_api_key_id
-CREATE INDEX IF NOT EXISTS idx_sync_tokens_sync_api_key_id ON sync_tokens (sync_api_key_id);
+CREATE INDEX IF NOT EXISTS idx_sync_tokens_sync_api_key_id ON sync_tokens (  sync_api_key_id);
 
 --INDEX:tier_assignments:idx_tier_assignments_provider
-CREATE INDEX IF NOT EXISTS idx_tier_assignments_provider ON tier_assignments (provider);
+CREATE INDEX IF NOT EXISTS idx_tier_assignments_provider ON tier_assignments (  provider);
 
 --INDEX:tier_assignments:idx_tier_assignments_tier
-CREATE INDEX IF NOT EXISTS idx_tier_assignments_tier ON tier_assignments (tier);
+CREATE INDEX IF NOT EXISTS idx_tier_assignments_tier ON tier_assignments (  tier);
 
 --INDEX:upstream_proxy_config:idx_upc_mode
-CREATE INDEX IF NOT EXISTS idx_upc_mode ON upstream_proxy_config (mode);
+CREATE INDEX IF NOT EXISTS idx_upc_mode ON upstream_proxy_config (  mode);
 
 --INDEX:upstream_proxy_config:idx_upc_provider
-CREATE INDEX IF NOT EXISTS idx_upc_provider ON upstream_proxy_config (provider_id);
+CREATE INDEX IF NOT EXISTS idx_upc_provider ON upstream_proxy_config (  provider_id);
 
 --INDEX:usage_history:idx_uh_account_key
-CREATE INDEX IF NOT EXISTS idx_uh_account_key ON usage_history (account_key);
+CREATE INDEX IF NOT EXISTS idx_uh_account_key ON usage_history (  account_key);
 
 --INDEX:usage_history:idx_uh_combo_strategy
-CREATE INDEX IF NOT EXISTS idx_uh_combo_strategy ON usage_history (combo_strategy);
+CREATE INDEX IF NOT EXISTS idx_uh_combo_strategy ON usage_history (  combo_strategy);
 
 --INDEX:usage_history:idx_uh_dedup
-CREATE INDEX IF NOT EXISTS idx_uh_dedup ON usage_history (timestamp,
-        COALESCE(provider, ''),
-        COALESCE(model, ''),
-        COALESCE(connection_id, ''),
-        COALESCE(api_key_id, ''),
-        tokens_input,
-        tokens_output);
+CREATE INDEX IF NOT EXISTS idx_uh_dedup ON usage_history (  "timestamp",
+  COALESCE(provider,
+  ''),
+  COALESCE(model,
+  ''),
+  COALESCE(connection_id,
+  ''),
+  COALESCE(api_key_id,
+  ''),
+  tokens_input,
+  tokens_output);
 
 --INDEX:usage_history:idx_uh_endpoint
-CREATE INDEX IF NOT EXISTS idx_uh_endpoint ON usage_history (endpoint);
+CREATE INDEX IF NOT EXISTS idx_uh_endpoint ON usage_history (  endpoint);
 
 --INDEX:usage_history:idx_uh_key_provider_model_ts
-CREATE INDEX IF NOT EXISTS idx_uh_key_provider_model_ts ON usage_history (api_key_id, provider, model, timestamp);
+CREATE INDEX IF NOT EXISTS idx_uh_key_provider_model_ts ON usage_history (  api_key_id,
+  provider,
+  model,
+  "timestamp");
 
 --INDEX:usage_history:idx_uh_model
-CREATE INDEX IF NOT EXISTS idx_uh_model ON usage_history (model);
+CREATE INDEX IF NOT EXISTS idx_uh_model ON usage_history (  model);
 
 --INDEX:usage_history:idx_uh_provider
-CREATE INDEX IF NOT EXISTS idx_uh_provider ON usage_history (provider);
+CREATE INDEX IF NOT EXISTS idx_uh_provider ON usage_history (  provider);
 
 --INDEX:usage_history:idx_uh_provider_model_timestamp
-CREATE INDEX IF NOT EXISTS idx_uh_provider_model_timestamp ON usage_history (provider, model, timestamp);
+CREATE INDEX IF NOT EXISTS idx_uh_provider_model_timestamp ON usage_history (  provider,
+  model,
+  "timestamp");
 
 --INDEX:usage_history:idx_uh_service_tier
-CREATE INDEX IF NOT EXISTS idx_uh_service_tier ON usage_history (service_tier);
+CREATE INDEX IF NOT EXISTS idx_uh_service_tier ON usage_history (  service_tier);
 
 --INDEX:usage_history:idx_uh_timestamp
-CREATE INDEX IF NOT EXISTS idx_uh_timestamp ON usage_history (timestamp);
+CREATE INDEX IF NOT EXISTS idx_uh_timestamp ON usage_history (  "timestamp");
 
 --INDEX:usage_history:idx_usage_history_api_key_id_timestamp
-CREATE INDEX IF NOT EXISTS idx_usage_history_api_key_id_timestamp ON usage_history (api_key_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_usage_history_api_key_id_timestamp ON usage_history (  api_key_id,
+  "timestamp");
 
 --INDEX:usage_history:idx_usage_history_api_key_name_timestamp
-CREATE INDEX IF NOT EXISTS idx_usage_history_api_key_name_timestamp ON usage_history (api_key_name, timestamp);
+CREATE INDEX IF NOT EXISTS idx_usage_history_api_key_name_timestamp ON usage_history (  api_key_name,
+  "timestamp");
 
 --INDEX:user_badges:idx_user_badges_badge_id
-CREATE INDEX IF NOT EXISTS idx_user_badges_badge_id ON user_badges (badge_id);
+CREATE INDEX IF NOT EXISTS idx_user_badges_badge_id ON user_badges (  badge_id);
 
 --INDEX:version_manager:idx_vm_status
-CREATE INDEX IF NOT EXISTS idx_vm_status ON version_manager (status);
+CREATE INDEX IF NOT EXISTS idx_vm_status ON version_manager (  status);
 
 --INDEX:version_manager:idx_vm_tool
-CREATE INDEX IF NOT EXISTS idx_vm_tool ON version_manager (tool);
+CREATE INDEX IF NOT EXISTS idx_vm_tool ON version_manager (  tool);
 
 --INDEX:webhook_deliveries:idx_webhook_deliveries_webhook_created
-CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_created ON webhook_deliveries (webhook_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_created ON webhook_deliveries (  webhook_id,
+  created_at DESC);
 
 --INDEX:xp_audit_log:idx_xp_audit_log_api_key_created
-CREATE INDEX IF NOT EXISTS idx_xp_audit_log_api_key_created ON xp_audit_log (api_key_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_xp_audit_log_api_key_created ON xp_audit_log (  api_key_id,
+  created_at);
 
 -- ── Triggers (SQLite DML triggers → PG plpgsql) ──
 
@@ -2969,30 +3056,30 @@ CREATE INDEX IF NOT EXISTS idx_xp_audit_log_api_key_created ON xp_audit_log (api
 CREATE OR REPLACE FUNCTION trg_exclusive_connection_leases_retire_chatgpt_web_insert_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (NEW.state = 'ACTIVE'
+    AND (
+      lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+        = 'cgpt-web'
+      OR EXISTS (
+        SELECT 1
+        FROM provider_connections
+        WHERE id = NEW.connection_id
+          AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+            = 'cgpt-web'
+      )
+    )) THEN RETURN NEW; END IF;
   UPDATE exclusive_connection_leases
     SET state = 'INVALIDATED',
         ended_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE id = NEW.id
       AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER exclusive_connection_leases_retire_chatgpt_web_insert
 AFTER INSERT ON exclusive_connection_leases FOR EACH ROW
-WHEN (NEW.state = 'ACTIVE'
-  AND (
-    lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-      = 'cgpt-web'
-    OR EXISTS (
-      SELECT 1
-      FROM provider_connections
-      WHERE id = NEW.connection_id
-        AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-          = 'cgpt-web'
-    )
-  ))
-
 EXECUTE FUNCTION trg_exclusive_connection_leases_retire_chatgpt_web_insert_fn();
 
 
@@ -3000,30 +3087,30 @@ EXECUTE FUNCTION trg_exclusive_connection_leases_retire_chatgpt_web_insert_fn();
 CREATE OR REPLACE FUNCTION trg_exclusive_connection_leases_retire_chatgpt_web_update_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (NEW.state = 'ACTIVE'
+    AND (
+      lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+        = 'cgpt-web'
+      OR EXISTS (
+        SELECT 1
+        FROM provider_connections
+        WHERE id = NEW.connection_id
+          AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+            = 'cgpt-web'
+      )
+    )) THEN RETURN NEW; END IF;
   UPDATE exclusive_connection_leases
     SET state = 'INVALIDATED',
         ended_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE id = NEW.id
       AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER exclusive_connection_leases_retire_chatgpt_web_update
 AFTER UPDATE ON exclusive_connection_leases FOR EACH ROW
-WHEN (NEW.state = 'ACTIVE'
-  AND (
-    lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-      = 'cgpt-web'
-    OR EXISTS (
-      SELECT 1
-      FROM provider_connections
-      WHERE id = NEW.connection_id
-        AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-          = 'cgpt-web'
-    )
-  ))
-
 EXECUTE FUNCTION trg_exclusive_connection_leases_retire_chatgpt_web_update_fn();
 
 
@@ -3031,30 +3118,30 @@ EXECUTE FUNCTION trg_exclusive_connection_leases_retire_chatgpt_web_update_fn();
 CREATE OR REPLACE FUNCTION trg_exclusive_connection_leases_retire_felo_web_insert_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (NEW.state = 'ACTIVE'
+    AND (
+      lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+        IN ('felo-web', 'felo')
+      OR EXISTS (
+        SELECT 1
+        FROM provider_connections
+        WHERE id = NEW.connection_id
+          AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+            IN ('felo-web', 'felo')
+      )
+    )) THEN RETURN NEW; END IF;
   UPDATE exclusive_connection_leases
     SET state = 'INVALIDATED',
         ended_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE id = NEW.id
       AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER exclusive_connection_leases_retire_felo_web_insert
 AFTER INSERT ON exclusive_connection_leases FOR EACH ROW
-WHEN (NEW.state = 'ACTIVE'
-  AND (
-    lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-      IN ('felo-web', 'felo')
-    OR EXISTS (
-      SELECT 1
-      FROM provider_connections
-      WHERE id = NEW.connection_id
-        AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-          IN ('felo-web', 'felo')
-    )
-  ))
-
 EXECUTE FUNCTION trg_exclusive_connection_leases_retire_felo_web_insert_fn();
 
 
@@ -3062,30 +3149,30 @@ EXECUTE FUNCTION trg_exclusive_connection_leases_retire_felo_web_insert_fn();
 CREATE OR REPLACE FUNCTION trg_exclusive_connection_leases_retire_felo_web_update_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (NEW.state = 'ACTIVE'
+    AND (
+      lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+        IN ('felo-web', 'felo')
+      OR EXISTS (
+        SELECT 1
+        FROM provider_connections
+        WHERE id = NEW.connection_id
+          AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+            IN ('felo-web', 'felo')
+      )
+    )) THEN RETURN NEW; END IF;
   UPDATE exclusive_connection_leases
     SET state = 'INVALIDATED',
         ended_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE id = NEW.id
       AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER exclusive_connection_leases_retire_felo_web_update
 AFTER UPDATE ON exclusive_connection_leases FOR EACH ROW
-WHEN (NEW.state = 'ACTIVE'
-  AND (
-    lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-      IN ('felo-web', 'felo')
-    OR EXISTS (
-      SELECT 1
-      FROM provider_connections
-      WHERE id = NEW.connection_id
-        AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-          IN ('felo-web', 'felo')
-    )
-  ))
-
 EXECUTE FUNCTION trg_exclusive_connection_leases_retire_felo_web_update_fn();
 
 
@@ -3093,30 +3180,30 @@ EXECUTE FUNCTION trg_exclusive_connection_leases_retire_felo_web_update_fn();
 CREATE OR REPLACE FUNCTION trg_exclusive_connection_leases_retire_qwen_web_insert_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (NEW.state = 'ACTIVE'
+    AND (
+      lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+        IN ('qwen-web', 'qw')
+      OR EXISTS (
+        SELECT 1
+        FROM provider_connections
+        WHERE id = NEW.connection_id
+          AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+            IN ('qwen-web', 'qw')
+      )
+    )) THEN RETURN NEW; END IF;
   UPDATE exclusive_connection_leases
     SET state = 'INVALIDATED',
         ended_at = COALESCE(ended_at, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE id = NEW.id
       AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER exclusive_connection_leases_retire_qwen_web_insert
 AFTER INSERT ON exclusive_connection_leases FOR EACH ROW
-WHEN (NEW.state = 'ACTIVE'
-  AND (
-    lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-      IN ('qwen-web', 'qw')
-    OR EXISTS (
-      SELECT 1
-      FROM provider_connections
-      WHERE id = NEW.connection_id
-        AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-          IN ('qwen-web', 'qw')
-    )
-  ))
-
 EXECUTE FUNCTION trg_exclusive_connection_leases_retire_qwen_web_insert_fn();
 
 
@@ -3124,30 +3211,30 @@ EXECUTE FUNCTION trg_exclusive_connection_leases_retire_qwen_web_insert_fn();
 CREATE OR REPLACE FUNCTION trg_exclusive_connection_leases_retire_qwen_web_update_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (NEW.state = 'ACTIVE'
+    AND (
+      lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+        IN ('qwen-web', 'qw')
+      OR EXISTS (
+        SELECT 1
+        FROM provider_connections
+        WHERE id = NEW.connection_id
+          AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+            IN ('qwen-web', 'qw')
+      )
+    )) THEN RETURN NEW; END IF;
   UPDATE exclusive_connection_leases
     SET state = 'INVALIDATED',
         ended_at = COALESCE(ended_at, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE id = NEW.id
       AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER exclusive_connection_leases_retire_qwen_web_update
 AFTER UPDATE ON exclusive_connection_leases FOR EACH ROW
-WHEN (NEW.state = 'ACTIVE'
-  AND (
-    lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-      IN ('qwen-web', 'qw')
-    OR EXISTS (
-      SELECT 1
-      FROM provider_connections
-      WHERE id = NEW.connection_id
-        AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-          IN ('qwen-web', 'qw')
-    )
-  ))
-
 EXECUTE FUNCTION trg_exclusive_connection_leases_retire_qwen_web_update_fn();
 
 
@@ -3155,22 +3242,22 @@ EXECUTE FUNCTION trg_exclusive_connection_leases_retire_qwen_web_update_fn();
 CREATE OR REPLACE FUNCTION trg_provider_connections_preserve_chatgpt_web_identity_insert_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (EXISTS (
+      SELECT 1
+      FROM provider_connections
+      WHERE id = NEW.id
+        AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+          IN ('chatgpt-web', 'cgpt-web')
+    )
+    AND lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+      NOT IN ('chatgpt-web', 'cgpt-web')) THEN RETURN NEW; END IF;
   SELECT RAISE(ABORT, 'Retired provider connection identity cannot be changed');
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER provider_connections_preserve_chatgpt_web_identity_insert
 BEFORE INSERT ON provider_connections FOR EACH ROW
-WHEN (EXISTS (
-    SELECT 1
-    FROM provider_connections
-    WHERE id = NEW.id
-      AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-        IN ('chatgpt-web', 'cgpt-web')
-  )
-  AND lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-    NOT IN ('chatgpt-web', 'cgpt-web'))
-
 EXECUTE FUNCTION trg_provider_connections_preserve_chatgpt_web_identity_insert_fn();
 
 
@@ -3179,6 +3266,7 @@ CREATE OR REPLACE FUNCTION trg_provider_connections_preserve_chatgpt_web_identit
 LANGUAGE plpgsql AS $$
 BEGIN
   SELECT RAISE(ABORT, 'Retired provider connection identity cannot be changed');
+RETURN NEW;
 END;
 $$;
 
@@ -3196,22 +3284,22 @@ EXECUTE FUNCTION trg_provider_connections_preserve_chatgpt_web_identity_update_f
 CREATE OR REPLACE FUNCTION trg_provider_connections_preserve_felo_web_identity_insert_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (EXISTS (
+      SELECT 1
+      FROM provider_connections
+      WHERE id = NEW.id
+        AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+          IN ('felo-web', 'felo')
+    )
+    AND lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
+      NOT IN ('felo-web', 'felo')) THEN RETURN NEW; END IF;
   SELECT RAISE(ABORT, 'Retired provider connection identity cannot be changed');
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER provider_connections_preserve_felo_web_identity_insert
 BEFORE INSERT ON provider_connections FOR EACH ROW
-WHEN (EXISTS (
-    SELECT 1
-    FROM provider_connections
-    WHERE id = NEW.id
-      AND lower(btrim(provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-        IN ('felo-web', 'felo')
-  )
-  AND lower(btrim(NEW.provider, chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) || chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279)))
-    NOT IN ('felo-web', 'felo'))
-
 EXECUTE FUNCTION trg_provider_connections_preserve_felo_web_identity_insert_fn();
 
 
@@ -3220,6 +3308,7 @@ CREATE OR REPLACE FUNCTION trg_provider_connections_preserve_felo_web_identity_u
 LANGUAGE plpgsql AS $$
 BEGIN
   SELECT RAISE(ABORT, 'Retired provider connection identity cannot be changed');
+RETURN NEW;
 END;
 $$;
 
@@ -3263,6 +3352,7 @@ BEGIN
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE state = 'ACTIVE'
       AND connection_id = NEW.id;
+RETURN NEW;
 END;
 $$;
 
@@ -3304,6 +3394,7 @@ BEGIN
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE state = 'ACTIVE'
       AND connection_id = NEW.id;
+RETURN NEW;
 END;
 $$;
 
@@ -3345,6 +3436,7 @@ BEGIN
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE state = 'ACTIVE'
       AND connection_id = NEW.id;
+RETURN NEW;
 END;
 $$;
 
@@ -3386,6 +3478,7 @@ BEGIN
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE state = 'ACTIVE'
       AND connection_id = NEW.id;
+RETURN NEW;
 END;
 $$;
 
@@ -3427,6 +3520,7 @@ BEGIN
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE state = 'ACTIVE'
       AND connection_id = NEW.id;
+RETURN NEW;
 END;
 $$;
 
@@ -3468,6 +3562,7 @@ BEGIN
         end_reason = 'CONNECTION_INELIGIBLE'
     WHERE state = 'ACTIVE'
       AND connection_id = NEW.id;
+RETURN NEW;
 END;
 $$;
 
@@ -3488,6 +3583,7 @@ BEGIN
         in_pool = 0,
         updated_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
     WHERE pool_proxy_id = OLD.id;
+RETURN OLD;
 END;
 $$;
 
@@ -3506,6 +3602,7 @@ BEGIN
       ORDER BY timestamp ASC
       LIMIT GREATEST(0, (SELECT COUNT(*) FROM request_detail_logs) - 500)
     );
+RETURN NEW;
 END;
 $$;
 
@@ -3519,6 +3616,7 @@ CREATE OR REPLACE FUNCTION trg_reasoning_rules_api_key_delete_fn() RETURNS trigg
 LANGUAGE plpgsql AS $$
 BEGIN
   DELETE FROM reasoning_routing_rules WHERE api_key_id = OLD.id;
+RETURN OLD;
 END;
 $$;
 
@@ -3532,6 +3630,7 @@ CREATE OR REPLACE FUNCTION trg_reasoning_rules_combo_delete_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   DELETE FROM reasoning_routing_rules WHERE combo_id = OLD.id OR target_combo_id = OLD.id;
+RETURN OLD;
 END;
 $$;
 
@@ -3545,6 +3644,7 @@ CREATE OR REPLACE FUNCTION trg_reasoning_rules_connection_delete_fn() RETURNS tr
 LANGUAGE plpgsql AS $$
 BEGIN
   DELETE FROM reasoning_routing_rules WHERE connection_id = OLD.id;
+RETURN OLD;
 END;
 $$;
 
@@ -3557,29 +3657,29 @@ EXECUTE FUNCTION trg_reasoning_rules_connection_delete_fn();
 CREATE OR REPLACE FUNCTION trg_retire_microsoft_designer_web_lease_insert_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (NEW.state = 'ACTIVE'
+    AND (
+      lower(btrim(NEW.provider, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)))
+        IN ('microsoft-designer-web', 'msdesigner')
+      OR EXISTS (
+        SELECT 1
+        FROM provider_connections
+        WHERE id = NEW.connection_id
+          AND lower(btrim(provider, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)))
+            IN ('microsoft-designer-web', 'msdesigner')
+      )
+    )) THEN RETURN NEW; END IF;
   UPDATE exclusive_connection_leases
     SET state = 'INVALIDATED',
         ended_at = COALESCE(ended_at, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
         end_reason = 'AUTHORIZATION_CHANGED'
     WHERE id = NEW.id AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER trg_retire_microsoft_designer_web_lease_insert
 AFTER INSERT ON exclusive_connection_leases FOR EACH ROW
-WHEN (NEW.state = 'ACTIVE'
-  AND (
-    lower(btrim(NEW.provider, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)))
-      IN ('microsoft-designer-web', 'msdesigner')
-    OR EXISTS (
-      SELECT 1
-      FROM provider_connections
-      WHERE id = NEW.connection_id
-        AND lower(btrim(provider, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)))
-          IN ('microsoft-designer-web', 'msdesigner')
-    )
-  ))
-
 EXECUTE FUNCTION trg_retire_microsoft_designer_web_lease_insert_fn();
 
 
@@ -3587,29 +3687,29 @@ EXECUTE FUNCTION trg_retire_microsoft_designer_web_lease_insert_fn();
 CREATE OR REPLACE FUNCTION trg_retire_microsoft_designer_web_lease_update_fn() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT (NEW.state = 'ACTIVE'
+    AND (
+      lower(btrim(NEW.provider, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)))
+        IN ('microsoft-designer-web', 'msdesigner')
+      OR EXISTS (
+        SELECT 1
+        FROM provider_connections
+        WHERE id = NEW.connection_id
+          AND lower(btrim(provider, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)))
+            IN ('microsoft-designer-web', 'msdesigner')
+      )
+    )) THEN RETURN NEW; END IF;
   UPDATE exclusive_connection_leases
     SET state = 'INVALIDATED',
         ended_at = COALESCE(ended_at, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
         end_reason = 'AUTHORIZATION_CHANGED'
     WHERE id = NEW.id AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER trg_retire_microsoft_designer_web_lease_update
 AFTER UPDATE ON exclusive_connection_leases FOR EACH ROW
-WHEN (NEW.state = 'ACTIVE'
-  AND (
-    lower(btrim(NEW.provider, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)))
-      IN ('microsoft-designer-web', 'msdesigner')
-    OR EXISTS (
-      SELECT 1
-      FROM provider_connections
-      WHERE id = NEW.connection_id
-        AND lower(btrim(provider, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)))
-          IN ('microsoft-designer-web', 'msdesigner')
-    )
-  ))
-
 EXECUTE FUNCTION trg_retire_microsoft_designer_web_lease_update_fn();
 
 
@@ -3631,6 +3731,7 @@ BEGIN
         ended_at = COALESCE(ended_at, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
         end_reason = 'AUTHORIZATION_CHANGED'
     WHERE connection_id = NEW.id AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 
@@ -3660,6 +3761,7 @@ BEGIN
         ended_at = COALESCE(ended_at, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
         end_reason = 'AUTHORIZATION_CHANGED'
     WHERE connection_id = NEW.id AND state = 'ACTIVE';
+RETURN NEW;
 END;
 $$;
 

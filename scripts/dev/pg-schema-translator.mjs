@@ -231,8 +231,16 @@ function extractTableBody(ddl, expectedName) {
 
 const SAFE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+// PostgreSQL reserved keywords that appear as column/table/index names in
+// this schema and must be double-quoted in DDL. (PG's full reserved list is
+// larger, but this is the set that actually occurs.)
+const PG_RESERVED = new Set(["user", "group", "key", "position", "date", "timestamp", "role"]);
+
 function quoteIdent(name) {
-  return SAFE_IDENT.test(name) ? name : `"${name.replace(/"/g, '""')}"`;
+  if (!SAFE_IDENT.test(name) || PG_RESERVED.has(name.toLowerCase())) {
+    return `"${name.replace(/"/g, '""')}"`;
+  }
+  return name;
 }
 
 function splitColumnDef(colLine) {
@@ -468,6 +476,10 @@ function translateDefault(expr) {
     .trim()
     .replace(/^\(|\)$/g, "")
     .trim();
+  // SQLite DQS compat: a double-quoted default is a string literal, not an
+  // identifier — PG would parse it as a column reference and fail.
+  const dqs = e.match(/^"(.*)"/s);
+  if (dqs) return `'${dqs[1].replace(/'/g, "''")}'`;
   if (/^CURRENT_TIMESTAMP$/i.test(e)) return "(now() AT TIME ZONE 'UTC')";
   if (/^datetime\(\s*'now'\s*\)/i.test(e))
     return "to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')";
@@ -475,10 +487,17 @@ function translateDefault(expr) {
     return "to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')";
   if (/^strftime\(\s*'%s'/i.test(e)) return "extract(epoch from now())::BIGINT";
   if (/^random\(\s*\)$/i.test(e)) return "(random() * 2147483647)::INTEGER";
-  if (/^unixepoch\(\s*\)/i.test(e)) return "extract(epoch from now())::BIGINT";
-  if (/^julianday\(\s*'now'\s*\)/i.test(e)) return "extract(julian from now())";
+  // lower(hex(randomblob(n))) → lower(encode(gen_random_bytes(n), 'hex')).
+  // PG has no hex() for bytea and no randomblob(); pgcrypto (created in the
+  // header) provides gen_random_bytes().
+  const uuid = e.match(/^lower\s*\(\s*hex\s*\(\s*randomblob\s*\((\d+)\)\s*\)\s*\)$/i);
+  if (uuid) return `lower(encode(gen_random_bytes(${uuid[1]}), 'hex'))`;
+  // Any other randomblob(n) occurrence (defensive):
+  let out = e.replace(/randomblob\s*\((\d+)\)/gi, "gen_random_bytes($1)");
+  if (/^unixepoch\(\s*\)/i.test(out)) return "extract(epoch from now())::BIGINT";
+  if (/^julianday\(\s*'now'\s*\)/i.test(out)) return "extract(julian from now())";
   // Everything else (literals, subexpressions) passes through.
-  return e;
+  return out;
 }
 
 function translateColumn(colLine, tableName) {
@@ -701,12 +720,23 @@ function translateTrigger(t) {
   body = rewriteTriggerBody(body);
   when = when ? rewriteTriggerBody(when) : null;
 
+  // PG forbids subqueries (EXISTS/SELECT) inside a trigger WHEN clause.
+  // When the condition has one, hoist it into the function body as an
+  // early-return guard — identical per-row semantics for AFTER triggers.
+  if (when && /\bSELECT\b/i.test(when)) {
+    const guard = op === "DELETE" ? "RETURN OLD" : "RETURN NEW";
+    body = `IF NOT (${when}) THEN ${guard}; END IF;\n${body}`;
+    when = null;
+  }
+
   const fnName = `trg_${name.replace(/^trg_/, "")}_fn`;
+  const ret = op === "DELETE" ? "OLD" : "NEW";
   const lines = [
     `CREATE OR REPLACE FUNCTION ${fnName}() RETURNS trigger`,
     `LANGUAGE plpgsql AS $$`,
     `BEGIN`,
     indent(body, 2),
+    `RETURN ${ret};`,
     `END;`,
     `$$;`,
     "",
@@ -759,8 +789,22 @@ function translateIndex(name, ddl) {
   const colList = rest.slice(open + 1, close);
   const after = rest.slice(close + 1).trim();
   const where = after.startsWith("WHERE") ? after : null;
+  // Quote reserved words used as index columns (e.g. ON table(group)).
+  // Each top-level comma-separated entry is a column/expression; only its
+  // leading bare identifier is a candidate for quoting.
+  const quotedCols = colList
+    .split(",")
+    .map((part) => {
+      const t = part.trim();
+      const idMatch = t.match(/^([A-Za-z_][A-Za-z0-9_]*)(\s|$|\.)/);
+      if (idMatch && PG_RESERVED.has(idMatch[1].toLowerCase())) {
+        return `  "${idMatch[1]}"${t.slice(idMatch[1].length)}`;
+      }
+      return `  ${t}`;
+    })
+    .join(",\n");
   const parts = [
-    `CREATE ${unique}INDEX IF NOT EXISTS ${quoteIdent(idxName)} ON ${quoteIdent(tableName)} (${colList.trim()})`,
+    `CREATE ${unique}INDEX IF NOT EXISTS ${quoteIdent(idxName)} ON ${quoteIdent(tableName)} (${quotedCols})`,
   ];
   if (where) parts.push(where);
   return parts.join(" ") + ";";
@@ -854,6 +898,7 @@ function main() {
   out.push("-- Idempotent: CREATE TABLE/INDEX IF NOT EXISTS.");
   out.push("");
   out.push("CREATE EXTENSION IF NOT EXISTS vector;");
+  out.push("CREATE EXTENSION IF NOT EXISTS pgcrypto;");
   out.push("");
 
   const order = topologicalOrder(tables);
