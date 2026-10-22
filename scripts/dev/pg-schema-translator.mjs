@@ -460,8 +460,19 @@ function translateColumnType(type) {
   if (u === "TEXT" || u === "VARCHAR" || /^VARCHAR\(\d+\)$/.test(u) || u === "CHAR" || u === "CLOB")
     return "TEXT";
   if (u === "DATETIME" || u === "TIMESTAMP") return "TIMESTAMPTZ";
-  if (u === "INTEGER" || u === "INT" || u === "SMALLINT" || u === "TINYINT") return "INTEGER";
-  if (u === "BIGINT" || u === "LONG") return "BIGINT";
+  // SQLite INTEGER is a 64-bit signed integer, and OmniRoute stores millisecond
+  // epoch timestamps (created_at, expires_at, "timestamp", …) in INTEGER columns
+  // — those exceed PostgreSQL int4's 2^31 range ("value is out of range for type
+  // integer"). Map every SQLite integer width to BIGINT to preserve 64-bit range.
+  if (
+    u === "INTEGER" ||
+    u === "INT" ||
+    u === "SMALLINT" ||
+    u === "TINYINT" ||
+    u === "BIGINT" ||
+    u === "LONG"
+  )
+    return "BIGINT";
   if (u === "REAL" || u === "DOUBLE" || u === "FLOAT") return "DOUBLE PRECISION";
   if (u === "BOOLEAN" || u === "BOOL") return "BOOLEAN";
   if (u === "BLOB" || u === "BYTEA") return "BYTEA";

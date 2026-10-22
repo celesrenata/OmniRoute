@@ -40,11 +40,11 @@ CREATE TABLE IF NOT EXISTS a2a_tasks (
 --TABLE:account_key_limits
 CREATE TABLE IF NOT EXISTS account_key_limits (
   account_id TEXT PRIMARY KEY,
-  max_active_keys INTEGER,
-  daily_issue_limit INTEGER,
-  hourly_issue_limit INTEGER,
-  daily_issued INTEGER NOT NULL DEFAULT 0,
-  hourly_issued INTEGER NOT NULL DEFAULT 0,
+  max_active_keys BIGINT,
+  daily_issue_limit BIGINT,
+  hourly_issue_limit BIGINT,
+  daily_issued BIGINT NOT NULL DEFAULT 0,
+  hourly_issued BIGINT NOT NULL DEFAULT 0,
   last_reset_day TEXT NOT NULL DEFAULT '',
   last_reset_hour TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
@@ -69,9 +69,9 @@ CREATE TABLE IF NOT EXISTS agent_bridge_mappings (
 --TABLE:agent_bridge_state
 CREATE TABLE IF NOT EXISTS agent_bridge_state (
   agent_id TEXT PRIMARY KEY,
-  dns_enabled INTEGER NOT NULL DEFAULT 0,
-  cert_trusted INTEGER NOT NULL DEFAULT 0,
-  setup_completed INTEGER NOT NULL DEFAULT 0,
+  dns_enabled BIGINT NOT NULL DEFAULT 0,
+  cert_trusted BIGINT NOT NULL DEFAULT 0,
+  setup_completed BIGINT NOT NULL DEFAULT 0,
   last_started_at TEXT,
   last_error TEXT
 );
@@ -81,9 +81,9 @@ CREATE TABLE IF NOT EXISTS agentic_conversations (
   id TEXT PRIMARY KEY,
   api_key_id TEXT,
   fingerprint_hash TEXT NOT NULL,
-  last_message_count INTEGER NOT NULL,
+  last_message_count BIGINT NOT NULL,
   last_messages_hash TEXT NOT NULL,
-  turn_count INTEGER NOT NULL DEFAULT 1,
+  turn_count BIGINT NOT NULL DEFAULT 1,
   first_seen_at TEXT NOT NULL,
   last_seen_at TEXT NOT NULL
 );
@@ -92,17 +92,17 @@ CREATE TABLE IF NOT EXISTS agentic_conversations (
 CREATE TABLE IF NOT EXISTS api_key_quota_counters (
   api_key_id TEXT NOT NULL,
   dimension_key TEXT NOT NULL,
-  bucket_index INTEGER NOT NULL,
+  bucket_index BIGINT NOT NULL,
   consumed DOUBLE PRECISION NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL,
+  updated_at BIGINT NOT NULL,
   PRIMARY KEY (api_key_id, dimension_key, bucket_index)
 );
 
 --TABLE:api_key_quota_limits
 CREATE TABLE IF NOT EXISTS api_key_quota_limits (
   api_key_id TEXT PRIMARY KEY,
-  tpm_limit INTEGER,
-  rpm_limit INTEGER,
+  tpm_limit BIGINT,
+  rpm_limit BIGINT,
   monthly_amount_usd DOUBLE PRECISION,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -113,10 +113,10 @@ CREATE TABLE IF NOT EXISTS api_key_token_limits (
   api_key_id TEXT NOT NULL,
   scope_type TEXT NOT NULL CHECK (scope_type IN ('model', 'provider', 'global')),
   scope_value TEXT NOT NULL DEFAULT '',
-  token_limit INTEGER NOT NULL CHECK (token_limit > 0),
+  token_limit BIGINT NOT NULL CHECK (token_limit > 0),
   reset_interval TEXT NOT NULL DEFAULT 'monthly' CHECK (reset_interval IN ('daily', 'weekly', 'monthly')),
   reset_time TEXT,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  enabled BIGINT NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   UNIQUE (api_key_id, scope_type, scope_value, reset_interval)
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   "key" TEXT NOT NULL UNIQUE,
   machine_id TEXT,
   allowed_models TEXT DEFAULT '[]',
-  no_log INTEGER NOT NULL DEFAULT 0,
+  no_log BIGINT NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   revoked_at TEXT,
   expires_at TEXT,
@@ -138,32 +138,32 @@ CREATE TABLE IF NOT EXISTS api_keys (
   ip_allowlist TEXT,
   scopes TEXT,
   allowed_combos TEXT,
-  throttle_delay_ms INTEGER,
+  throttle_delay_ms BIGINT,
   stream_default_mode TEXT NOT NULL DEFAULT 'legacy',
   allowed_quotas TEXT NOT NULL DEFAULT '[]',
-  disable_non_public_models INTEGER NOT NULL DEFAULT 0,
-  usage_limit_enabled INTEGER NOT NULL DEFAULT 0,
+  disable_non_public_models BIGINT NOT NULL DEFAULT 0,
+  usage_limit_enabled BIGINT NOT NULL DEFAULT 0,
   daily_usage_limit_usd DOUBLE PRECISION,
   weekly_usage_limit_usd DOUBLE PRECISION,
   cache_default_mode TEXT NOT NULL DEFAULT 'legacy',
   model_access_mode TEXT NOT NULL DEFAULT 'all' CHECK (model_access_mode IN ('all', 'restricted')),
-  compression_enabled INTEGER NOT NULL DEFAULT 1,
+  compression_enabled BIGINT NOT NULL DEFAULT 1,
   blocked_models TEXT,
   allowed_connections TEXT,
-  auto_resolve INTEGER NOT NULL DEFAULT 0,
-  is_active INTEGER NOT NULL DEFAULT 1,
+  auto_resolve BIGINT NOT NULL DEFAULT 0,
+  is_active BIGINT NOT NULL DEFAULT 1,
   access_schedule TEXT,
-  max_requests_per_day INTEGER,
-  max_requests_per_minute INTEGER,
-  max_sessions INTEGER NOT NULL DEFAULT 0,
+  max_requests_per_day BIGINT,
+  max_requests_per_minute BIGINT,
+  max_sessions BIGINT NOT NULL DEFAULT 0,
   rate_limits TEXT,
-  is_banned INTEGER NOT NULL DEFAULT 0,
+  is_banned BIGINT NOT NULL DEFAULT 0,
   key_hash TEXT,
   proxy_id TEXT,
   allowed_endpoints TEXT,
-  allow_usage_command INTEGER NOT NULL DEFAULT 0,
-  chaos_mode_enabled INTEGER NOT NULL DEFAULT 0,
-  allow_auto_combos INTEGER NOT NULL DEFAULT 1,
+  allow_usage_command BIGINT NOT NULL DEFAULT 0,
+  chaos_mode_enabled BIGINT NOT NULL DEFAULT 0,
+  allow_auto_combos BIGINT NOT NULL DEFAULT 1,
   catalog_scope TEXT NOT NULL DEFAULT 'all' CHECK (catalog_scope IN ('all', 'combos', 'models'))
 );
 
@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS auto_candidate_overrides (
   api_key_id TEXT NOT NULL,
   auto_channel TEXT NOT NULL,
   connection_id TEXT NOT NULL,
-  excluded INTEGER NOT NULL DEFAULT 1,
+  excluded BIGINT NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   UNIQUE(api_key_id, auto_channel, connection_id)
 );
@@ -202,14 +202,14 @@ CREATE TABLE IF NOT EXISTS badge_definitions (
   category TEXT,
   rarity TEXT NOT NULL DEFAULT 'common',
   criteria TEXT,
-  hidden INTEGER NOT NULL DEFAULT 0,
+  hidden BIGINT NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
 --TABLE:cache_metrics
 CREATE TABLE IF NOT EXISTS cache_metrics (
   "key" TEXT PRIMARY KEY,
-  value INTEGER NOT NULL DEFAULT 0,
+  value BIGINT NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
@@ -219,19 +219,19 @@ CREATE TABLE IF NOT EXISTS call_logs (
   "timestamp" TEXT NOT NULL,
   method TEXT,
   path TEXT,
-  status INTEGER,
+  status BIGINT,
   model TEXT,
   requested_model TEXT,
   provider TEXT,
   account TEXT,
   connection_id TEXT,
-  duration INTEGER DEFAULT 0,
-  tokens_in INTEGER DEFAULT 0,
-  tokens_out INTEGER DEFAULT 0,
-  tokens_cache_read INTEGER DEFAULT NULL,
-  tokens_cache_creation INTEGER DEFAULT NULL,
-  tokens_reasoning INTEGER DEFAULT NULL,
-  tokens_compressed INTEGER DEFAULT NULL,
+  duration BIGINT DEFAULT 0,
+  tokens_in BIGINT DEFAULT 0,
+  tokens_out BIGINT DEFAULT 0,
+  tokens_cache_read BIGINT DEFAULT NULL,
+  tokens_cache_creation BIGINT DEFAULT NULL,
+  tokens_reasoning BIGINT DEFAULT NULL,
+  tokens_compressed BIGINT DEFAULT NULL,
   cache_source TEXT DEFAULT 'upstream',
   request_type TEXT,
   source_format TEXT,
@@ -244,28 +244,28 @@ CREATE TABLE IF NOT EXISTS call_logs (
   error_summary TEXT,
   detail_state TEXT DEFAULT 'none',
   artifact_relpath TEXT,
-  artifact_size_bytes INTEGER DEFAULT NULL,
+  artifact_size_bytes BIGINT DEFAULT NULL,
   artifact_sha256 TEXT DEFAULT NULL,
-  has_request_body INTEGER DEFAULT 0,
-  has_response_body INTEGER DEFAULT 0,
-  has_pipeline_details INTEGER DEFAULT 0,
+  has_request_body BIGINT DEFAULT 0,
+  has_response_body BIGINT DEFAULT 0,
+  has_pipeline_details BIGINT DEFAULT 0,
   request_summary TEXT,
   correlation_id TEXT,
-  model_pinned INTEGER DEFAULT 0,
+  model_pinned BIGINT DEFAULT 0,
   session_tag TEXT DEFAULT NULL,
   reasoning_source TEXT DEFAULT NULL,
-  reasoning_chars INTEGER DEFAULT NULL,
+  reasoning_chars BIGINT DEFAULT NULL,
   response_id TEXT DEFAULT NULL,
   error_type TEXT DEFAULT NULL,
-  video_content_removed INTEGER NOT NULL DEFAULT 0,
-  ttft_ms INTEGER DEFAULT NULL,
-  added_wait_ms INTEGER DEFAULT NULL,
+  video_content_removed BIGINT NOT NULL DEFAULT 0,
+  ttft_ms BIGINT DEFAULT NULL,
+  added_wait_ms BIGINT DEFAULT NULL,
   added_wait_cause TEXT DEFAULT NULL,
-  reasoning_duration_ms INTEGER DEFAULT NULL,
+  reasoning_duration_ms BIGINT DEFAULT NULL,
   reasoning_effort_requested TEXT DEFAULT NULL,
   reasoning_effort_upstream TEXT DEFAULT NULL,
-  reasoning_encrypted INTEGER DEFAULT NULL,
-  has_content INTEGER DEFAULT NULL,
+  reasoning_encrypted BIGINT DEFAULT NULL,
+  has_content BIGINT DEFAULT NULL,
   usage_provenance TEXT DEFAULT NULL,
   resilience_actions TEXT DEFAULT NULL
 );
@@ -275,14 +275,14 @@ CREATE TABLE IF NOT EXISTS ccr_blocks (
   principal_id TEXT NOT NULL,
   hash TEXT NOT NULL,
   content TEXT NOT NULL,
-  bytes INTEGER NOT NULL,
-  chars INTEGER NOT NULL,
-  lines INTEGER NOT NULL,
+  bytes BIGINT NOT NULL,
+  chars BIGINT NOT NULL,
+  lines BIGINT NOT NULL,
   content_type TEXT NOT NULL DEFAULT 'text/plain',
   source TEXT NOT NULL DEFAULT 'compression',
-  created_at INTEGER NOT NULL,
-  last_accessed_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
+  created_at BIGINT NOT NULL,
+  last_accessed_at BIGINT NOT NULL,
+  expires_at BIGINT NOT NULL,
   PRIMARY KEY (principal_id, hash)
 );
 
@@ -313,8 +313,8 @@ CREATE TABLE IF NOT EXISTS combo_adaptation_state (
   combo_id TEXT NOT NULL,
   provider_id TEXT NOT NULL,
   learned_score DOUBLE PRECISION DEFAULT 0.5,
-  request_count INTEGER DEFAULT 0,
-  success_count INTEGER DEFAULT 0,
+  request_count BIGINT DEFAULT 0,
+  success_count BIGINT DEFAULT 0,
   avg_latency_ms DOUBLE PRECISION,
   last_failure_at TEXT,
   excluded_until TEXT,
@@ -327,12 +327,12 @@ CREATE TABLE IF NOT EXISTS combos (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   data TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0,
+  sort_order BIGINT NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   system_message TEXT DEFAULT NULL,
   tool_filter_regex TEXT DEFAULT NULL,
-  context_cache_protection INTEGER DEFAULT 0
+  context_cache_protection BIGINT DEFAULT 0
 );
 
 --TABLE:command_code_auth_sessions
@@ -368,28 +368,28 @@ CREATE TABLE IF NOT EXISTS compression_analytics (
   combo_id TEXT,
   provider TEXT,
   mode TEXT NOT NULL,
-  original_tokens INTEGER NOT NULL,
-  compressed_tokens INTEGER NOT NULL,
-  tokens_saved INTEGER NOT NULL,
-  duration_ms INTEGER,
+  original_tokens BIGINT NOT NULL,
+  compressed_tokens BIGINT NOT NULL,
+  tokens_saved BIGINT NOT NULL,
+  duration_ms BIGINT,
   request_id TEXT,
-  actual_prompt_tokens INTEGER,
-  actual_completion_tokens INTEGER,
-  actual_total_tokens INTEGER,
-  actual_cache_read_tokens INTEGER,
-  actual_cache_write_tokens INTEGER,
+  actual_prompt_tokens BIGINT,
+  actual_completion_tokens BIGINT,
+  actual_total_tokens BIGINT,
+  actual_cache_read_tokens BIGINT,
+  actual_cache_write_tokens BIGINT,
   estimated_usd_saved DOUBLE PRECISION,
-  mcp_description_tokens_saved INTEGER DEFAULT 0,
-  multimodal_skip_count INTEGER DEFAULT 0,
+  mcp_description_tokens_saved BIGINT DEFAULT 0,
+  multimodal_skip_count BIGINT DEFAULT 0,
   receipt_source TEXT,
-  validation_fallback INTEGER DEFAULT 0,
+  validation_fallback BIGINT DEFAULT 0,
   output_mode TEXT,
   compression_combo_id TEXT,
   engine TEXT,
   rtk_raw_output_pointer TEXT,
-  rtk_raw_output_bytes INTEGER,
+  rtk_raw_output_bytes BIGINT,
   rtk_raw_output_pointers TEXT,
-  rtk_raw_output_total_bytes INTEGER,
+  rtk_raw_output_total_bytes BIGINT,
   skip_reason TEXT
 );
 
@@ -399,11 +399,11 @@ CREATE TABLE IF NOT EXISTS compression_cache_stats (
   provider TEXT NOT NULL,
   model TEXT NOT NULL DEFAULT '',
   compression_mode TEXT NOT NULL,
-  cache_control_present INTEGER NOT NULL DEFAULT 0,
-  estimated_cache_hit INTEGER NOT NULL DEFAULT 0,
-  tokens_saved_compression INTEGER NOT NULL DEFAULT 0,
-  tokens_saved_caching INTEGER NOT NULL DEFAULT 0,
-  net_savings INTEGER NOT NULL DEFAULT 0,
+  cache_control_present BIGINT NOT NULL DEFAULT 0,
+  estimated_cache_hit BIGINT NOT NULL DEFAULT 0,
+  tokens_saved_compression BIGINT NOT NULL DEFAULT 0,
+  tokens_saved_caching BIGINT NOT NULL DEFAULT 0,
+  net_savings BIGINT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT (now() AT TIME ZONE 'UTC')
 );
 
@@ -414,9 +414,9 @@ CREATE TABLE IF NOT EXISTS compression_combos (
   description TEXT DEFAULT '',
   pipeline TEXT NOT NULL DEFAULT '[]',
   language_packs TEXT DEFAULT '["en"]',
-  output_mode INTEGER DEFAULT 0,
+  output_mode BIGINT DEFAULT 0,
   output_mode_intensity TEXT DEFAULT 'full',
-  is_default INTEGER DEFAULT 0,
+  is_default BIGINT DEFAULT 0,
   created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -427,27 +427,27 @@ CREATE TABLE IF NOT EXISTS compression_engine_breakdown (
   "timestamp" TEXT NOT NULL,
   request_id TEXT,
   engine TEXT NOT NULL,
-  original_tokens INTEGER NOT NULL DEFAULT 0,
-  compressed_tokens INTEGER NOT NULL DEFAULT 0,
-  tokens_saved INTEGER NOT NULL DEFAULT 0,
-  duration_ms INTEGER
+  original_tokens BIGINT NOT NULL DEFAULT 0,
+  compressed_tokens BIGINT NOT NULL DEFAULT 0,
+  tokens_saved BIGINT NOT NULL DEFAULT 0,
+  duration_ms BIGINT
 );
 
 --TABLE:compression_run_telemetry
 CREATE TABLE IF NOT EXISTS compression_run_telemetry (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  "timestamp" INTEGER NOT NULL,
+  "timestamp" BIGINT NOT NULL,
   request_id TEXT,
   model TEXT,
   provider TEXT,
   source TEXT,
-  tokens_before INTEGER NOT NULL,
-  tokens_after INTEGER NOT NULL,
+  tokens_before BIGINT NOT NULL,
+  tokens_after BIGINT NOT NULL,
   ratio DOUBLE PRECISION,
   cost_delta DOUBLE PRECISION,
   output_styles TEXT,
   output_style_bypass TEXT,
-  output_tokens INTEGER
+  output_tokens BIGINT
 );
 
 --TABLE:config_audit_log
@@ -475,7 +475,7 @@ CREATE TABLE IF NOT EXISTS context_handoffs (
   key_decisions TEXT NOT NULL DEFAULT '[]',
   task_progress TEXT NOT NULL DEFAULT '',
   active_entities TEXT NOT NULL DEFAULT '[]',
-  message_count INTEGER NOT NULL DEFAULT 0,
+  message_count BIGINT NOT NULL DEFAULT 0,
   model TEXT NOT NULL DEFAULT '',
   warning_threshold_pct DOUBLE PRECISION NOT NULL DEFAULT 0.85,
   generated_at TEXT NOT NULL,
@@ -502,9 +502,9 @@ CREATE TABLE IF NOT EXISTS daily_usage_summary (
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
   "date" TEXT NOT NULL,
-  total_requests INTEGER NOT NULL DEFAULT 0,
-  total_input_tokens INTEGER NOT NULL DEFAULT 0,
-  total_output_tokens INTEGER NOT NULL DEFAULT 0,
+  total_requests BIGINT NOT NULL DEFAULT 0,
+  total_input_tokens BIGINT NOT NULL DEFAULT 0,
+  total_output_tokens BIGINT NOT NULL DEFAULT 0,
   total_cost DOUBLE PRECISION NOT NULL DEFAULT 0.0,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -524,7 +524,7 @@ CREATE TABLE IF NOT EXISTS discovery_results (
   auth_type TEXT CHECK (auth_type IN ('none', 'cookie', 'api_key', 'oauth')),
   models TEXT,
   rate_limit TEXT,
-  feasibility INTEGER CHECK (feasibility BETWEEN 1 AND 5),
+  feasibility BIGINT CHECK (feasibility BETWEEN 1 AND 5),
   risk_level TEXT CHECK (risk_level IN ('none', 'low', 'medium', 'high', 'critical')),
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'testing', 'verified', 'rejected')),
   notes TEXT,
@@ -539,10 +539,10 @@ CREATE TABLE IF NOT EXISTS domain_budget_reset_logs (
   api_key_id TEXT NOT NULL,
   reset_interval TEXT NOT NULL,
   previous_spend DOUBLE PRECISION NOT NULL DEFAULT 0,
-  reset_at INTEGER NOT NULL,
-  next_reset_at INTEGER NOT NULL,
-  period_start INTEGER NOT NULL,
-  period_end INTEGER NOT NULL
+  reset_at BIGINT NOT NULL,
+  next_reset_at BIGINT NOT NULL,
+  period_start BIGINT NOT NULL,
+  period_end BIGINT NOT NULL
 );
 
 --TABLE:domain_budgets
@@ -554,18 +554,18 @@ CREATE TABLE IF NOT EXISTS domain_budgets (
   warning_threshold DOUBLE PRECISION DEFAULT 0.8,
   reset_interval TEXT DEFAULT 'daily',
   reset_time TEXT DEFAULT '00:00',
-  budget_reset_at INTEGER,
-  last_budget_reset_at INTEGER,
-  warning_emitted_at INTEGER,
-  warning_period_start INTEGER
+  budget_reset_at BIGINT,
+  last_budget_reset_at BIGINT,
+  warning_emitted_at BIGINT,
+  warning_period_start BIGINT
 );
 
 --TABLE:domain_circuit_breakers
 CREATE TABLE IF NOT EXISTS domain_circuit_breakers (
   name TEXT PRIMARY KEY,
   state TEXT NOT NULL DEFAULT 'CLOSED',
-  failure_count INTEGER DEFAULT 0,
-  last_failure_time INTEGER,
+  failure_count BIGINT DEFAULT 0,
+  last_failure_time BIGINT,
   options TEXT
 );
 
@@ -574,7 +574,7 @@ CREATE TABLE IF NOT EXISTS domain_cost_history (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   api_key_id TEXT NOT NULL,
   cost DOUBLE PRECISION NOT NULL,
-  "timestamp" INTEGER NOT NULL
+  "timestamp" BIGINT NOT NULL
 );
 
 --TABLE:domain_fallback_chains
@@ -587,14 +587,14 @@ CREATE TABLE IF NOT EXISTS domain_fallback_chains (
 CREATE TABLE IF NOT EXISTS domain_lockout_state (
   identifier TEXT PRIMARY KEY,
   attempts TEXT NOT NULL,
-  locked_until INTEGER
+  locked_until BIGINT
 );
 
 --TABLE:eval_cases
 CREATE TABLE IF NOT EXISTS eval_cases (
   id TEXT PRIMARY KEY,
   suite_id TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0,
+  sort_order BIGINT NOT NULL DEFAULT 0,
   name TEXT NOT NULL,
   model TEXT,
   input_json TEXT NOT NULL,
@@ -615,11 +615,11 @@ CREATE TABLE IF NOT EXISTS eval_runs (
   target_id TEXT,
   target_label TEXT NOT NULL,
   api_key_id TEXT,
-  pass_rate INTEGER NOT NULL DEFAULT 0,
-  total INTEGER NOT NULL DEFAULT 0,
-  passed INTEGER NOT NULL DEFAULT 0,
-  failed INTEGER NOT NULL DEFAULT 0,
-  avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+  pass_rate BIGINT NOT NULL DEFAULT 0,
+  total BIGINT NOT NULL DEFAULT 0,
+  passed BIGINT NOT NULL DEFAULT 0,
+  failed BIGINT NOT NULL DEFAULT 0,
+  avg_latency_ms BIGINT NOT NULL DEFAULT 0,
   summary_json TEXT NOT NULL,
   results_json TEXT NOT NULL,
   outputs_json TEXT,
@@ -642,7 +642,7 @@ CREATE TABLE IF NOT EXISTS exclusive_connection_leases (
   api_key_id TEXT NOT NULL,
   provider TEXT NOT NULL,
   connection_id TEXT NOT NULL,
-  generation INTEGER NOT NULL CHECK (generation > 0),
+  generation BIGINT NOT NULL CHECK (generation > 0),
   state TEXT NOT NULL CHECK (state IN ('ACTIVE', 'RELEASED', 'EXPIRED', 'INVALIDATED')),
   acquired_at TEXT NOT NULL,
   renewed_at TEXT NOT NULL,
@@ -654,15 +654,15 @@ CREATE TABLE IF NOT EXISTS exclusive_connection_leases (
 --TABLE:files
 CREATE TABLE IF NOT EXISTS files (
   id TEXT PRIMARY KEY,
-  bytes INTEGER NOT NULL,
-  created_at INTEGER NOT NULL,
+  bytes BIGINT NOT NULL,
+  created_at BIGINT NOT NULL,
   filename TEXT NOT NULL,
   purpose TEXT NOT NULL,
   content BYTEA,
   mime_type TEXT,
   api_key_id TEXT,
-  deleted_at INTEGER,
-  expires_at INTEGER
+  deleted_at BIGINT,
+  expires_at BIGINT
 );
 
 --TABLE:free_proxies
@@ -670,14 +670,14 @@ CREATE TABLE IF NOT EXISTS free_proxies (
   id TEXT PRIMARY KEY,
   source TEXT NOT NULL,
   host TEXT NOT NULL,
-  port INTEGER NOT NULL,
+  port BIGINT NOT NULL,
   type TEXT NOT NULL DEFAULT 'http',
   country_code TEXT,
-  quality_score INTEGER,
-  latency_ms INTEGER,
+  quality_score BIGINT,
+  latency_ms BIGINT,
   anonymity TEXT,
   last_validated TEXT,
-  in_pool INTEGER DEFAULT 0,
+  in_pool BIGINT DEFAULT 0,
   pool_proxy_id TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -697,9 +697,9 @@ CREATE TABLE IF NOT EXISTS hourly_usage_summary (
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
   date_hour TEXT NOT NULL,
-  total_requests INTEGER NOT NULL DEFAULT 0,
-  total_input_tokens INTEGER NOT NULL DEFAULT 0,
-  total_output_tokens INTEGER NOT NULL DEFAULT 0,
+  total_requests BIGINT NOT NULL DEFAULT 0,
+  total_input_tokens BIGINT NOT NULL DEFAULT 0,
+  total_output_tokens BIGINT NOT NULL DEFAULT 0,
   total_cost DOUBLE PRECISION NOT NULL DEFAULT 0.0,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -707,7 +707,7 @@ CREATE TABLE IF NOT EXISTS hourly_usage_summary (
 --TABLE:inspector_custom_hosts
 CREATE TABLE IF NOT EXISTS inspector_custom_hosts (
   host TEXT PRIMARY KEY,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  enabled BIGINT NOT NULL DEFAULT 1,
   label TEXT,
   kind TEXT NOT NULL DEFAULT 'custom' CHECK (kind IN ('llm','app','custom')),
   added_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
@@ -720,7 +720,7 @@ CREATE TABLE IF NOT EXISTS inspector_sessions (
   name TEXT,
   started_at TEXT NOT NULL,
   ended_at TEXT,
-  request_count INTEGER NOT NULL DEFAULT 0,
+  request_count BIGINT NOT NULL DEFAULT 0,
   profile TEXT CHECK (profile IN ('llm','custom','all'))
 );
 
@@ -732,8 +732,8 @@ CREATE TABLE IF NOT EXISTS invite_tokens (
   created_by TEXT NOT NULL,
   used_by TEXT,
   server_url TEXT,
-  max_uses INTEGER NOT NULL DEFAULT 1,
-  use_count INTEGER NOT NULL DEFAULT 0,
+  max_uses BIGINT NOT NULL DEFAULT 1,
+  use_count BIGINT NOT NULL DEFAULT 0,
   expires_at TEXT,
   revoked_at TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
@@ -744,8 +744,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL DEFAULT 'interval' CHECK (type IN ('interval', 'cron')),
   cron TEXT,
-  interval_ms INTEGER,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  interval_ms BIGINT,
+  enabled BIGINT NOT NULL DEFAULT 1,
   env_flag TEXT,
   config TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -757,7 +757,7 @@ CREATE TABLE IF NOT EXISTS key_groups (
   id TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
-  is_active INTEGER NOT NULL DEFAULT 1,
+  is_active BIGINT NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -774,7 +774,7 @@ CREATE TABLE IF NOT EXISTS key_value (
 CREATE TABLE IF NOT EXISTS leaderboard (
   api_key_id TEXT NOT NULL,
   scope TEXT NOT NULL DEFAULT 'global',
-  score INTEGER NOT NULL DEFAULT 0,
+  score BIGINT NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   PRIMARY KEY (api_key_id, scope)
 );
@@ -784,14 +784,14 @@ CREATE TABLE IF NOT EXISTS log_export_destinations (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   type TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 0,
+  enabled BIGINT NOT NULL DEFAULT 0,
   config TEXT NOT NULL DEFAULT '{}',
-  batch_size INTEGER NOT NULL DEFAULT 500,
-  include_bodies INTEGER NOT NULL DEFAULT 0,
-  max_body_bytes INTEGER NOT NULL DEFAULT 262144,
-  max_rows_per_run INTEGER NOT NULL DEFAULT 10000,
-  cursor_row_id INTEGER NOT NULL DEFAULT 0,
-  exported_total INTEGER NOT NULL DEFAULT 0,
+  batch_size BIGINT NOT NULL DEFAULT 500,
+  include_bodies BIGINT NOT NULL DEFAULT 0,
+  max_body_bytes BIGINT NOT NULL DEFAULT 262144,
+  max_rows_per_run BIGINT NOT NULL DEFAULT 10000,
+  cursor_row_id BIGINT NOT NULL DEFAULT 0,
+  exported_total BIGINT NOT NULL DEFAULT 0,
   last_run_at TEXT,
   last_status TEXT,
   last_error TEXT,
@@ -805,9 +805,9 @@ CREATE TABLE IF NOT EXISTS mcp_tool_audit (
   tool_name TEXT NOT NULL,
   input_hash TEXT,
   output_summary TEXT,
-  duration_ms INTEGER,
+  duration_ms BIGINT,
   api_key_id TEXT,
-  success INTEGER DEFAULT 1,
+  success BIGINT DEFAULT 1,
   error_code TEXT,
   created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -824,9 +824,9 @@ CREATE TABLE IF NOT EXISTS memories (
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   expires_at TEXT,
-  memory_id INTEGER,
-  needs_reindex INTEGER NOT NULL DEFAULT 0,
-  access_count INTEGER NOT NULL DEFAULT 0,
+  memory_id BIGINT,
+  needs_reindex BIGINT NOT NULL DEFAULT 0,
+  access_count BIGINT NOT NULL DEFAULT 0,
   last_accessed_at TEXT,
   source TEXT DEFAULT NULL,
   confidence TEXT DEFAULT NULL,
@@ -886,11 +886,11 @@ CREATE TABLE IF NOT EXISTS memory_reindex_jobs (
   api_key_id TEXT,
   trigger TEXT NOT NULL,
   embedding_model TEXT,
-  embedding_dim INTEGER,
+  embedding_dim BIGINT,
   status TEXT NOT NULL DEFAULT 'pending',
-  total INTEGER NOT NULL DEFAULT 0,
-  processed INTEGER NOT NULL DEFAULT 0,
-  failed INTEGER NOT NULL DEFAULT 0,
+  total BIGINT NOT NULL DEFAULT 0,
+  processed BIGINT NOT NULL DEFAULT 0,
+  failed BIGINT NOT NULL DEFAULT 0,
   error TEXT,
   started_at TEXT,
   finished_at TEXT,
@@ -904,10 +904,10 @@ CREATE TABLE IF NOT EXISTS memory_retrieval_events (
   query TEXT,
   strategy TEXT,
   backend TEXT,
-  candidate_count INTEGER NOT NULL DEFAULT 0,
-  returned_count INTEGER NOT NULL DEFAULT 0,
+  candidate_count BIGINT NOT NULL DEFAULT 0,
+  returned_count BIGINT NOT NULL DEFAULT 0,
   dropped_reasons TEXT,
-  duration_ms INTEGER,
+  duration_ms BIGINT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
@@ -915,7 +915,7 @@ CREATE TABLE IF NOT EXISTS memory_retrieval_events (
 CREATE TABLE IF NOT EXISTS memory_revisions (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   memory_id TEXT NOT NULL,
-  revision_no INTEGER NOT NULL DEFAULT 1,
+  revision_no BIGINT NOT NULL DEFAULT 1,
   content TEXT NOT NULL,
   subject TEXT,
   predicate TEXT,
@@ -929,25 +929,25 @@ CREATE TABLE IF NOT EXISTS memory_revisions (
 
 --TABLE:memory_vec_meta
 CREATE TABLE IF NOT EXISTS memory_vec_meta (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  active_dim INTEGER,
+  id BIGINT PRIMARY KEY CHECK (id = 1),
+  active_dim BIGINT,
   embedding_signature TEXT,
   last_reset_at TEXT,
-  vec_loaded INTEGER NOT NULL DEFAULT 0
+  vec_loaded BIGINT NOT NULL DEFAULT 0
 );
 
 --TABLE:middleware_hooks
 CREATE TABLE IF NOT EXISTS middleware_hooks (
   name TEXT PRIMARY KEY NOT NULL,
   description TEXT NOT NULL DEFAULT '',
-  priority INTEGER NOT NULL DEFAULT 200,
+  priority BIGINT NOT NULL DEFAULT 200,
   scope_type TEXT NOT NULL DEFAULT 'global' CHECK (scope_type IN ('global', 'combo')),
   combo_id TEXT,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  enabled BIGINT NOT NULL DEFAULT 1,
   code TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-  run_count INTEGER NOT NULL DEFAULT 0,
+  run_count BIGINT NOT NULL DEFAULT 0,
   last_error TEXT
 );
 
@@ -956,9 +956,9 @@ CREATE TABLE IF NOT EXISTS middleware_logs (
   id TEXT PRIMARY KEY NOT NULL,
   hook_name TEXT NOT NULL,
   request_id TEXT NOT NULL,
-  duration_ms INTEGER NOT NULL DEFAULT 0,
-  mutated INTEGER NOT NULL DEFAULT 0,
-  skipped INTEGER NOT NULL DEFAULT 0,
+  duration_ms BIGINT NOT NULL DEFAULT 0,
+  mutated BIGINT NOT NULL DEFAULT 0,
+  skipped BIGINT NOT NULL DEFAULT 0,
   error TEXT,
   "timestamp" TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   FOREIGN KEY (hook_name) REFERENCES middleware_hooks(name) ON DELETE CASCADE
@@ -981,9 +981,9 @@ CREATE TABLE IF NOT EXISTS model_capabilities (
   status TEXT,
   family TEXT,
   open_weights BOOLEAN,
-  limit_context INTEGER,
-  limit_input INTEGER,
-  limit_output INTEGER,
+  limit_context BIGINT,
+  limit_input BIGINT,
+  limit_output BIGINT,
   interleaved_field TEXT,
   last_synced TEXT,
   PRIMARY KEY (provider, model_id)
@@ -1004,8 +1004,8 @@ CREATE TABLE IF NOT EXISTS model_combo_mappings (
   id TEXT PRIMARY KEY,
   pattern TEXT NOT NULL,
   combo_id TEXT NOT NULL,
-  priority INTEGER DEFAULT 0,
-  enabled INTEGER DEFAULT 1,
+  priority BIGINT DEFAULT 0,
+  enabled BIGINT DEFAULT 1,
   description TEXT DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -1016,7 +1016,7 @@ CREATE TABLE IF NOT EXISTS model_combo_mappings (
 CREATE TABLE IF NOT EXISTS model_context_overrides (
   provider TEXT NOT NULL,
   model_id TEXT NOT NULL,
-  real_context INTEGER NOT NULL,
+  real_context BIGINT NOT NULL,
   source TEXT NOT NULL DEFAULT 'manual',
   refreshed_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   PRIMARY KEY (provider, model_id)
@@ -1028,7 +1028,7 @@ CREATE TABLE IF NOT EXISTS model_intelligence (
   source TEXT NOT NULL,
   category TEXT NOT NULL,
   score DOUBLE PRECISION NOT NULL,
-  elo_raw INTEGER,
+  elo_raw BIGINT,
   confidence TEXT,
   synced_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   expires_at TEXT,
@@ -1051,8 +1051,8 @@ CREATE TABLE IF NOT EXISTS plugin_analytics (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   plugin_name TEXT NOT NULL,
   hook TEXT NOT NULL,
-  duration_ms INTEGER NOT NULL DEFAULT 0,
-  success INTEGER NOT NULL DEFAULT 1,
+  duration_ms BIGINT NOT NULL DEFAULT 0,
+  success BIGINT NOT NULL DEFAULT 1,
   error_message TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -1061,8 +1061,8 @@ CREATE TABLE IF NOT EXISTS plugin_analytics (
 CREATE TABLE IF NOT EXISTS plugin_metrics (
   plugin_name TEXT NOT NULL,
   event TEXT NOT NULL,
-  calls INTEGER NOT NULL DEFAULT 0,
-  errors INTEGER NOT NULL DEFAULT 0,
+  calls BIGINT NOT NULL DEFAULT 0,
+  errors BIGINT NOT NULL DEFAULT 0,
   total_duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
   last_called_at TEXT,
   PRIMARY KEY (plugin_name, event)
@@ -1080,7 +1080,7 @@ CREATE TABLE IF NOT EXISTS plugins (
   source TEXT NOT NULL DEFAULT 'local',
   tags TEXT DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'installed' CHECK (status IN ('installed', 'active', 'inactive', 'error')),
-  enabled INTEGER NOT NULL DEFAULT 0,
+  enabled BIGINT NOT NULL DEFAULT 0,
   manifest TEXT NOT NULL,
   config TEXT DEFAULT '{}',
   config_schema TEXT DEFAULT '{}',
@@ -1100,8 +1100,8 @@ CREATE TABLE IF NOT EXISTS provider_connections (
   auth_type TEXT,
   name TEXT,
   email TEXT,
-  priority INTEGER DEFAULT 0,
-  is_active INTEGER DEFAULT 1,
+  priority BIGINT DEFAULT 0,
+  is_active BIGINT DEFAULT 1,
   access_token TEXT,
   refresh_token TEXT,
   expires_at TEXT,
@@ -1114,27 +1114,27 @@ CREATE TABLE IF NOT EXISTS provider_connections (
   last_error_at TEXT,
   last_error_type TEXT,
   last_error_source TEXT,
-  backoff_level INTEGER DEFAULT 0,
+  backoff_level BIGINT DEFAULT 0,
   rate_limited_until TEXT,
-  health_check_interval INTEGER,
+  health_check_interval BIGINT,
   last_health_check_at TEXT,
   last_tested TEXT,
   api_key TEXT,
   id_token TEXT,
   provider_specific_data TEXT,
-  expires_in INTEGER,
+  expires_in BIGINT,
   display_name TEXT,
-  global_priority INTEGER,
+  global_priority BIGINT,
   default_model TEXT,
   token_type TEXT,
-  consecutive_use_count INTEGER DEFAULT 0,
-  rate_limit_protection INTEGER DEFAULT 0,
+  consecutive_use_count BIGINT DEFAULT 0,
+  rate_limit_protection BIGINT DEFAULT 0,
   last_used_at TEXT,
   "group" TEXT,
-  max_concurrent INTEGER,
-  proxy_enabled INTEGER NOT NULL DEFAULT 1,
-  per_key_proxy_enabled INTEGER NOT NULL DEFAULT 0,
-  quota_visible INTEGER NOT NULL DEFAULT 1,
+  max_concurrent BIGINT,
+  proxy_enabled BIGINT NOT NULL DEFAULT 1,
+  per_key_proxy_enabled BIGINT NOT NULL DEFAULT 0,
+  quota_visible BIGINT NOT NULL DEFAULT 1,
   quota_window_thresholds_json TEXT,
   rate_limit_overrides_json TEXT,
   created_at TEXT NOT NULL,
@@ -1147,11 +1147,11 @@ CREATE TABLE IF NOT EXISTS provider_connections (
 --TABLE:provider_key_limits
 CREATE TABLE IF NOT EXISTS provider_key_limits (
   provider TEXT PRIMARY KEY,
-  max_active_keys INTEGER,
-  daily_issue_limit INTEGER,
-  hourly_issue_limit INTEGER,
-  daily_issued INTEGER NOT NULL DEFAULT 0,
-  hourly_issued INTEGER NOT NULL DEFAULT 0,
+  max_active_keys BIGINT,
+  daily_issue_limit BIGINT,
+  hourly_issue_limit BIGINT,
+  daily_issued BIGINT NOT NULL DEFAULT 0,
+  hourly_issued BIGINT NOT NULL DEFAULT 0,
   last_reset_day TEXT NOT NULL DEFAULT '',
   last_reset_hour TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
@@ -1172,7 +1172,7 @@ CREATE TABLE IF NOT EXISTS provider_nodes (
   updated_at TEXT NOT NULL,
   icon_url TEXT,
   daily_quota_reset_timezone TEXT,
-  daily_quota_reset_hour INTEGER
+  daily_quota_reset_hour BIGINT
 );
 
 --TABLE:provider_plans
@@ -1206,10 +1206,10 @@ CREATE TABLE IF NOT EXISTS provider_quota_reset_events (
 CREATE TABLE IF NOT EXISTS provider_quota_state (
   connection_id TEXT NOT NULL,
   model TEXT NOT NULL,
-  tokens_used INTEGER NOT NULL DEFAULT 0,
-  token_limit INTEGER NOT NULL DEFAULT 0,
-  window_start INTEGER NOT NULL,
-  window_reset INTEGER NOT NULL,
+  tokens_used BIGINT NOT NULL DEFAULT 0,
+  token_limit BIGINT NOT NULL DEFAULT 0,
+  window_start BIGINT NOT NULL,
+  window_reset BIGINT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   PRIMARY KEY (connection_id, model)
 );
@@ -1221,27 +1221,27 @@ CREATE TABLE IF NOT EXISTS proxy_logs (
   status TEXT,
   proxy_type TEXT,
   proxy_host TEXT,
-  proxy_port INTEGER,
+  proxy_port BIGINT,
   level TEXT,
   level_id TEXT,
   provider TEXT,
   target_url TEXT,
   public_ip TEXT,
-  latency_ms INTEGER DEFAULT 0,
+  latency_ms BIGINT DEFAULT 0,
   error TEXT,
   connection_id TEXT,
   combo_id TEXT,
   account TEXT,
-  tls_fingerprint INTEGER DEFAULT 0,
+  tls_fingerprint BIGINT DEFAULT 0,
   egress_ip TEXT,
-  upstream_status INTEGER,
+  upstream_status BIGINT,
   proxy_name TEXT,
   rotation_account TEXT,
   correlation_id TEXT,
-  attempt_number INTEGER,
+  attempt_number BIGINT,
   attempt_issue TEXT,
-  headers_ms INTEGER DEFAULT NULL,
-  first_chunk_ms INTEGER DEFAULT NULL
+  headers_ms BIGINT DEFAULT NULL,
+  first_chunk_ms BIGINT DEFAULT NULL
 );
 
 --TABLE:proxy_registry
@@ -1250,7 +1250,7 @@ CREATE TABLE IF NOT EXISTS proxy_registry (
   name TEXT NOT NULL,
   type TEXT NOT NULL,
   host TEXT NOT NULL,
-  port INTEGER NOT NULL,
+  port BIGINT NOT NULL,
   username TEXT,
   password TEXT,
   region TEXT,
@@ -1259,10 +1259,10 @@ CREATE TABLE IF NOT EXISTS proxy_registry (
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   source TEXT NOT NULL DEFAULT 'manual',
-  quality_score INTEGER,
-  latency_ms INTEGER,
+  quality_score BIGINT,
+  latency_ms BIGINT,
   anonymity TEXT,
-  google_access INTEGER DEFAULT 0,
+  google_access BIGINT DEFAULT 0,
   last_validated TEXT,
   country_code TEXT,
   family TEXT NOT NULL DEFAULT 'auto',
@@ -1274,8 +1274,8 @@ CREATE TABLE IF NOT EXISTS proxy_scope_rotation (
   scope TEXT NOT NULL,
   scope_id TEXT NOT NULL,
   strategy TEXT NOT NULL DEFAULT 'round-robin',
-  cursor INTEGER NOT NULL DEFAULT 0,
-  sticky_window_minutes INTEGER NOT NULL DEFAULT 30,
+  cursor BIGINT NOT NULL DEFAULT 0,
+  sticky_window_minutes BIGINT NOT NULL DEFAULT 30,
   rotated_at TEXT,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   PRIMARY KEY (scope, scope_id)
@@ -1286,11 +1286,11 @@ CREATE TABLE IF NOT EXISTS proxy_subscriptions (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   url TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 0,
+  enabled BIGINT NOT NULL DEFAULT 0,
   mode TEXT NOT NULL DEFAULT 'global',
   rule_providers TEXT,
   local_core_endpoint TEXT,
-  update_interval_minutes INTEGER NOT NULL DEFAULT 60,
+  update_interval_minutes BIGINT NOT NULL DEFAULT 60,
   last_fetched_at TEXT,
   status TEXT NOT NULL DEFAULT 'empty',
   error TEXT,
@@ -1298,10 +1298,10 @@ CREATE TABLE IF NOT EXISTS proxy_subscriptions (
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   last_error_at TEXT,
-  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  consecutive_failures BIGINT NOT NULL DEFAULT 0,
   control_url TEXT,
   control_secret_enc TEXT,
-  selector_min_gap_seconds INTEGER NOT NULL DEFAULT 60,
+  selector_min_gap_seconds BIGINT NOT NULL DEFAULT 60,
   selector_last_switch_at TEXT,
   selector_last_switch_result TEXT,
   selector_last_switch_member TEXT
@@ -1321,9 +1321,9 @@ CREATE TABLE IF NOT EXISTS quota_allocation_model_caps (
 CREATE TABLE IF NOT EXISTS quota_consumption (
   api_key_id TEXT NOT NULL,
   dimension_key TEXT NOT NULL,
-  bucket_index INTEGER NOT NULL,
+  bucket_index BIGINT NOT NULL,
   consumed DOUBLE PRECISION NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL,
+  updated_at BIGINT NOT NULL,
   PRIMARY KEY (api_key_id, dimension_key, bucket_index)
 );
 
@@ -1357,16 +1357,16 @@ CREATE TABLE IF NOT EXISTS quota_schedules (
   pool_id TEXT NOT NULL,
   label TEXT,
   days TEXT NOT NULL,
-  start_minute INTEGER NOT NULL CHECK (start_minute >= 0 AND start_minute < 1440),
-  end_minute INTEGER NOT NULL CHECK (end_minute > 0 AND end_minute <= 1440),
+  start_minute BIGINT NOT NULL CHECK (start_minute >= 0 AND start_minute < 1440),
+  end_minute BIGINT NOT NULL CHECK (end_minute > 0 AND end_minute <= 1440),
   timezone TEXT,
   mode TEXT NOT NULL DEFAULT 'allow' CHECK (mode IN ('allow','block')),
   reserves TEXT,
   budget_value DOUBLE PRECISION CHECK (budget_value IS NULL OR budget_value > 0),
   budget_unit TEXT CHECK (budget_unit IS NULL OR budget_unit IN ('requests','tokens','usd')),
   budget_window TEXT NOT NULL DEFAULT 'daily' CHECK (budget_window IN ('hourly','5h','daily','weekly','monthly')),
-  priority INTEGER NOT NULL DEFAULT 0,
-  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+  priority BIGINT NOT NULL DEFAULT 0,
+  enabled BIGINT NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'UTC')
 );
 
@@ -1377,16 +1377,16 @@ CREATE TABLE IF NOT EXISTS quota_snapshots (
   connection_id TEXT NOT NULL,
   window_key TEXT NOT NULL,
   remaining_percentage DOUBLE PRECISION,
-  is_exhausted INTEGER DEFAULT 0,
+  is_exhausted BIGINT DEFAULT 0,
   next_reset_at TEXT,
-  window_duration_ms INTEGER,
+  window_duration_ms BIGINT,
   raw_data TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
 --TABLE:radar_feed_cache
 CREATE TABLE IF NOT EXISTS radar_feed_cache (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  id BIGINT PRIMARY KEY CHECK (id = 1),
   version TEXT,
   tier TEXT,
   payload TEXT,
@@ -1397,7 +1397,7 @@ CREATE TABLE IF NOT EXISTS radar_feed_cache (
 
 --TABLE:radar_intel_cache
 CREATE TABLE IF NOT EXISTS radar_intel_cache (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  id BIGINT PRIMARY KEY CHECK (id = 1),
   version TEXT NOT NULL,
   tier TEXT NOT NULL CHECK (tier = 'live'),
   payload TEXT NOT NULL,
@@ -1411,15 +1411,15 @@ CREATE TABLE IF NOT EXISTS radar_local_model_state (
   provider TEXT NOT NULL,
   model_id TEXT NOT NULL,
   display_name TEXT,
-  enabled INTEGER CHECK (enabled IS NULL OR enabled IN (0, 1)),
-  tombstoned INTEGER NOT NULL DEFAULT 0 CHECK (tombstoned IN (0, 1)),
+  enabled BIGINT CHECK (enabled IS NULL OR enabled IN (0, 1)),
+  tombstoned BIGINT NOT NULL DEFAULT 0 CHECK (tombstoned IN (0, 1)),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   PRIMARY KEY (provider, model_id)
 );
 
 --TABLE:radar_offers_cache
 CREATE TABLE IF NOT EXISTS radar_offers_cache (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  id BIGINT PRIMARY KEY CHECK (id = 1),
   version TEXT NOT NULL,
   tier TEXT NOT NULL CHECK (tier = 'live'),
   payload TEXT NOT NULL,
@@ -1429,7 +1429,7 @@ CREATE TABLE IF NOT EXISTS radar_offers_cache (
 
 --TABLE:radar_referrals_cache
 CREATE TABLE IF NOT EXISTS radar_referrals_cache (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  id BIGINT PRIMARY KEY CHECK (id = 1),
   generated_at TEXT,
   tier TEXT,
   payload TEXT,
@@ -1439,8 +1439,8 @@ CREATE TABLE IF NOT EXISTS radar_referrals_cache (
 
 --TABLE:radar_settings
 CREATE TABLE IF NOT EXISTS radar_settings (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  opt_in INTEGER NOT NULL DEFAULT 0,
+  id BIGINT PRIMARY KEY CHECK (id = 1),
+  opt_in BIGINT NOT NULL DEFAULT 0,
   supporter_key_encrypted TEXT,
   updated_at TEXT
 );
@@ -1451,9 +1451,9 @@ CREATE TABLE IF NOT EXISTS reasoning_cache (
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
   reasoning TEXT NOT NULL,
-  char_count INTEGER NOT NULL DEFAULT 0,
+  char_count BIGINT NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-  expires_at INTEGER NOT NULL
+  expires_at BIGINT NOT NULL
 );
 
 --TABLE:reasoning_routing_rules
@@ -1475,9 +1475,9 @@ CREATE TABLE IF NOT EXISTS reasoning_routing_rules (
   target_model TEXT,
   target_combo_id TEXT REFERENCES combos(id) ON DELETE CASCADE,
   budget_action TEXT NOT NULL DEFAULT 'preserve' CHECK (budget_action IN ('preserve', 'remove', 'set')),
-  budget_tokens INTEGER,
-  priority INTEGER NOT NULL DEFAULT 0,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  budget_tokens BIGINT,
+  priority BIGINT NOT NULL DEFAULT 0,
+  enabled BIGINT NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   CHECK (scope != 'apiKey' OR api_key_id IS NOT NULL),
@@ -1499,14 +1499,14 @@ CREATE TABLE IF NOT EXISTS registered_keys (
   name TEXT NOT NULL,
   provider TEXT NOT NULL DEFAULT '',
   account_id TEXT NOT NULL DEFAULT '',
-  is_active INTEGER NOT NULL DEFAULT 1,
+  is_active BIGINT NOT NULL DEFAULT 1,
   revoked_at TEXT,
   expires_at TEXT,
   idempotency_key TEXT UNIQUE,
-  daily_budget INTEGER,
-  hourly_budget INTEGER,
-  daily_used INTEGER NOT NULL DEFAULT 0,
-  hourly_used INTEGER NOT NULL DEFAULT 0,
+  daily_budget BIGINT,
+  hourly_budget BIGINT,
+  daily_used BIGINT NOT NULL DEFAULT 0,
+  hourly_used BIGINT NOT NULL DEFAULT 0,
   last_reset_day TEXT NOT NULL DEFAULT '',
   last_reset_hour TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -1522,15 +1522,15 @@ CREATE TABLE IF NOT EXISTS relay_tokens (
   description TEXT DEFAULT '',
   combo_id TEXT,
   allowed_models TEXT DEFAULT '[]',
-  max_tokens_per_request INTEGER DEFAULT 128000,
-  max_requests_per_minute INTEGER DEFAULT 60,
-  max_requests_per_day INTEGER DEFAULT 10000,
+  max_tokens_per_request BIGINT DEFAULT 128000,
+  max_requests_per_minute BIGINT DEFAULT 60,
+  max_requests_per_day BIGINT DEFAULT 10000,
   max_cost_per_day DOUBLE PRECISION DEFAULT 0,
-  enabled INTEGER DEFAULT 1,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  expires_at INTEGER,
-  last_used_at INTEGER,
+  enabled BIGINT DEFAULT 1,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  expires_at BIGINT,
+  last_used_at BIGINT,
   metadata TEXT DEFAULT '{}'
 );
 
@@ -1540,16 +1540,16 @@ CREATE TABLE IF NOT EXISTS request_cost_ledger (
   api_key_id TEXT NOT NULL,
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
-  tokens_input INTEGER NOT NULL DEFAULT 0,
-  tokens_output INTEGER NOT NULL DEFAULT 0,
-  tokens_cache_read INTEGER NOT NULL DEFAULT 0,
-  tokens_cache_creation INTEGER NOT NULL DEFAULT 0,
-  tokens_reasoning INTEGER NOT NULL DEFAULT 0,
+  tokens_input BIGINT NOT NULL DEFAULT 0,
+  tokens_output BIGINT NOT NULL DEFAULT 0,
+  tokens_cache_read BIGINT NOT NULL DEFAULT 0,
+  tokens_cache_creation BIGINT NOT NULL DEFAULT 0,
+  tokens_reasoning BIGINT NOT NULL DEFAULT 0,
   unit_price_input DOUBLE PRECISION NOT NULL DEFAULT 0,
   unit_price_output DOUBLE PRECISION NOT NULL DEFAULT 0,
   amount_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
   service_tier TEXT NOT NULL DEFAULT 'standard',
-  success INTEGER NOT NULL DEFAULT 1,
+  success BIGINT NOT NULL DEFAULT 1,
   "timestamp" TEXT NOT NULL,
   request_id TEXT
 );
@@ -1567,7 +1567,7 @@ CREATE TABLE IF NOT EXISTS request_detail_logs (
   model TEXT,
   source_format TEXT,
   target_format TEXT,
-  duration_ms INTEGER DEFAULT 0
+  duration_ms BIGINT DEFAULT 0
 );
 
 --TABLE:routing_decisions
@@ -1580,9 +1580,9 @@ CREATE TABLE IF NOT EXISTS routing_decisions (
   model_selected TEXT,
   score DOUBLE PRECISION,
   factors_json TEXT,
-  fallbacks_triggered INTEGER DEFAULT 0,
-  success INTEGER DEFAULT 1,
-  latency_ms INTEGER,
+  fallbacks_triggered BIGINT DEFAULT 0,
+  success BIGINT DEFAULT 1,
+  latency_ms BIGINT,
   cost DOUBLE PRECISION,
   source TEXT DEFAULT 'api',
   created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
@@ -1602,7 +1602,7 @@ CREATE TABLE IF NOT EXISTS script_vault (
   created_by TEXT NOT NULL,
   tags TEXT DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
-  install_count INTEGER NOT NULL DEFAULT 0,
+  install_count BIGINT NOT NULL DEFAULT 0,
   UNIQUE(name, version)
 );
 
@@ -1613,8 +1613,8 @@ CREATE TABLE IF NOT EXISTS semantic_cache (
   model TEXT NOT NULL,
   prompt_hash TEXT NOT NULL,
   response TEXT NOT NULL,
-  tokens_saved INTEGER DEFAULT 0,
-  hit_count INTEGER DEFAULT 0,
+  tokens_saved BIGINT DEFAULT 0,
+  hit_count BIGINT DEFAULT 0,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
@@ -1630,7 +1630,7 @@ CREATE TABLE IF NOT EXISTS server_tool_executions (
   output TEXT,
   status TEXT NOT NULL CHECK (status IN ('running', 'success', 'error', 'timeout')),
   error_message TEXT,
-  duration_ms INTEGER,
+  duration_ms BIGINT,
   claim_expires_at TEXT NOT NULL,
   completed_at TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -1642,8 +1642,8 @@ CREATE TABLE IF NOT EXISTS session_account_affinity (
   session_key TEXT NOT NULL,
   provider TEXT NOT NULL,
   connection_id TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  last_seen_at INTEGER NOT NULL,
+  created_at BIGINT NOT NULL,
+  last_seen_at BIGINT NOT NULL,
   PRIMARY KEY (session_key, provider)
 );
 
@@ -1664,7 +1664,7 @@ CREATE TABLE IF NOT EXISTS skill_collections (
   name TEXT NOT NULL UNIQUE,
   description TEXT,
   kind TEXT NOT NULL DEFAULT 'manual',
-  visible INTEGER NOT NULL DEFAULT 1,
+  visible BIGINT NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -1686,10 +1686,10 @@ CREATE TABLE IF NOT EXISTS skill_import_jobs (
   source_id TEXT,
   trigger TEXT NOT NULL DEFAULT 'manual',
   status TEXT NOT NULL DEFAULT 'pending',
-  discovered INTEGER NOT NULL DEFAULT 0,
-  imported INTEGER NOT NULL DEFAULT 0,
-  quarantined INTEGER NOT NULL DEFAULT 0,
-  dry_run INTEGER NOT NULL DEFAULT 0,
+  discovered BIGINT NOT NULL DEFAULT 0,
+  imported BIGINT NOT NULL DEFAULT 0,
+  quarantined BIGINT NOT NULL DEFAULT 0,
+  dry_run BIGINT NOT NULL DEFAULT 0,
   error TEXT,
   started_at TEXT,
   finished_at TEXT,
@@ -1703,8 +1703,8 @@ CREATE TABLE IF NOT EXISTS skill_sources (
   kind TEXT NOT NULL,
   uri TEXT NOT NULL,
   revision TEXT,
-  trusted INTEGER NOT NULL DEFAULT 0,
-  disabled INTEGER NOT NULL DEFAULT 0,
+  trusted BIGINT NOT NULL DEFAULT 0,
+  disabled BIGINT NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -1718,13 +1718,13 @@ CREATE TABLE IF NOT EXISTS skills (
   description TEXT,
   schema TEXT NOT NULL,
   handler TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  enabled BIGINT NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   mode TEXT NOT NULL DEFAULT 'auto',
   source_provider TEXT,
   tags TEXT,
-  install_count INTEGER NOT NULL DEFAULT 0
+  install_count BIGINT NOT NULL DEFAULT 0
 );
 
 --TABLE:sync_tokens
@@ -1746,8 +1746,8 @@ CREATE TABLE IF NOT EXISTS tier_assignments (
   tier TEXT NOT NULL CHECK (tier IN ('free', 'cheap', 'premium')),
   cost_per_1m_input DOUBLE PRECISION DEFAULT 0,
   cost_per_1m_output DOUBLE PRECISION DEFAULT 0,
-  has_free_tier INTEGER DEFAULT 0,
-  free_quota_limit INTEGER,
+  has_free_tier BIGINT DEFAULT 0,
+  free_quota_limit BIGINT,
   reason TEXT,
   updated_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   PRIMARY KEY (provider, model)
@@ -1765,7 +1765,7 @@ CREATE TABLE IF NOT EXISTS token_ledger (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   from_api_key_id TEXT NOT NULL,
   to_api_key_id TEXT NOT NULL,
-  amount INTEGER NOT NULL CHECK (amount > 0),
+  amount BIGINT NOT NULL CHECK (amount > 0),
   reason TEXT,
   idempotency_key TEXT UNIQUE,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
@@ -1777,9 +1777,9 @@ CREATE TABLE IF NOT EXISTS upstream_proxy_config (
   provider_id TEXT NOT NULL UNIQUE,
   mode TEXT NOT NULL DEFAULT 'native',
   cliproxyapi_model_mapping TEXT,
-  native_priority INTEGER NOT NULL DEFAULT 1,
-  cliproxyapi_priority INTEGER NOT NULL DEFAULT 2,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  native_priority BIGINT NOT NULL DEFAULT 1,
+  cliproxyapi_priority BIGINT NOT NULL DEFAULT 2,
+  enabled BIGINT NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   family TEXT NOT NULL DEFAULT 'auto',
@@ -1794,19 +1794,19 @@ CREATE TABLE IF NOT EXISTS usage_history (
   connection_id TEXT,
   account_key TEXT,
   account_label TEXT,
-  account_label_priority INTEGER DEFAULT 0,
+  account_label_priority BIGINT DEFAULT 0,
   api_key_id TEXT,
   api_key_name TEXT,
-  tokens_input INTEGER DEFAULT 0,
-  tokens_output INTEGER DEFAULT 0,
-  tokens_cache_read INTEGER DEFAULT 0,
-  tokens_cache_creation INTEGER DEFAULT 0,
-  tokens_reasoning INTEGER DEFAULT 0,
+  tokens_input BIGINT DEFAULT 0,
+  tokens_output BIGINT DEFAULT 0,
+  tokens_cache_read BIGINT DEFAULT 0,
+  tokens_cache_creation BIGINT DEFAULT 0,
+  tokens_reasoning BIGINT DEFAULT 0,
   service_tier TEXT DEFAULT 'standard',
   status TEXT,
-  success INTEGER DEFAULT 1,
-  latency_ms INTEGER DEFAULT 0,
-  ttft_ms INTEGER DEFAULT 0,
+  success BIGINT DEFAULT 1,
+  latency_ms BIGINT DEFAULT 0,
+  ttft_ms BIGINT DEFAULT 0,
   error_code TEXT,
   "timestamp" TEXT NOT NULL,
   combo_strategy TEXT DEFAULT 'direct',
@@ -1825,8 +1825,8 @@ CREATE TABLE IF NOT EXISTS user_badges (
 --TABLE:user_levels
 CREATE TABLE IF NOT EXISTS user_levels (
   api_key_id TEXT PRIMARY KEY,
-  total_xp INTEGER NOT NULL DEFAULT 0,
-  current_level INTEGER NOT NULL DEFAULT 1,
+  total_xp BIGINT NOT NULL DEFAULT 0,
+  current_level BIGINT NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
@@ -1839,12 +1839,12 @@ CREATE TABLE IF NOT EXISTS version_manager (
   pinned_version TEXT,
   binary_path TEXT,
   status TEXT NOT NULL DEFAULT 'not_installed',
-  pid INTEGER,
-  port INTEGER DEFAULT 8317,
+  pid BIGINT,
+  port BIGINT DEFAULT 8317,
   api_key TEXT,
   management_key TEXT,
-  auto_update INTEGER NOT NULL DEFAULT 1,
-  auto_start INTEGER NOT NULL DEFAULT 0,
+  auto_update BIGINT NOT NULL DEFAULT 1,
+  auto_start BIGINT NOT NULL DEFAULT 0,
   last_health_check TEXT,
   last_update_check TEXT,
   health_status TEXT DEFAULT 'unknown',
@@ -1853,9 +1853,9 @@ CREATE TABLE IF NOT EXISTS version_manager (
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   logs_buffer_path TEXT,
-  provider_expose INTEGER NOT NULL DEFAULT 0,
+  provider_expose BIGINT NOT NULL DEFAULT 0,
   last_sync_at TEXT,
-  auto_restart_adopted INTEGER NOT NULL DEFAULT 0
+  auto_restart_adopted BIGINT NOT NULL DEFAULT 0
 );
 
 --TABLE:webhooks
@@ -1864,12 +1864,12 @@ CREATE TABLE IF NOT EXISTS webhooks (
   url TEXT NOT NULL,
   events TEXT NOT NULL DEFAULT '["*"]',
   secret TEXT,
-  enabled INTEGER DEFAULT 1,
+  enabled BIGINT DEFAULT 1,
   description TEXT DEFAULT '',
   created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   last_triggered_at TEXT,
-  last_status INTEGER,
-  failure_count INTEGER DEFAULT 0,
+  last_status BIGINT,
+  failure_count BIGINT DEFAULT 0,
   kind TEXT NOT NULL DEFAULT 'custom',
   metadata_encrypted BYTEA
 );
@@ -1878,7 +1878,7 @@ CREATE TABLE IF NOT EXISTS webhooks (
 CREATE TABLE IF NOT EXISTS xp_action_counts (
   api_key_id TEXT NOT NULL,
   action TEXT NOT NULL,
-  count INTEGER NOT NULL DEFAULT 0,
+  count BIGINT NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   PRIMARY KEY (api_key_id, action)
 );
@@ -1888,7 +1888,7 @@ CREATE TABLE IF NOT EXISTS xp_audit_log (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   api_key_id TEXT NOT NULL,
   action TEXT NOT NULL,
-  xp_earned INTEGER NOT NULL,
+  xp_earned BIGINT NOT NULL,
   metadata TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
@@ -1909,7 +1909,7 @@ CREATE TABLE IF NOT EXISTS api_key_context_sources (
   token TEXT,
   base_url TEXT,
   vault_path TEXT,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  enabled BIGINT NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   PRIMARY KEY (api_key_id, source_type),
@@ -1920,7 +1920,7 @@ CREATE TABLE IF NOT EXISTS api_key_context_sources (
 CREATE TABLE IF NOT EXISTS api_key_token_counters (
   limit_id TEXT NOT NULL,
   window_start TEXT NOT NULL,
-  tokens_used INTEGER NOT NULL DEFAULT 0,
+  tokens_used BIGINT NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   PRIMARY KEY (limit_id, window_start),
   FOREIGN KEY (limit_id) REFERENCES api_key_token_limits (id) ON DELETE CASCADE
@@ -1931,7 +1931,7 @@ CREATE TABLE IF NOT EXISTS api_key_token_limit_reset_logs (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   limit_id TEXT NOT NULL,
   reset_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-  prev_tokens INTEGER NOT NULL DEFAULT 0,
+  prev_tokens BIGINT NOT NULL DEFAULT 0,
   window_start TEXT NOT NULL,
   FOREIGN KEY (limit_id) REFERENCES api_key_token_limits (id) ON DELETE CASCADE
 );
@@ -1945,24 +1945,24 @@ CREATE TABLE IF NOT EXISTS batches (
   input_file_id TEXT NOT NULL,
   output_file_id TEXT,
   error_file_id TEXT,
-  created_at INTEGER NOT NULL,
-  in_progress_at INTEGER,
-  expires_at INTEGER,
-  finalizing_at INTEGER,
-  completed_at INTEGER,
-  failed_at INTEGER,
-  expired_at INTEGER,
-  cancelling_at INTEGER,
-  cancelled_at INTEGER,
-  request_counts_total INTEGER DEFAULT 0,
-  request_counts_completed INTEGER DEFAULT 0,
-  request_counts_failed INTEGER DEFAULT 0,
+  created_at BIGINT NOT NULL,
+  in_progress_at BIGINT,
+  expires_at BIGINT,
+  finalizing_at BIGINT,
+  completed_at BIGINT,
+  failed_at BIGINT,
+  expired_at BIGINT,
+  cancelling_at BIGINT,
+  cancelled_at BIGINT,
+  request_counts_total BIGINT DEFAULT 0,
+  request_counts_completed BIGINT DEFAULT 0,
+  request_counts_failed BIGINT DEFAULT 0,
   metadata TEXT,
   api_key_id TEXT,
   errors TEXT,
   model TEXT,
   usage TEXT,
-  output_expires_after_seconds INTEGER,
+  output_expires_after_seconds BIGINT,
   output_expires_after_anchor TEXT,
   FOREIGN KEY(input_file_id) REFERENCES files(id),
   FOREIGN KEY(output_file_id) REFERENCES files(id),
@@ -1981,15 +1981,15 @@ CREATE TABLE IF NOT EXISTS compression_combo_assignments (
 --TABLE:connection_runtime_state
 CREATE TABLE IF NOT EXISTS connection_runtime_state (
   connection_id TEXT PRIMARY KEY REFERENCES provider_connections(id) ON DELETE CASCADE,
-  refresh_circuit_streak INTEGER DEFAULT 0,
+  refresh_circuit_streak BIGINT DEFAULT 0,
   refresh_circuit_until TEXT,
   refresh_last_fail_at TEXT,
-  warmup_circuit_streak INTEGER DEFAULT 0,
+  warmup_circuit_streak BIGINT DEFAULT 0,
   warmup_circuit_until TEXT,
   warmup_last_fail_at TEXT,
   last_warmup_at TEXT,
   last_warmup_result TEXT,
-  warmup_tokens_used INTEGER DEFAULT 0,
+  warmup_tokens_used BIGINT DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
@@ -2007,7 +2007,7 @@ CREATE TABLE IF NOT EXISTS group_model_permissions (
 --TABLE:inspector_session_requests
 CREATE TABLE IF NOT EXISTS inspector_session_requests (
   session_id TEXT NOT NULL REFERENCES inspector_sessions(id) ON DELETE CASCADE,
-  seq INTEGER NOT NULL,
+  seq BIGINT NOT NULL,
   payload TEXT NOT NULL,
   PRIMARY KEY (session_id, seq)
 );
@@ -2020,8 +2020,8 @@ CREATE TABLE IF NOT EXISTS job_runs (
   finished_at TEXT,
   status TEXT NOT NULL DEFAULT 'running',
   error_message TEXT,
-  records_affected INTEGER DEFAULT 0,
-  duration_ms INTEGER,
+  records_affected BIGINT DEFAULT 0,
+  duration_ms BIGINT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
@@ -2041,7 +2041,7 @@ CREATE TABLE IF NOT EXISTS proxy_assignments (
   proxy_id TEXT NOT NULL,
   scope TEXT NOT NULL,
   scope_id TEXT,
-  "position" INTEGER NOT NULL DEFAULT 0,
+  "position" BIGINT NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   UNIQUE(scope, scope_id, proxy_id),
@@ -2065,23 +2065,23 @@ CREATE TABLE IF NOT EXISTS relay_logs (
   token_id TEXT NOT NULL,
   request_id TEXT,
   model TEXT,
-  prompt_tokens INTEGER DEFAULT 0,
-  completion_tokens INTEGER DEFAULT 0,
+  prompt_tokens BIGINT DEFAULT 0,
+  completion_tokens BIGINT DEFAULT 0,
   cost DOUBLE PRECISION DEFAULT 0,
   status TEXT DEFAULT 'success',
-  status_code INTEGER DEFAULT 200,
-  latency_ms INTEGER DEFAULT 0,
+  status_code BIGINT DEFAULT 200,
+  latency_ms BIGINT DEFAULT 0,
   client_ip TEXT,
   user_agent TEXT,
-  created_at INTEGER NOT NULL,
+  created_at BIGINT NOT NULL,
   FOREIGN KEY (token_id) REFERENCES relay_tokens(id) ON DELETE CASCADE
 );
 
 --TABLE:relay_rate_limits
 CREATE TABLE IF NOT EXISTS relay_rate_limits (
   token_id TEXT NOT NULL,
-  window_start INTEGER NOT NULL,
-  request_count INTEGER DEFAULT 0,
+  window_start BIGINT NOT NULL,
+  request_count BIGINT DEFAULT 0,
   cost DOUBLE PRECISION DEFAULT 0,
   PRIMARY KEY (token_id, window_start),
   FOREIGN KEY (token_id) REFERENCES relay_tokens(id) ON DELETE CASCADE
@@ -2116,7 +2116,7 @@ CREATE TABLE IF NOT EXISTS skill_executions (
   output TEXT,
   status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'success', 'error', 'timeout')),
   error_message TEXT,
-  duration_ms INTEGER,
+  duration_ms BIGINT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
   FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
 );
@@ -2131,8 +2131,8 @@ CREATE TABLE IF NOT EXISTS skill_packages (
   revision TEXT,
   tags TEXT,
   license TEXT,
-  executable INTEGER NOT NULL DEFAULT 0,
-  quarantine INTEGER NOT NULL DEFAULT 0,
+  executable BIGINT NOT NULL DEFAULT 0,
+  quarantine BIGINT NOT NULL DEFAULT 0,
   quarantine_reasons TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   imported_at TEXT,
@@ -2145,8 +2145,8 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   webhook_id TEXT NOT NULL,
   event_type TEXT NOT NULL,
   status TEXT NOT NULL,
-  http_status INTEGER,
-  latency_ms INTEGER,
+  http_status BIGINT,
+  latency_ms BIGINT,
   error TEXT,
   payload_snapshot TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -2156,13 +2156,13 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 --TABLE:batch_item_checkpoints
 CREATE TABLE IF NOT EXISTS batch_item_checkpoints (
   batch_id TEXT NOT NULL,
-  line_number INTEGER NOT NULL,
+  line_number BIGINT NOT NULL,
   custom_id TEXT,
   status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'errored')),
   result_json TEXT,
   error_json TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
   PRIMARY KEY (batch_id, line_number),
   FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
 );
@@ -2172,7 +2172,7 @@ CREATE TABLE IF NOT EXISTS skill_package_files (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   package_id TEXT NOT NULL REFERENCES skill_packages(id) ON DELETE CASCADE,
   path TEXT NOT NULL,
-  size INTEGER,
+  size BIGINT,
   sha256 TEXT,
   scan_flags TEXT
 );
@@ -2186,7 +2186,7 @@ ALTER TABLE memories ADD COLUMN IF NOT EXISTS search_tsv tsvector GENERATED ALWA
 CREATE INDEX IF NOT EXISTS memory_fts_idx ON memories USING gin(search_tsv);
 
 -- ── vec0 replacement: vec_memories → pgvector ──
--- vec0 keyed embeddings by the memories rowid (memory_id INTEGER).
+-- vec0 keyed embeddings by the memories rowid (memory_id BIGINT).
 CREATE TABLE IF NOT EXISTS vec_memories (
   id BIGINT PRIMARY KEY,
   embedding vector(1024)
