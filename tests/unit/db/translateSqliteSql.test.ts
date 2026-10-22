@@ -62,6 +62,45 @@ test("IS NULL / IS NOT NULL are left untouched", () => {
   assert.equal(translateSqliteSql(sql), sql);
 });
 
+test("strftime(%w, col) becomes EXTRACT(DOW)", () => {
+  assert.match(
+    translateSqliteSql("SELECT strftime('%w', timestamp) AS dow"),
+    /EXTRACT\(DOW FROM \(timestamp\)::timestamptz\)::int/i
+  );
+});
+
+test("strftime(%s, col) becomes epoch extract", () => {
+  assert.match(
+    translateSqliteSql("SELECT strftime('%s', created_at)"),
+    /EXTRACT\(EPOCH FROM \(created_at\)::timestamptz\)::bigint/i
+  );
+});
+
+test("strftime(%s, now) becomes epoch of now", () => {
+  assert.match(
+    translateSqliteSql("SELECT strftime('%s','now')"),
+    /EXTRACT\(EPOCH FROM NOW\(\)\)::bigint/i
+  );
+});
+
+test("strftime ISO format becomes to_char with quoted literals", () => {
+  const out = translateSqliteSql("SELECT strftime('%Y-%m-%dT%H:00:00Z', timestamp) AS hour");
+  assert.match(out, /to_char\(\(timestamp\)::timestamptz, 'YYYY-MM-DD"T"HH24:00:00"Z"'\)/i);
+  assert.doesNotMatch(out, /strftime/i);
+});
+
+test("strftime unixepoch modifier wraps to_timestamp", () => {
+  const out = translateSqliteSql("SELECT strftime('%Y', created_at, 'unixepoch')");
+  assert.match(out, /to_timestamp\(created_at\)/i);
+});
+
+test("nested datetime(strftime(...)) translates both", () => {
+  const out = translateSqliteSql("SELECT datetime(strftime('%Y-%m-%d %H:00:00', created_at)) AS h");
+  assert.doesNotMatch(out, /strftime/i);
+  assert.doesNotMatch(out, /\bdatetime\(/i);
+  assert.match(out, /to_char/i);
+});
+
 test("plain PostgreSQL passes through untouched", () => {
   const sql = "SELECT id, name FROM provider_connections WHERE enabled = true ORDER BY name";
   assert.equal(translateSqliteSql(sql), sql);

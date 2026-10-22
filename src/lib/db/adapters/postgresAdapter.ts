@@ -131,6 +131,63 @@ function getPrimaryKeyColumns(client: unknown, table: string): string[] {
   return columns;
 }
 
+// Maps a SQLite strftime() format string to a PostgreSQL to_char() template.
+// Only the specifiers OmniRoute actually uses are mapped; an unknown one throws
+// so a wrong translation is never shipped silently. %w and %s are NOT to_char
+// specifiers and are handled by the caller before this runs.
+function sqliteFormatToPgTemplate(fmt: string): string {
+  // Longest tokens first so %Y-%m etc. don't partially match.
+  const map: Array<[RegExp, string]> = [
+    [/%Y/g, "YYYY"],
+    [/%m/g, "MM"],
+    [/%d/g, "DD"],
+    [/%H/g, "HH24"],
+    [/%M/g, "MI"],
+    [/%S/g, "SS"],
+    [/%f/g, "MS"], // SQLite %f is seconds.fraction; closest useful PG part is milliseconds
+  ];
+  let out = fmt;
+  for (const [re, rep] of map) out = out.replace(re, rep);
+  if (/%[A-Za-z]/.test(out)) {
+    throw new Error(`[postgresAdapter] unsupported strftime specifier in: ${fmt}`);
+  }
+  // Literal text in a to_char template must be double-quoted (T, Z, fixed
+  // punctuation stays literal). We quote any run that isn't a known pattern
+  // token; simplest robust approach: quote the whole known-safe punctuation
+  // by wrapping non-alphanumeric literal chars. to_char treats unrecognized
+  // letters as literals only if quoted, so quote stray letters (T, Z).
+  out = out.replace(/([A-Za-z])/g, (ch) => (/Y|M|D|H|I|S/.test(ch) ? ch : `"${ch}"`));
+  return out;
+}
+
+// Converts the time argument of a strftime/datetime call into a PG timestamptz
+// expression. 'now' -> NOW(); a quoted ISO string or a column -> cast;
+// a trailing 'unixepoch' modifier means the value is epoch SECONDS.
+function pgTimeExpr(timeArg: string, modifier?: string): string {
+  const t = timeArg.trim();
+  const isNow = /^['"]now['"]$/i.test(t);
+  if (modifier && /unixepoch/i.test(modifier)) {
+    return `to_timestamp(${isNow ? "extract(epoch from now())" : t})`;
+  }
+  if (isNow) return "NOW()";
+  // Quoted literal or bare column/expression: cast to timestamptz.
+  return `(${t})::timestamptz`;
+}
+
+// Translates a single strftime(fmt, time[, modifier]) call to PostgreSQL.
+function translateStrftimeCall(fmt: string, timeArg: string, modifier?: string): string {
+  // %w — day of week 0..6 (Sunday=0). PG: extract(dow) is already 0..6 Sun=0.
+  if (fmt === "%w") {
+    return `EXTRACT(DOW FROM ${pgTimeExpr(timeArg, modifier)})::int`;
+  }
+  // %s — epoch seconds.
+  if (fmt === "%s") {
+    return `EXTRACT(EPOCH FROM ${pgTimeExpr(timeArg, modifier)})::bigint`;
+  }
+  const template = sqliteFormatToPgTemplate(fmt);
+  return `to_char(${pgTimeExpr(timeArg, modifier)}, '${template}')`;
+}
+
 // Translates common SQLite-specific SQL into PostgreSQL equivalents. Applied to
 // both prepared statements and exec()'d DDL so background/lazy code paths that
 // emit SQLite dialect (module self-init CREATE TABLEs, DATETIME()/IFNULL()
@@ -157,6 +214,18 @@ export function translateSqliteSql(sql: string): string {
   out = out.replace(/\s+COLLATE\s+NOCASE\b/gi, "");
 
   // --- scalar functions ---
+  // strftime() runs FIRST (innermost), before datetime(), so nested forms like
+  // datetime(strftime('%Y-%m-%d %H:00:00', created_at)) translate correctly.
+  // strftime(fmt, timeArg[, modifier]) -> to_char / EXTRACT. Handles the forms
+  // OmniRoute uses: strftime('%w', col), strftime('%s', col|'now'),
+  // strftime('%Y-%m-%dT%H:...', col|'now'[, '+1 month'|'unixepoch']).
+  // fmt and modifier are single-quoted literals; timeArg is a column, 'now',
+  // or a quoted literal (no nested parens/commas — the only shapes in use).
+  out = out.replace(
+    /\bSTRFTIME\(\s*'([^']*)'\s*,\s*('now'|"now"|[A-Za-z_][\w.]*|'[^']*')\s*(?:,\s*'([^']*)'\s*)?\)/gi,
+    (_m, fmt: string, timeArg: string, modifier?: string) =>
+      translateStrftimeCall(fmt, timeArg, modifier)
+  );
   // --- DATETIME() forms ---
   // 2-arg relative form used for retention windows:
   //   datetime('now', '-' || <n> || ' days')  ->  (NOW() - ((<n>) || ' days')::interval)
@@ -174,12 +243,6 @@ export function translateSqliteSql(sql: string): string {
   // a blanket epoch-division guess here mis-handled the far more common TEXT
   // ISO columns ("operator does not exist: text / numeric").
   out = out.replace(/\bDATETIME\(\s*([^)]+?)\s*\)/gi, "($1)::timestamptz");
-  // strftime('%s','now') -> extract(epoch from now())::bigint (the common form);
-  // other strftime patterns are left for a fail-loud so we never ship a wrong one.
-  out = out.replace(
-    /\bSTRFTIME\(\s*['"]%s['"]\s*,\s*['"]now['"]\s*\)/gi,
-    "EXTRACT(EPOCH FROM NOW())::bigint"
-  );
   // IFNULL(a, b) -> COALESCE(a, b) (identical semantics).
   out = out.replace(/\bIFNULL\s*\(/gi, "COALESCE(");
 
