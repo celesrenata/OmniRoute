@@ -313,7 +313,31 @@ function getClientForConnection(config: {
   password?: string;
 }): { client: any /*pg-native.Client*/; cleanup: () => void } {
   const pgClient = runtimeRequire("pg-native") as any;
-  const client = new pgClient();
+  // Explicit type parsers so numeric/boolean columns come back as native JS
+  // types (number/boolean), matching better-sqlite3. pg-native defaults to
+  // pg-types, but its resolution is fragile across the standalone bundle /
+  // tsx / CJS boundaries (observed: int columns returned as strings, so
+  // callers' `typeof x === "number"` checks failed — combos were skipped,
+  // sort_order/flags mis-read). Passing a self-contained parser removes that
+  // dependency on how pg-types resolves. OIDs: bool=16, int8=20, int2=21,
+  // int4=23, float4=700, float8=701, numeric=1700. Everything else (text,
+  // json, timestamptz, bytea…) stays a string, exactly like SQLite's TEXT
+  // affinity, so JSON columns (combos.data) are parsed by the caller as before.
+  const NUMERIC_OIDS = new Set([20, 21, 23, 700, 701, 1700]);
+  const typeParsers = {
+    getTypeParser(oid: number) {
+      if (oid === 16) return (v: string) => v === "t" || v === "true" || v === "1";
+      if (NUMERIC_OIDS.has(oid)) {
+        return (v: string) => {
+          if (v === null || v === undefined) return v;
+          const n = Number(v);
+          return Number.isNaN(n) ? v : n;
+        };
+      }
+      return (v: string) => v; // identity for text/json/dates/bytea
+    },
+  };
+  const client = new pgClient({ types: typeParsers });
 
   // Build connection string for pg-native, which works like:
   // host=localhost port=5432 user=username password=password dbname=dbname

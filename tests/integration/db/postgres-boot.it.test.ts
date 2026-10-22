@@ -108,5 +108,24 @@ test(
     const u = db.prepare("SELECT n FROM _it_undef WHERE id = ?").get("u") as { n: number | null };
     assert.equal(u.n, null, "undefined binds as NULL on PostgreSQL");
     db.exec("DROP TABLE IF EXISTS _it_undef");
+
+    // Result type coercion: numeric columns must come back as JS numbers and
+    // boolean as boolean (not pg-native strings), matching better-sqlite3 — the
+    // app relies on `typeof x === "number"` (combos sort_order, is_active flags).
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS _it_types (n BIGINT, f DOUBLE PRECISION, b BOOLEAN, t TEXT)"
+    );
+    db.prepare("INSERT INTO _it_types (n, f, b, t) VALUES (?, ?, ?, ?)").run(5, 1.5, 1, "hello");
+    const tr = db.prepare("SELECT n, f, b, t FROM _it_types LIMIT 1").get() as {
+      n: unknown;
+      f: unknown;
+      b: unknown;
+      t: unknown;
+    };
+    assert.equal(typeof tr.n, "number", "bigint -> number");
+    assert.equal(typeof tr.f, "number", "double -> number");
+    assert.equal(typeof tr.b, "boolean", "boolean -> boolean");
+    assert.equal(typeof tr.t, "string", "text stays string");
+    db.exec("DROP TABLE IF EXISTS _it_types");
   }
 );
