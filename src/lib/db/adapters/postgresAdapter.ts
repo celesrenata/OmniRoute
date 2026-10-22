@@ -695,6 +695,14 @@ export function createPostgresAdapter(config: {
     // "pg_shim") to keep the boot logic and the stored settings consistent,
     // and read back verbatim. Other pragmas fail loudly.
     pragma(pragmaStr: string, _options?: { simple?: boolean }): unknown {
+      // wal_checkpoint(PASSIVE|FULL|RESTART|TRUNCATE): SQLite WAL maintenance.
+      // PostgreSQL has no WAL client pragma (checkpoints are server-side), so
+      // report a successful no-op checkpoint row {busy,log,checkpointed}=0 that
+      // parseCheckpointRow() reads as ok. Matched before the simple-name regex
+      // because of the parenthesized argument.
+      if (/^wal_checkpoint\s*\(/i.test(pragmaStr.trim())) {
+        return [{ busy: 0, log: 0, checkpointed: 0 }];
+      }
       const m = pragmaStr.trim().match(/^(\w+)\s*(?:=\s*(.+))?$/);
       if (!m) {
         throw new Error(`Unimplemented pragma in PG adapter: ${pragmaStr}`);
