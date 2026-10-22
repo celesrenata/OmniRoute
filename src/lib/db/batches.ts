@@ -662,15 +662,17 @@ function deleteBatchesMatching(
   };
 
   const toIds = (rows: unknown[]) => (rows as Array<{ id: string }>).map((r) => r.id);
+  // rowid cursor ordering -> ctid on PostgreSQL (physical/insertion order).
+  const rid = db.driver === "pg-native" ? "ctid" : "rowid";
 
   if (!allTenants) {
     const keyChunk = db.prepare(
-      `SELECT id FROM batches WHERE ${whereSql} AND api_key_id = ? ORDER BY rowid LIMIT ?`
+      `SELECT id FROM batches WHERE ${whereSql} AND api_key_id = ? ORDER BY ${rid} LIMIT ?`
     );
     return sweepLoop(() => toIds(keyChunk.all(...params, apiKeyId, INSTANCE_SWEEP_CHUNK)));
   }
 
-  const nextChunk = db.prepare(`SELECT id FROM batches WHERE ${whereSql} ORDER BY rowid LIMIT ?`);
+  const nextChunk = db.prepare(`SELECT id FROM batches WHERE ${whereSql} ORDER BY ${rid} LIMIT ?`);
   return sweepLoop(() => toIds(nextChunk.all(...params, INSTANCE_SWEEP_CHUNK)));
 }
 
