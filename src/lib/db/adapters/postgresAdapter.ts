@@ -505,8 +505,17 @@ export function createPostgresAdapter(config: {
   database?: string;
   user?: string;
   password?: string;
+  /**
+   * Test-only seam: supply an already-constructed (or stubbed) pg-native
+   * client instead of connecting. Production callers never set this, so the
+   * eager connect path is unchanged. Lets unit tests drive prepare()/get()/all()
+   * without a reachable PostgreSQL (and without the native addon loaded).
+   */
+  client?: unknown;
 }): SqliteAdapter {
-  const clientHolder = getClientForConnection(config);
+  const clientHolder = config.client
+    ? { client: config.client, cleanup: () => undefined }
+    : getClientForConnection(config);
   const client = clientHolder.client;
 
   const adapter: SqliteAdapter = {
@@ -794,10 +803,19 @@ export function createPostgresAdapter(config: {
           };
         },
 
-        // get is for single-row results (e.g., SELECT *)
+        // get is for single-row results (e.g., SELECT *).
+        // MUST mirror better-sqlite3 semantics: a no-row SELECT returns
+        // `undefined` (falsy), never `[]`. pg-native's querySync() returns an
+        // *empty array* for a zero-row result, and callers use the idiom
+        // `(prepare(...).get(...) as T | undefined) || null` — returning `[]`
+        // (truthy) makes them treat "no row" as "found a row with no columns",
+        // e.g. createProviderConnection's api-key dedup then hits
+        // `if (!existingId) return null;` and the whole POST /api/providers
+        // 500s with "Failed to create provider" for every new connection.
+        // (See sqlite_master branch above, which already returns undefined.)
         get(...params: unknown[]): unknown {
           const result = exec1(resolveBind(params));
-          return Array.isArray(result) && result.length >= 1 ? result[0] : result;
+          return Array.isArray(result) && result.length >= 1 ? result[0] : undefined;
         },
 
         // all returns all rows
