@@ -589,14 +589,19 @@ export default function CachePage() {
                         </thead>
                         <tbody>
                           {providerEntries.map(([provider, data]) => {
-                            const cachedRequests = data.cachedRequests ?? data.requests;
-                            const totalRequests = data.totalRequests ?? cachedRequests;
+                            // Defend against rows missing numeric fields (stale/malformed
+                            // payloads must never crash the page into a 500).
+                            const safe = (value: unknown): number =>
+                              typeof value === "number" && Number.isFinite(value) ? value : 0;
+                            const inputTokens = safe(data.inputTokens);
+                            const cachedTokens = safe(data.cachedTokens);
+                            const cacheCreationTokens = safe(data.cacheCreationTokens);
+                            const cachedRequests = safe(data.cachedRequests) || safe(data.requests);
+                            const totalRequests = safe(data.totalRequests) || cachedRequests;
                             const cacheRate =
                               totalRequests > 0 ? (cachedRequests / totalRequests) * 100 : 0;
                             const reuseRatio =
-                              data.inputTokens > 0
-                                ? (data.cachedTokens / data.inputTokens) * 100
-                                : 0;
+                              inputTokens > 0 ? (cachedTokens / inputTokens) * 100 : 0;
 
                             return (
                               <tr
@@ -612,13 +617,13 @@ export default function CachePage() {
                                   </div>
                                 </td>
                                 <td className="px-4 py-3 tabular-nums text-text-main">
-                                  {data.inputTokens.toLocaleString()}
+                                  {inputTokens.toLocaleString()}
                                 </td>
                                 <td className="px-4 py-3 tabular-nums text-cyan-400">
-                                  {data.cachedTokens.toLocaleString()}
+                                  {cachedTokens.toLocaleString()}
                                 </td>
                                 <td className="px-4 py-3 tabular-nums text-purple-400">
-                                  {data.cacheCreationTokens.toLocaleString()}
+                                  {cacheCreationTokens.toLocaleString()}
                                 </td>
                                 <td className="px-4 py-3 font-semibold tabular-nums text-blue-400">
                                   {reuseRatio.toFixed(1)}%

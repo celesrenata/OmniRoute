@@ -207,4 +207,57 @@ describe("CachePage", () => {
     expect(screen.getByText("Entries")).toBeInTheDocument();
     expect(screen.getByText("Active Dedup Keys")).toBeInTheDocument();
   });
+
+  it("renders provider rows that omit request counts without throwing", async () => {
+    // Regression: a byProvider row missing `totalRequests`/`cachedRequests` (e.g. from a stale
+    // build or provider with no cache activity) used to fall through to `undefined`, and
+    // `undefined.toLocaleString()` crashed the whole page into a 500.
+    fetchMock.mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({
+        semanticCache: {
+          memoryEntries: 0,
+          dbEntries: 0,
+          hits: 0,
+          misses: 0,
+          hitRate: "0.0",
+          tokensSaved: 0,
+        },
+        promptCache: {
+          totalRequests: 0,
+          requestsWithCacheControl: 0,
+          totalInputTokens: 1000,
+          totalCachedTokens: 550,
+          totalCacheCreationTokens: 0,
+          tokensSaved: 550,
+          estimatedCostSaved: 0.1,
+          byProvider: {
+            openai: {
+              // Note: no `requests`, `totalRequests`, or `cachedRequests` — only token fields.
+              inputTokens: 1000,
+              cachedTokens: 550,
+              cacheCreationTokens: 0,
+            },
+          },
+          byStrategy: {},
+          lastUpdated: new Date().toISOString(),
+        },
+        trend: [],
+        idempotency: { activeKeys: 0, windowMs: 5000 },
+        config: { semanticCacheEnabled: false },
+      }),
+    }));
+
+    render(<CachePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Prompt Cache (Provider-Side)")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Breakdown by Provider")).toBeInTheDocument();
+    expect(screen.getByText("openai")).toBeInTheDocument();
+    // The row renders its token values; the (previously crashing) request counts show as 0.
+    expect(screen.getByText("1,000")).toBeInTheDocument();
+    expect(screen.getAllByText("550").length).toBeGreaterThan(0);
+  });
 });
