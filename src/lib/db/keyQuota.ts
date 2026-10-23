@@ -215,7 +215,7 @@ export function incrementKeyQuotaCounter(
     `INSERT INTO api_key_quota_counters (api_key_id, dimension_key, bucket_index, consumed, updated_at)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(api_key_id, dimension_key, bucket_index) DO UPDATE SET
-       consumed = consumed + excluded.consumed,
+       consumed = api_key_quota_counters.consumed + excluded.consumed,
        updated_at = excluded.updated_at`
   ).run(apiKeyId, dimensionKey, bucket, delta, nowMs);
 }

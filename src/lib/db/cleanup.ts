@@ -635,10 +635,14 @@ export async function cleanupAgenticConversations(): Promise<CleanupResult> {
     if (!tableExists("agentic_conversations") || !tableExists("conversation_turn_nodes")) {
       return result;
     }
+    // rowid is SQLite's implicit row identity; PostgreSQL's ctid is the direct
+    // physical-row equivalent for this "DELETE WHERE <rowid> IN (SELECT <rowid>
+    // ... LIMIT N)" self-reference batch-delete pattern.
+    const rid = db.driver === "pg-native" ? "ctid" : "rowid";
     const stmt = db.prepare(
       `DELETE FROM agentic_conversations
-       WHERE rowid IN (
-         SELECT rowid FROM agentic_conversations
+       WHERE ${rid} IN (
+         SELECT ${rid} FROM agentic_conversations
          WHERE last_seen_at < ?
            AND NOT EXISTS (
              SELECT 1 FROM conversation_turn_nodes n

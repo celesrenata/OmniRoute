@@ -44,7 +44,7 @@ function incrementCounter(key: string): void {
     .prepare(
       `INSERT INTO key_value (namespace, key, value) VALUES (?, ?, '1')
        ON CONFLICT(namespace, key)
-       DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`
+       DO UPDATE SET value = CAST(CAST(key_value.value AS INTEGER) + 1 AS TEXT)`
     )
     .run(NAMESPACE, key);
 }

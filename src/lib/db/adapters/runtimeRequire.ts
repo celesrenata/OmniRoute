@@ -33,6 +33,8 @@ export function runtimeRequire(specifier: string): unknown {
         return req("sql.js");
       case "sqlite-vec":
         return req("sqlite-vec");
+      case "pg-native":
+        return req("pg-native");
     }
   }
 
