@@ -851,7 +851,7 @@ export function createPostgresAdapter(config: {
         // get is for single-row results (e.g., SELECT *)
         get(...params: unknown[]): unknown {
           const result = exec1(resolveBind(params));
-          if (!Array.isArray(result) || result.length < 1) return result;
+          if (!Array.isArray(result) || result.length < 1) return undefined;
           // Remap keys to match the declared alias case (fixes PG's lowercase folding).
           const remapped = remapKeys([result[0]], sqlAliases);
           return remapped[0];
