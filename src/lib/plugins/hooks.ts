@@ -234,6 +234,42 @@ export interface PluginContext {
    *  client (trace ids, correlation ids, session markers). */
   headers?: Record<string, string | string[] | undefined>;
   metadata: Record<string, unknown>;
+  /** The plugin's live DB config (JSON-parsed `plugins.config`), injected by the
+   *  manager wrapper before every hook call. Plugin children run in an isolated
+   *  process with no env or DB access, so this is the only channel for operator
+   *  config. Updated without re-activation via `PluginManager.syncPluginConfig()`. */
+  config?: Record<string, unknown>;
+}
+
+/**
+ * Build a copy of a hook payload with a plugin's live config injected, so
+ * isolated plugin children (no env, no DB) receive operator config in-band.
+ *
+ * Non-mutating: returns a shallow clone and never touches the original, which
+ * also protects the shared per-handler copies that `emitHookBlocking` builds
+ * from cross-plugin races. Injection points:
+ * - flat payload (the shape every loader proxy actually delivers, including
+ *   the per-handler `{...ctx, body, metadata}` copies from `emitHookBlocking`)
+ *   → `config` as a sibling key
+ * - payload with a nested `ctx` object (loader-level defensive shape) →
+ *   `ctx` is cloned with `ctx.config` set
+ * - undefined/null/number/string/array payloads → returned unchanged
+ *
+ * `registerHook` dedupes by handler identity and each activation registers a
+ * fresh wrapper, so the wrapper can close over a live `Map<name, config>`
+ * lookup and stay correct across deactivate/reactivate.
+ */
+export function withPluginConfigPayload(
+  payload: unknown,
+  config: Record<string, unknown> | undefined
+): unknown {
+  if (config === undefined) return payload;
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  const flat = payload as Record<string, unknown>;
+  if (flat.ctx && typeof flat.ctx === "object") {
+    return { ...flat, ctx: { ...(flat.ctx as Record<string, unknown>), config } };
+  }
+  return { ...flat, config };
 }
 
 export interface PluginResult {

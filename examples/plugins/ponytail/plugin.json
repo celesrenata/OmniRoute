@@ -1,0 +1,51 @@
+{
+  "name": "ponytail",
+  "version": "1.0.0",
+  "description": "Lazy senior dev mode: injects mode-filtered Ponytail instructions into every request and records a JSONL band ledger per completed stream. Ported from dietrichgebert/ponytail (MIT).",
+  "author": "OmniRoute",
+  "license": "MIT",
+  "main": "index.mjs",
+  "source": "local",
+  "tags": ["prompt", "band", "config", "productivity"],
+  "hooks": {
+    "onRequest": true,
+    "onStreamComplete": true
+  },
+  "requires": {
+    "permissions": ["file-read", "file-write", "network"]
+  },
+  "enabledByDefault": false,
+  "configSchema": {
+    "mode": {
+      "type": "select",
+      "default": "full",
+      "enum": ["off", "lite", "full", "ultra"],
+      "description": "Ponytail intensity: off (no injection), lite, full, ultra"
+    },
+    "inject": {
+      "type": "boolean",
+      "default": true,
+      "description": "Inject the Ponytail system message into request bodies"
+    },
+    "ledger": {
+      "type": "boolean",
+      "default": true,
+      "description": "Append a JSONL band row per completed stream"
+    },
+    "ledgerDir": {
+      "type": "string",
+      "default": "",
+      "description": "Directory for band.jsonl (empty = tmpdir/omniroute/ponytail)"
+    },
+    "webhookUrl": {
+      "type": "string",
+      "default": "",
+      "description": "Optional URL receiving each band row as a JSON POST"
+    },
+    "webhookToken": {
+      "type": "string",
+      "default": "",
+      "description": "Bearer token sent with webhook calls (empty = no auth header)"
+    }
+  }
+}

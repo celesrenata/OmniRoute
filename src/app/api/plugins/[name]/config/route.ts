@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getPluginByName, updatePluginConfig } from "@/lib/db/plugins";
+import { pluginManager } from "@/lib/plugins/manager";
 import { CORS_HEADERS, handleCorsOptions } from "@/shared/utils/cors";
 
 export async function OPTIONS() {
@@ -102,6 +103,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   updatePluginConfig(name, parsed.data.config);
+
+  // Push the fresh config into the active plugin's live config map so the next
+  // hook delivery in-process sees it without a reactivate cycle.
+  await pluginManager.syncPluginConfig(name);
 
   return NextResponse.json(
     { success: true, config: parsed.data.config },

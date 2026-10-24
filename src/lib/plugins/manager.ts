@@ -13,13 +13,19 @@ import { randomUUID } from "crypto";
 import { logger } from "../../../open-sse/utils/logger.ts";
 import { getDefaultPluginDir, scanPluginDir } from "./scanner";
 import { loadPlugin, type LoadedPlugin } from "./loader";
-import { registerHook, unregisterHooks, emitHook, type HookHandler, type Plugin } from "./hooks";
+import {
+  registerHook,
+  unregisterHooks,
+  emitHook,
+  withPluginConfigPayload,
+  type HookHandler,
+  type Plugin,
+} from "./hooks";
 import {
   insertPlugin,
   getPluginByName,
   listPlugins as dbListPlugins,
   updatePluginStatus,
-  updatePluginConfig,
   updatePluginManifest,
   deletePlugin as dbDeletePlugin,
   pluginExists,
@@ -107,6 +113,13 @@ function assertEntryPointWithinDest(destDir: string, entryPoint: string): void {
 class PluginManager {
   private static instance: PluginManager;
   private loadedPlugins: Map<string, LoadedPlugin> = new Map();
+  /**
+   * Live per-plugin config snapshots (JSON-parsed `plugins.config`). Seeded from
+   * the DB row on activate(), refreshed by syncPluginConfig() after a config
+   * update, deleted on deactivate/uninstall. The activate-time wrapper reads
+   * this map on every hook call — see withPluginConfigPayload in hooks.ts.
+   */
+  private pluginConfigs: Map<string, Record<string, unknown>> = new Map();
   private pluginDir: string;
 
   private constructor() {
@@ -474,7 +487,16 @@ class PluginManager {
       for (const hookName of hookNames) {
         const handler = loaded.plugin[hookName];
         if (typeof handler === "function") {
-          registerHook(hookName, name, handler as HookHandler);
+          const base = handler as HookHandler;
+          // Wrap in a closure that reads the live config map on every call and
+          // injects it into the payload — plugin children never see env vars or
+          // the DB, so config must travel in-band. The wrapper is a fresh
+          // closure per activation, so deactivate/reactivate stays safe.
+          const cfg = this.readPluginConfig(name);
+          if (cfg !== undefined) this.pluginConfigs.set(name, cfg);
+          registerHook(hookName, name, (payload: unknown) =>
+            base(withPluginConfigPayload(payload, this.pluginConfigs.get(name)) as unknown)
+          );
         }
       }
 
@@ -491,6 +513,33 @@ class PluginManager {
       updatePluginStatus(name, "error", err.message);
       log.error("manager.activate_failed", { name, error: err.message });
       throw err;
+    }
+  }
+
+  /**
+   * Re-read a plugin's config from the DB into the live map so the next hook
+   * delivery carries it — without a deactivate/reactivate cycle.
+   * Callers: `plugin_configure` MCP tool and the plugin config REST route,
+   * right after `updatePluginConfig`. Returns the fresh config, or undefined
+   * if the plugin row no longer exists.
+   */
+  async syncPluginConfig(name: string): Promise<Record<string, unknown> | undefined> {
+    const config = this.readPluginConfig(name);
+    if (config === undefined) return undefined;
+    if (this.loadedPlugins.has(name)) {
+      this.pluginConfigs.set(name, config);
+    }
+    return config;
+  }
+
+  private readPluginConfig(name: string): Record<string, unknown> | undefined {
+    const row = getPluginByName(name);
+    if (!row) return undefined;
+    try {
+      const parsed = JSON.parse(row.config || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
     }
   }
 
@@ -517,6 +566,9 @@ class PluginManager {
       loaded.cleanup();
       this.loadedPlugins.delete(name);
     }
+    // Drop the live config snapshot — a re-activate re-seeds it from the DB
+    // row, so no stale entry survives the cycle.
+    this.pluginConfigs.delete(name);
 
     updatePluginStatus(name, "inactive");
 
