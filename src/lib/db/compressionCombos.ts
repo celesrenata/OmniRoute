@@ -129,7 +129,10 @@ function upgradeLegacySeededDefaultCompressionCombo(): void {
   );
 }
 
+let compressionComboTablesEnsured = false;
+
 function ensureCompressionComboTables(): void {
+  if (compressionComboTablesEnsured) return;
   const db = getDbInstance();
   db.exec(`
     CREATE TABLE IF NOT EXISTS compression_combos (
@@ -178,6 +181,7 @@ function ensureCompressionComboTables(): void {
     1
   );
   upgradeLegacySeededDefaultCompressionCombo();
+  compressionComboTablesEnsured = true;
 }
 
 function rowToCompressionCombo(row: unknown): CompressionCombo | null {
