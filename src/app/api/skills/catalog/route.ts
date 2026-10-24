@@ -167,16 +167,39 @@ export async function POST(request: NextRequest) {
       const skillName = skill.id.replace(/^builtin:/, "");
       const input = (body.input as Record<string, unknown>) ?? {};
 
-      const execution = await skillExecutor.execute(skillName, input, { apiKeyId });
-      return NextResponse.json({
-        executed: true,
-        id: skill.id,
-        name: skill.name,
-        status: execution.status,
-        output: execution.output,
-        error: execution.errorMessage,
-        durationMs: execution.durationMs,
-      });
+      try {
+        const execution = await skillExecutor.execute(skillName, input, { apiKeyId });
+        return NextResponse.json({
+          executed: true,
+          id: skill.id,
+          name: skill.name,
+          status: execution.status,
+          output: execution.output,
+          error: execution.errorMessage,
+          durationMs: execution.durationMs,
+        });
+      } catch (err) {
+        // The catalog `executable` flag is a per-process claim; the registry is
+        // the source of truth. If the executor can't resolve the name (no
+        // registered skill, or one that's disabled) that is a 404 for the
+        // caller, not a server fault — never fall through to the outer 500.
+        // `skillName` is a sanitized catalog slug, safe to echo verbatim.
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("Skill not found:") || message.startsWith("Skill is disabled:")) {
+          return NextResponse.json(
+            {
+              executed: false,
+              found: false,
+              error: `Skill not found: ${skillName}`,
+            },
+            { status: 404 }
+          );
+        }
+        return NextResponse.json(
+          { executed: false, error: sanitizeErrorMessage(message) },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({ error: `Unknown action: ${String(action)}` }, { status: 400 });

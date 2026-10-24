@@ -83,6 +83,13 @@ export interface SearchResult {
   revision: string;
   tags: string[];
   source: CatalogSkill["source"];
+  /**
+   * Whether this skill can be run via the executor bridge. Curated built-in
+   * agent skills and instruction-only imported skills are `false` (they have no
+   * registered handler); only skills resolvable in the executor registry are
+   * `true`. Exposed so consumers can read the claim instead of guessing.
+   */
+  executable: boolean;
   /** Total composite score (0–1). 0 for browse-all results (no ranking). */
   score: number;
   /** Explainable component scores. `null` for browse-all (no query) results. */
@@ -164,6 +171,18 @@ function lexScore(query: string, haystack: string, fieldWeight: number): number 
 const DEFAULT_SKILL_ROOT = path.join(os.homedir(), ".opencode", "skills");
 
 /**
+ * Resolve the imported-skill root. Honors `OMNIROUTE_SKILL_ROOT` so a
+ * deployment can point the discovery reader at a durable volume (e.g.
+ * `/app/data/skills` on the data PVC) instead of the ephemeral container home
+ * (`~/.opencode/skills`). Read lazily (at cache-build time, not module load)
+ * so the value is picked up per process and tests can override it.
+ */
+function resolveImportedSkillRoot(): string {
+  const override = process.env.OMNIROUTE_SKILL_ROOT?.trim();
+  return override ? path.resolve(override) : DEFAULT_SKILL_ROOT;
+}
+
+/**
  * Load the full unified catalog (built-in + imported).
  * Results are cached per-process; call `refreshCatalogIndex()` after imports.
  */
@@ -179,7 +198,15 @@ function loadBuiltInSkills(): CatalogSkill[] {
     tags: [s.category, s.area],
     source: "builtin" as const,
     revision: "1.0.0",
-    executable: true, // built-in skills map to registered handler skills
+    // The 46 curated agent skills (omni-*/cli-*) are reference/instruction
+    // skills — their catalog id does NOT resolve to a registered executor
+    // handler on a fresh deploy, so they are not executable until an
+    // operator installs a matching skill via /api/skills/install. Marking
+    // them executable would make the bridge return a 500 ("Skill not
+    // found") instead of the honest "not executable" reason. The 7
+    // genuinely executable handler skills (file_read/file_write/…) live in
+    // the skill-execution system, not in this discovery catalog.
+    executable: false,
     skillMdPath: "", // loaded from URL or generated
     quarantined: false,
     license: null,
@@ -253,7 +280,7 @@ function loadImportedSkills(root: string): CatalogSkill[] {
 function ensureCache(): CatalogSkill[] {
   if (_cache) return _cache;
   const builtIn = loadBuiltInSkills();
-  const imported = loadImportedSkills(DEFAULT_SKILL_ROOT);
+  const imported = loadImportedSkills(resolveImportedSkillRoot());
   _cache = [...builtIn, ...imported];
   return _cache;
 }
@@ -325,6 +352,7 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
         revision: skill.revision,
         tags: skill.tags,
         source: skill.source,
+        executable: skill.executable,
         score: 0,
         reason: null,
       }));
@@ -348,6 +376,7 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
       revision: skill.revision,
       tags: skill.tags,
       source: skill.source,
+      executable: skill.executable,
       score: Math.min(1, total),
       reason: {
         nameMatch: Math.round(nameMatch * 100) / 100,
