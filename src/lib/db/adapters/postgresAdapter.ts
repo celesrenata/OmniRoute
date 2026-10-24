@@ -815,7 +815,8 @@ export function createPostgresAdapter(config: {
         // (See sqlite_master branch above, which already returns undefined.)
         get(...params: unknown[]): unknown {
           const result = exec1(resolveBind(params));
-          return Array.isArray(result) && result.length >= 1 ? result[0] : undefined;
+          if (!Array.isArray(result) || result.length < 1) return undefined;
+          return result[0];
         },
 
         // all returns all rows
