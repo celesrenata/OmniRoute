@@ -1,0 +1,78 @@
+%% svg-title: Skill Hub (WP4 + WP6) — search-and-discover layer for the agent-skills catalog
+%% svg-description: How a Skill Hub query flows from the dashboard/MCP surface through the REST layer, the SkillDiscoveryService scoring engine, the durable skill_collections/grants state, and the built-in SkillExecutor.
+%% Skill Hub (WP4 + WP6) — search-and-discover layer for the agent-skills catalog.
+%% Sources:
+%%   - open-sse/services/skillDiscovery.ts  (SkillDiscoveryService)
+%%   - src/app/api/skills/catalog/route.ts   (REST surface)
+%%   - src/app/api/skills/catalog/skillsets/route.ts
+%%   - src/app/(dashboard)/dashboard/skill-hub/SkillHubPageClient.tsx
+%%   - src/lib/db/skillHub.ts               (durable state, migration 204)
+%%   - open-sse/mcp-server/tools/catalogTools.ts (MCP tools)
+%%   - src/lib/skills/executor.ts            (execution)
+
+flowchart LR
+
+  subgraph SURFACES["Surfaces"]
+    direction TB
+    DASH["Dashboard<br/>/dashboard/skill-hub<br/>SkillHubPageClient.tsx<br/>(query box · skillset chips · load-on-click)"]
+    MCP["MCP tools<br/>omr_catalog_search / load<br/>omr_catalog_resource / execute<br/>open-sse/mcp-server/tools/catalogTools.ts"]
+  end
+
+  subgraph REST["REST layer (requireManagementAuth)"]
+    direction TB
+    GET["GET /api/skills/catalog<br/>?query=&skillset=&limit=<br/>→ search / browse-all"]
+    POST["POST /api/skills/catalog<br/>{ action: load | resource | execute,<br/>id, … }"]
+    GETS["GET /api/skills/catalog/skillsets<br/>→ filter chips"]
+  end
+
+  subgraph ENGINE["SkillDiscoveryService (open-sse/services/skillDiscovery.ts)"]
+    direction TB
+    CATALOG["Catalog load (per-process cache)<br/>builtin: src/lib/agentSkills/catalog.ts<br/>imported: disk scan ~/.opencode/skills/*/SKILL.md<br/>(parseSkillMarkdown, cap 5000, quarantined excluded)"]
+    SCOPING["Pre-filter<br/>domain · skillset · tag · executableOnly<br/>+ agent grants (fail-closed)"]
+    SCORE["Weighted lexical scoring (BM25-lite, no embeddings)<br/>nameMatch + descriptionMatch + tagMatch + domainAffinity<br/>token-overlap × field-weight × size-damp · minScore 0.1"]
+    RESULTS["Top 5–10 summaries<br/>opaque id + score + explainable reason"]
+    LOAD["loadSkill / resource<br/>full SKILL.md content · bundled files (path-bound)"]
+  end
+
+  subgraph EXEC["Execution (built-in skills only)"]
+    SKILLEX["SkillExecutor<br/>src/lib/skills/executor.ts<br/>skillExecutor.execute(name, input, {apiKeyId})<br/>approval gate: agentCanExecute()"]
+  end
+
+  subgraph PERSIST["Durable state (src/lib/db/skillHub.ts · migration 204_skill_hub_durable.sql)"]
+    direction TB
+    TCOL[("skill_collections<br/>6 seed skillsets + operator-created<br/>(ensureSeeded, listSkillsets)")]
+    TMEM[("skill_collection_members<br/>(collectionMembers)")]
+    TGRANT[("skill_agent_grants<br/>agent → collection, permission<br/>(discoverDomainsForAgent, agentCanExecute,<br/>grantAgent / revokeAgent)")]
+  end
+
+  %% surface → REST
+  DASH -- "browse / search" --> GET
+  DASH -- "chips" --> GETS
+  DASH -- "expand a row" --> POST
+
+  %% MCP → engine directly
+  MCP -- "search / load / resource" --> SCORE
+  MCP -- "execute" --> SKILLEX
+
+  %% REST → engine
+  GET -- "searchSkills()" --> SCOPING
+  GETS -- "listSkillsets()" --> TCOL
+  POST -- "load / resource" --> LOAD
+  POST -- "execute" --> SKILLEX
+
+  %% engine internals
+  CATALOG --> SCOPING
+  SCOPING --> SCORE
+  SCORE --> RESULTS
+  CATALOG --> LOAD
+
+  %% engine → durable state
+  SCOPING -. "discoverDomainsForAgent()<br/>(fail-closed)" .-> TGRANT
+  SCOPING -. "collectionMembers(skillset)" .-> TMEM
+  SKILLEX -. "agentCanExecute()" .-> TGRANT
+  TCOL --- TMEM
+  TGRANT --- TCOL
+
+  %% data sources
+  BUILTIN["src/lib/agentSkills/catalog.ts<br/>(curated built-in catalog)"] --> CATALOG
+  DISK["~/.opencode/skills/<br/>imported SKILL.md packs (WP3 importer)"] --> CATALOG

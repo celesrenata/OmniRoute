@@ -225,3 +225,42 @@ export function agentCanExecute(agentId: string, skillId: string): boolean {
     .get(agentId, skillId) as { ok?: number } | undefined;
   return Boolean(row?.ok);
 }
+
+// ── Per-skill enable/disable (Skill Hub catalog state) ─────────────────────
+
+/**
+ * Set the enabled state of a catalog skill. `enabled=true` removes the row
+ * (enabled is the default), `enabled=false` stores it.
+ */
+export function setCatalogSkillEnabled(skillId: string, enabled: boolean): boolean {
+  const db = getDbInstance();
+  const id = String(skillId);
+  if (enabled) {
+    db.prepare("DELETE FROM skill_catalog_state WHERE skill_id = ?").run(id);
+    return true;
+  }
+  db.prepare(
+    `INSERT INTO skill_catalog_state (skill_id, enabled, updated_at)
+     VALUES (?, 0, datetime('now'))
+     ON CONFLICT(skill_id) DO UPDATE SET enabled = 0, updated_at = datetime('now')`
+  ).run(id);
+  return true;
+}
+
+/** Whether a catalog skill is enabled (default: enabled — no row). */
+export function isCatalogSkillEnabled(skillId: string): boolean {
+  const db = getDbInstance();
+  const row = db
+    .prepare("SELECT enabled FROM skill_catalog_state WHERE skill_id = ?")
+    .get(skillId) as { enabled: number } | undefined;
+  return row ? row.enabled !== 0 : true;
+}
+
+/** Catalog ids currently disabled (empty array when all are enabled). */
+export function disabledCatalogSkillIds(): string[] {
+  const db = getDbInstance();
+  const rows = db.prepare("SELECT skill_id FROM skill_catalog_state WHERE enabled = 0").all() as {
+    skill_id: string;
+  }[];
+  return rows.map((r) => String(r.skill_id));
+}
