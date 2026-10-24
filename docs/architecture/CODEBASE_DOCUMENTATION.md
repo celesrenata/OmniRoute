@@ -454,7 +454,7 @@ open-sse/
 ├── transformer/            Responses API ↔ Chat Completions stream transformer
 ├── services/               80+ service modules (combos, fallback, quotas, identity, …)
 ├── utils/                  Streaming helpers, TLS client, AWS SigV4, proxy fetch, …
-└── mcp-server/             MCP server (3 transports, 33 scopes, 110 tools)
+└── mcp-server/             MCP server (3 transports, 33 scopes, 123 tools)
 ```
 
 ### 4.1 `open-sse/handlers/`
