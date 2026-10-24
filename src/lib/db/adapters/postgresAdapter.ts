@@ -97,6 +97,56 @@ export function translateParams(sql: string): {
   return { sql: newSql, numParams: paramCount, names };
 }
 
+/**
+ * Extracts all AS aliases from a SQLite/Postgres SELECT statement.
+ * Returns an array of objects { declared: string, pgFolded: string }
+ * where pgFolded is what Postgres will actually return (lowercase for unquoted).
+ * This is used to remap result-row keys back to the case the SQL declared,
+ * fixing the class of bugs where PG folds unquoted aliases to lowercase.
+ */
+function extractAliases(sql: string): Array<{ declared: string; pgFolded: string }> {
+  const aliases: Array<{ declared: string; pgFolded: string }> = [];
+  // Match: column alias AS "Name" or AS name (no quotes). Also handle quoted identifiers.
+  // Examples:
+  //   SELECT foo AS bar           -> bar
+  //   SELECT foo AS "TotalCount"  -> TotalCount (PG keeps case because it's quoted)
+  //   SELECT foo AS "totalCount"  -> totalCount
+  // The regex captures:
+  //   group 1: the alias itself (with or without quotes stripped)
+  // We store the declared form (as written by the caller) and the PG-folded form.
+  const aliasRegex = /\bAS\s+((?:")?([a-zA-Z_][a-zA-Z0-9_]*)(?:")?)/gi;
+  let match;
+  while ((match = aliasRegex.exec(sql)) !== null) {
+    const aliasCore = match[2];
+    // When not quoted, PG folds to lowercase; when quoted (AS "TotalCount"),
+    // PG preserves the declared case, so the PG-folded form equals the declared.
+    const isQuoted = match[1].startsWith('"');
+    aliases.push({ declared: aliasCore, pgFolded: isQuoted ? aliasCore : aliasCore.toLowerCase() });
+  }
+  return aliases;
+}
+
+/**
+ * Remaps row keys from their PG-folded form (lowercase) back to the declared
+ * alias case in the SQL, so code that reads row.totalRequests doesn't get
+ * undefined on Postgres where unquoted aliases fold to lowercase.
+ */
+function remapKeys<T extends Record<string, unknown>>(
+  rows: T[],
+  aliases: Array<{ declared: string; pgFolded: string }>
+): T[] {
+  if (aliases.length === 0) return rows;
+  // Build map from pgFolded → declared for fast lookup
+  const aliasMap = new Map(aliases.map((a) => [a.pgFolded, a.declared]));
+  return rows.map((row) => {
+    const newRow: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row)) {
+      newRow[aliasMap.get(k) ?? k] = v;
+    }
+    return newRow as T;
+  });
+}
+
 // Cache of primary keys per table, resolved once from information_schema.
 // The upsert translation needs the conflict target; resolving it per call
 // would double the round-trip cost of every INSERT OR REPLACE.
@@ -698,6 +748,10 @@ export function createPostgresAdapter(config: {
       }
 
       const { sql: paramSql, numParams, names } = translateParams(sql);
+      // Extract aliases to remap PG-folded keys back to declared case
+      // (Postgres folds unquoted aliases to lowercase; callers expect case-preserving keys).
+      const sqlAliases = extractAliases(sql);
+
       // Rewrite SQLite dialect (DATETIME/IFNULL/COLLATE NOCASE/AUTOINCREMENT…)
       // to PostgreSQL before the unsupported-construct gate and execution.
       const translatedSql = translateSqliteSql(paramSql);
@@ -715,7 +769,7 @@ export function createPostgresAdapter(config: {
         translatedSql.trimStart().toUpperCase().startsWith("INSERT OR REPLACE") ||
         translatedSql.trimStart().toUpperCase().startsWith("INSERT OR IGNORE")
       ) {
-        const tableMatch = translatedSql.match(/^INSERT\s+OR\s+\w+\s+INTO\s+(\w+)/i);
+        const tableMatch = translatedSql.match(/^\s*INSERT\s+OR\s+\w+\s+INTO\s+(\w+)/i);
         if (!tableMatch) {
           throw new Error(`INSERT OR ... without table: ${sql.slice(0, 120)}`);
         }
@@ -797,13 +851,18 @@ export function createPostgresAdapter(config: {
         // get is for single-row results (e.g., SELECT *)
         get(...params: unknown[]): unknown {
           const result = exec1(resolveBind(params));
-          return Array.isArray(result) && result.length >= 1 ? result[0] : result;
+          if (!Array.isArray(result) || result.length < 1) return undefined;
+          // Remap keys to match the declared alias case (fixes PG's lowercase folding).
+          const remapped = remapKeys([result[0]], sqlAliases);
+          return remapped[0];
         },
 
         // all returns all rows
         all(...params: unknown[]): unknown[] {
           const result = exec1(resolveBind(params));
-          return Array.isArray(result) ? result : [];
+          if (!Array.isArray(result)) return [];
+          // Remap keys to match the declared alias case (fixes PG's lowercase folding).
+          return remapKeys(result, sqlAliases);
         },
       };
     },

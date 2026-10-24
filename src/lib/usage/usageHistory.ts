@@ -845,11 +845,12 @@ export async function saveRequestUsage(entry: UsageEntry) {
         serviceTier,
         entry.status || null,
         entry.success === false ? 0 : 1,
-        Number.isFinite(Number(entry.latencyMs)) ? Number(entry.latencyMs) : 0,
+        // BIGINT columns reject floats — round to integer for PG compatibility.
+        Number.isFinite(Number(entry.latencyMs)) ? Math.round(Number(entry.latencyMs)) : 0,
         Number.isFinite(Number(entry.timeToFirstTokenMs))
-          ? Number(entry.timeToFirstTokenMs)
+          ? Math.round(Number(entry.timeToFirstTokenMs))
           : Number.isFinite(Number(entry.latencyMs))
-            ? Number(entry.latencyMs)
+            ? Math.round(Number(entry.latencyMs))
             : 0,
         entry.errorCode || null,
         entry.comboStrategy || entry.combo_strategy || null,

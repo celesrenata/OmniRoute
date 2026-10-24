@@ -83,15 +83,15 @@ export interface SearchResult {
   revision: string;
   tags: string[];
   source: CatalogSkill["source"];
-  /** Total composite score (0–1). */
+  /** Total composite score (0–1). 0 for browse-all results (no ranking). */
   score: number;
-  /** Explainable component scores. */
+  /** Explainable component scores. `null` for browse-all (no query) results. */
   reason: {
     nameMatch: number;
     descriptionMatch: number;
     tagMatch: number;
     domainAffinity: number;
-  };
+  } | null;
 }
 
 export interface SearchOptions {
@@ -269,9 +269,15 @@ export function refreshCatalogIndex(): void {
  * Returns ranked, bounded results (5–10 by default).
  */
 export function searchCatalog(query: string, options: SearchOptions = {}): SearchResult[] {
-  if (!query.trim()) return [];
-  const { limit = 10, domain, skillset, tag, executableOnly, minScore = 0.1, agentId } = options;
-  const effectiveLimit = Math.min(limit, 20);
+  const trimmed = query.trim();
+  const { domain, skillset, tag, executableOnly, minScore = 0.1, agentId } = options;
+  // Empty query = "browse all" (dashboard catalog view). Instead of scoring,
+  // return the filtered catalog (agent policy + domain/skillset/tag/executable
+  // still apply) in a stable name order, with no lexical min-score gate. A
+  // higher default cap applies since there is no relevance ranking to prune by.
+  const browsing = trimmed.length === 0;
+  const limit = options.limit ?? (browsing ? 200 : 10);
+  const effectiveLimit = Math.min(limit, browsing ? 200 : 20);
 
   const catalog = ensureCache().filter((s) => !s.quarantined);
 
@@ -303,6 +309,25 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
   }
   if (executableOnly) {
     candidates = candidates.filter((s) => s.executable);
+  }
+
+  if (browsing) {
+    // No relevance ranking — stable name order, full (capped) set. Agent
+    // policy + domain/skillset/tag/executable filters still applied above.
+    return [...candidates]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, effectiveLimit)
+      .map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description.slice(0, 300),
+        domain: skill.domain,
+        revision: skill.revision,
+        tags: skill.tags,
+        source: skill.source,
+        score: 0,
+        reason: null,
+      }));
   }
 
   const scored: SearchResult[] = [];
