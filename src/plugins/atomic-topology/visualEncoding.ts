@@ -273,6 +273,27 @@ export function easeRate(
  */
 export type AtomicVisualState = "error" | "active" | "last" | "healthy" | "idle";
 
+/**
+ * Map a state's stroke `width` (CSS-ish units, from {@link VISUAL_STATE_STYLE})
+ * to a 3D link tube radius in world units (OR-ATOM-002, V4).
+ *
+ * The 2D stroke width is a *relative* emphasis scale, so the 3D mapping keeps
+ * that ordering (idle < last/healthy < error < active) while scaling to a
+ * readable world size, clamped to a sane band so a route never reads as a
+ * "wide opaque pipe" (idle) nor vanishes (active). Pure + total: same width →
+ * same radius; non-finite input clamps to the idle (minimum) radius.
+ */
+export function linkTubeRadius(width: number, base: number = 3): number {
+  const w = Number.isFinite(width) ? Math.max(0, width) : 0;
+  const radius = base * w; // idle(1)→3, last/healthy(1.5)→4.5, error(2)→6, active(2.5)→7.5
+  return Math.min(Math.max(radius, LINK_TUBE_MIN_RADIUS), LINK_TUBE_MAX_RADIUS);
+}
+
+/** Lower clamp for a link tube radius (world units) — a route never vanishes. */
+export const LINK_TUBE_MIN_RADIUS = 1.6;
+/** Upper clamp for a link tube radius (world units) — a route never becomes a pipe. */
+export const LINK_TUBE_MAX_RADIUS = 9;
+
 /** Per-state stroke parameters mirroring `edgeStyles.edgeStyle` (w = width, op = opacity). */
 export const VISUAL_STATE_STYLE: Record<
   AtomicVisualState,

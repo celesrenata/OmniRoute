@@ -255,6 +255,8 @@ export function getPoolEgressFailureBreakdown(
   since: string
 ): PoolEgressFailureBreakdown {
   const db = getDbInstance();
+  // rowid tiebreaker -> ctid on PostgreSQL (physical insertion order).
+  const rid = db.driver === "pg-native" ? "c.ctid" : "c.rowid";
   const rows = db
     .prepare(
       `SELECT exit, family, COUNT(*) AS n
@@ -262,7 +264,7 @@ export function getPoolEgressFailureBreakdown(
          SELECT l.egress_ip AS exit,
                 (SELECT c.error_type FROM call_logs c
                  WHERE c.correlation_id = l.correlation_id
-                 ORDER BY c.rowid LIMIT 1) AS family
+                 ORDER BY ${rid} LIMIT 1) AS family
          FROM proxy_logs l
          JOIN proxy_registry r ON l.proxy_host = r.host AND l.proxy_port = r.port
          WHERE r.id IN (SELECT proxy_id FROM proxy_assignments WHERE scope = ? AND scope_id IS ?)

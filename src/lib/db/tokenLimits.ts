@@ -333,7 +333,7 @@ export function incrementWindowTokens(
       `INSERT INTO api_key_token_counters (limit_id, window_start, tokens_used, updated_at)
        VALUES (@limitId, @windowStart, @tokens, datetime('now'))
        ON CONFLICT(limit_id, window_start)
-       DO UPDATE SET tokens_used = tokens_used + excluded.tokens_used,
+       DO UPDATE SET tokens_used = api_key_token_counters.tokens_used + excluded.tokens_used,
                      updated_at  = datetime('now')
        RETURNING tokens_used`
     )

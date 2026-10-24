@@ -582,9 +582,16 @@ export async function deletePool(id: string): Promise<boolean> {
     const doDelete = database.transaction(() => {
       database.prepare("DELETE FROM quota_pool_connections WHERE pool_id = ?").run(id);
       // Prune this pool id from every key's allowed_quotas JSON array.
+      const isPgPool = database.driver === "pg-native";
       database
         .prepare(
-          `UPDATE api_keys SET allowed_quotas = COALESCE(
+          isPgPool
+            ? `UPDATE api_keys SET allowed_quotas = COALESCE(
+         (SELECT jsonb_agg(value)::text FROM jsonb_array_elements_text(allowed_quotas::jsonb) AS t(value) WHERE value != ?),
+         '[]')
+       WHERE allowed_quotas IS NOT NULL AND allowed_quotas != '[]'
+         AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(allowed_quotas::jsonb) AS t(value) WHERE value = ?)`
+            : `UPDATE api_keys SET allowed_quotas = COALESCE(
          (SELECT json_group_array(value) FROM json_each(api_keys.allowed_quotas) WHERE value != ?),
          '[]')
        WHERE allowed_quotas IS NOT NULL AND allowed_quotas != '[]'

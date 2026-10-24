@@ -304,8 +304,17 @@ export function clearModelsDevPricing(): void {
  * Ensure the model_capabilities table exists.
  * Call this before any capability operations.
  */
+// Run the CREATE TABLE once per DB handle. ensureCapabilitiesTable() is called
+// on every single-model capability lookup, so during a catalog build (2000+
+// models) the DDL would otherwise run thousands of times. On SQLite that is
+// cheap, but on PostgreSQL each CREATE TABLE IF NOT EXISTS takes a lock +
+// catalog scan + emits a NOTICE, serializing the build until it blows the
+// CATALOG_BUILD_TIMEOUT_MS (8s) → /v1/models 503 catalog_build_timeout. The
+// guard is keyed on the DB handle so a resetDbInstance() (tests) re-runs it.
+let _capabilitiesTableEnsuredFor: unknown = null;
 export function ensureCapabilitiesTable(): void {
   const db = getDbInstance();
+  if (_capabilitiesTableEnsuredFor === db) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS model_capabilities (
       provider TEXT NOT NULL,
@@ -331,6 +340,7 @@ export function ensureCapabilitiesTable(): void {
       PRIMARY KEY (provider, model_id)
     )
   `);
+  _capabilitiesTableEnsuredFor = db;
 }
 
 function defineEnumerableDataProperty<T extends object>(

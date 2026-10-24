@@ -73,6 +73,7 @@ import { memoryTools } from "./tools/memoryTools.ts";
 import { skillTools } from "./tools/skillTools.ts";
 import { agentSkillTools } from "./tools/agentSkillTools.ts";
 import { catalogTools } from "./tools/catalogTools.ts";
+import { skillDiscoveryTools } from "./tools/skillDiscoveryTools.ts";
 import { githubSkillTools } from "./tools/githubSkillTools.ts";
 import { skillRegistry } from "../../src/lib/skills/registry.ts";
 import { skillExecutor } from "../../src/lib/skills/executor.ts";
@@ -117,6 +118,7 @@ const TOTAL_MCP_TOOL_COUNT = countUniqueMcpTools({
   skillTools,
   agentSkillTools,
   catalogTools,
+  skillDiscoveryTools,
   githubSkillTools,
   poolTools,
   gamificationTools,
@@ -812,6 +814,7 @@ export function createMcpServer(options?: CreateMcpServerOptions): McpServer {
     ...Object.keys(memoryTools),
     ...Object.keys(skillTools),
     ...Object.keys(catalogTools),
+    ...Object.keys(skillDiscoveryTools),
     ...Object.keys(compressionTools),
     ...Object.keys(poolTools),
     ...pluginTools.map((t) => t.name),
@@ -1264,6 +1267,36 @@ export function createMcpServer(options?: CreateMcpServerOptions): McpServer {
             return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
           } catch (err) {
             const msg = toSafeMcpErrorMessage(err, "Catalog tool execution failed");
+            return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
+          }
+        },
+        toolDef.scopes
+      )
+    );
+  });
+
+  // ── Skill Discovery Tools (WP6: omr_skill_*, omr_catalog_refresh) ─────────
+  // Discovery-first surface (find → get → list → refresh). Same registration
+  // pattern as catalogTools: uniform { name, description, inputSchema, handler,
+  // scopes } shape, scope enforcement by tool name, JSON-serialized results.
+  Object.values(skillDiscoveryTools).forEach((toolDef) => {
+    server.registerTool(
+      toolDef.name,
+      {
+        description: toolDef.description,
+        // @ts-ignore: dynamic zod access
+        inputSchema: toolDef.inputSchema,
+      },
+      withScopeEnforcement(
+        toolDef.name,
+        async (args, extra) => {
+          try {
+            const parsedArgs = toolDef.inputSchema.parse(args ?? {});
+            // @ts-expect-error - handler type lost through dynamic Object.values() access
+            const result = await toolDef.handler(parsedArgs, extra);
+            return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+          } catch (err) {
+            const msg = toSafeMcpErrorMessage(err, "Skill discovery tool execution failed");
             return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
           }
         },

@@ -243,8 +243,15 @@ export function applyArenaEloRefresh(
     // Membership prune via a JSON array of "model\0category" pair keys:
     // correct for composite keys (a plain NOT IN over model names is not).
     const refreshedPairs = JSON.stringify(entries.map((e) => `${e.model}\u0000${e.category}`));
+    const isPgIntel = db.driver === "pg-native";
     const pruneByPair = db.prepare(
-      `DELETE FROM model_intelligence
+      isPgIntel
+        ? `DELETE FROM model_intelligence
+       WHERE source = ?
+         AND model || chr(0) || category NOT IN (
+           SELECT jsonb_array_elements_text(?::jsonb)
+         )`
+        : `DELETE FROM model_intelligence
        WHERE source = ?
          AND model || char(0) || category NOT IN (
            SELECT value FROM json_each(?)

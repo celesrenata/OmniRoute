@@ -29,7 +29,12 @@ import { resolveTopologyNodeLabel } from "@/app/(dashboard)/home/topologyLabel";
 
 import { HUB_NODE_ID, providerNodeId, providerRouteLinkId } from "./layoutIdentity";
 import { deriveLaneForProvider } from "./lane";
-import type { TopologySceneLink, TopologySceneNode, TopologySceneSnapshot } from "./types";
+import type {
+  TopologyLifecycleEvent,
+  TopologySceneLink,
+  TopologySceneNode,
+  TopologySceneSnapshot,
+} from "./types";
 
 type ProviderConfig = { color?: string; name?: string; textIcon?: string };
 
@@ -47,6 +52,132 @@ export interface TopologyProviderEntry {
   routeId?: string;
 }
 
+// ── M4 — bounded live-request lifecycle stream ───────────────────────────
+
+/**
+ * Upper bound on lifecycle events a single snapshot carries. The live feed is
+ * unbounded by nature (every request starts and ends), so the snapshot keeps
+ * only the newest transitions — old ones have already been consumed by the
+ * renderer's discharge pipeline.
+ */
+export const MAX_LIFECYCLE_EVENTS = 256;
+
+/**
+ * The bounded set of lifecycle transitions the live feed can emit. Anything
+ * else (e.g. streaming ticks) is not a lifecycle event the topology can
+ * represent — it is dropped, never guessed.
+ */
+const LIFECYCLE_PHASES = new Set<string>(["started", "completed", "failed"]);
+
+/** Lifecycle input as the host hands it in: one row per bounded event. */
+export interface TopologyLifecycleInput {
+  /** Lifecycle transition (`started` / `completed` / `failed`). */
+  phase: string;
+  /** Source request id; rows without one are untracked and dropped. */
+  requestId?: string;
+  /** Provider the request was addressed to (when the source carried one). */
+  provider?: string;
+  /** Model the request targeted (when the source carried one). */
+  model?: string;
+  /** Terminal outcome (`success` / `error` / `unknown`). */
+  outcome?: string;
+  /** Upstream error label, when present. */
+  error?: string;
+  /** Source event timestamp (epoch ms) — the event's provenance. */
+  observedAt: number;
+}
+
+/**
+ * Reduce a stream of bounded lifecycle events into snapshot-ready rows.
+ *
+ * Protection invariants (M4):
+ * - **Bounded**: the input is trimmed to the last `maxEvents` rows, so the
+ *   snapshot can never grow without limit.
+ * - **Duplicate-safe**: events with the same (phase, requestId, observedAt)
+ *   are collapsed — the same logical transition arriving twice (e.g. the
+ *   welcome backlog replay plus the live delivery) becomes one observation.
+ * - **Out-of-order-safe**: rows are sorted ascending by (observedAt, phase,
+ *   requestId), so the snapshot is deterministic regardless of arrival order;
+ *   the tie-break order makes ties reproducible.
+ * - **Provenance-carrying**: every row keeps the source event's timestamp as
+ *   `observedAt`; nothing is re-stamped with the snapshot capture time.
+ * - **Immutable**: the returned array AND every row are frozen (all row
+ *   fields are scalars), so renderers can hold the stream without ever
+ *   mutating core-owned data.
+ */
+export function normalizeLifecycleEvents(
+  input: TopologyLifecycleInput[] | null | undefined,
+  maxEvents = MAX_LIFECYCLE_EVENTS
+): TopologyLifecycleEvent[] | null {
+  if (!Array.isArray(input) || input.length === 0) return null;
+  const max =
+    typeof maxEvents === "number" && Number.isFinite(maxEvents) && maxEvents > 0
+      ? Math.floor(maxEvents)
+      : MAX_LIFECYCLE_EVENTS;
+
+  // 1. Keep only rows the topology can represent: a known phase, a stable
+  //    request id, and a valid timestamp. Unknown phases and id-less rows are
+  //    dropped, never coerced.
+  const known = input.filter(
+    (row): row is TopologyLifecycleInput =>
+      !!row &&
+      typeof row.requestId === "string" &&
+      row.requestId.length > 0 &&
+      typeof row.observedAt === "number" &&
+      Number.isFinite(row.observedAt) &&
+      LIFECYCLE_PHASES.has(row.phase)
+  );
+
+  // 2. Collapse duplicates: same (phase, requestId, observedAt) → one row.
+  //    The dedupe key identifies the logical transition, so a replayed event
+  //    (backlog + live) contributes exactly one observation.
+  const seen = new Set<string>();
+  const unique: TopologyLifecycleInput[] = [];
+  for (const row of known) {
+    const key = `${row.phase}:${row.requestId}:${row.observedAt}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+
+  // 3. Bounded: keep only the newest `max` events.
+  const bounded = unique.slice(-max);
+
+  // 4. Deterministic order: ascending by (observedAt, phase, requestId).
+  //    `requestId` is optional on the input shape, but step 1's type guard
+  //    already dropped every row with a missing/empty id — the assertions
+  //    below are safe, not a coercion.
+  bounded.sort((a, b) => {
+    if (a.observedAt !== b.observedAt) return a.observedAt - b.observedAt;
+    if (a.phase !== b.phase) return a.phase < b.phase ? -1 : 1;
+    const left = a.requestId as string;
+    const right = b.requestId as string;
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+
+  // 5. Map to the renderer-ready shape, freezing each row. The container
+  //    array is frozen too: a frozen row set inside a mutable array could
+  //    still be reordered or spliced by a renderer.
+  const events = bounded.map((row) => {
+    const event: TopologyLifecycleEvent = {
+      phase: row.phase as TopologyLifecycleEvent["phase"],
+      requestId: row.requestId as string,
+      observedAt: row.observedAt,
+    };
+    if (row.provider) event.provider = row.provider;
+    if (row.model) event.model = row.model;
+    if (row.outcome === "success" || row.outcome === "error" || row.outcome === "unknown") {
+      event.outcome = row.outcome;
+    }
+    if (row.error) event.error = row.error;
+    return Object.freeze(event);
+  });
+  // `Object.freeze` returns a `readonly` array at the type level, but the
+  // declared contract (and `TopologySceneSnapshot.lifecycle`) is the
+  // mutable-shaped array; the freeze is still enforced at runtime.
+  return Object.freeze(events) as TopologyLifecycleEvent[];
+}
+
 /** Inputs the host component has on hand (same shape the legacy view consumed). */
 export interface TopologyNormalizeInput {
   /** Provider entries (provider / name / status / aliases / routeId). */
@@ -57,6 +188,14 @@ export interface TopologyNormalizeInput {
   lastProvider?: string;
   /** Provider id currently in an error state ("" when unknown). */
   errorProvider?: string;
+  /**
+   * Bounded live-request lifecycle events observed on the existing gated
+   * live-requests feed (M4). `null` / `undefined` → no `lifecycle` field on
+   * the snapshot (absent, never an empty claim). The normalization is pure
+   * and deterministic for a given input + `capturedAt`; the event stream is
+   * only *reduced* here — it is never generated.
+   */
+  lifecycleEvents?: TopologyLifecycleInput[] | null;
   /** Snapshot timestamp; defaults to `Date.now()`. */
   capturedAt?: number;
 }
@@ -200,7 +339,16 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
       // a provider serving only ordinary chat traffic gets no `lane` field
       // at all (the *absence* is the honest "no lane in flight" signal).
       const inFlightModels = collectInFlightModels(entry, activeRequests);
+      // Record the observed model ids themselves: renderers color the atom by
+      // *observed* model identity (not a provider-derived guess). Absent when
+      // no in-flight request carried a model id — the honest "unknown" signal.
       if (inFlightModels.length > 0) {
+        node.inFlightModels = {
+          value: inFlightModels,
+          source: "live-event",
+          sampledAt: capturedAt,
+          basis: "in-flight request model ids (WS live requests channel)",
+        };
         const derived = deriveLaneForProvider(inFlightModels);
         if (derived) {
           node.lane = {
@@ -224,7 +372,34 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
     });
   }
 
-  return { schemaVersion: 1, capturedAt, nodes, links };
+  // Bounded lifecycle stream (M4): reduced, deduped, order-normalized and
+  // frozen. `null` → the field stays absent (we did not observe a feed).
+  const lifecycle = normalizeLifecycleEvents(input.lifecycleEvents);
+
+  const snapshot: TopologySceneSnapshot = { schemaVersion: 1, capturedAt, nodes, links };
+  if (lifecycle) snapshot.lifecycle = lifecycle;
+
+  // Snapshot values are provenance-carrying and immutable: freeze the whole
+  // snapshot so no renderer can mutate core-owned data (deep — every nested
+  // value here is either a frozen scalar object, a frozen array of frozen
+  // objects, or a string/number).
+  return freezeDeep(snapshot);
+}
+
+/** Deep-freeze a value (objects, arrays, Maps, Sets) and return it. */
+function freezeDeep<T>(value: T): T {
+  if (typeof value !== "object" || value === null) return value;
+  Object.freeze(value);
+  if (value instanceof Map) {
+    for (const entry of value.entries()) freezeDeep(entry);
+  } else if (value instanceof Set) {
+    for (const entry of value) freezeDeep(entry);
+  } else if (Array.isArray(value)) {
+    for (const item of value) freezeDeep(item);
+  } else {
+    for (const key of Object.keys(value)) freezeDeep((value as Record<string, unknown>)[key]);
+  }
+  return value;
 }
 
 /** Re-export for hosts/tests that only want the flat active-request shape. */

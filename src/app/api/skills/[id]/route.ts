@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { updateSkill } from "@/lib/db/skills";
 import { skillRegistry } from "@/lib/skills/registry";
+import { snapshotAfterMutation } from "@/lib/skills/snapshotBridge";
 import { z } from "zod";
 import { validateBody, isValidationFailure } from "@/shared/validation/helpers";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
@@ -21,7 +22,9 @@ export async function DELETE(_request: Request, props: { params: Promise<{ id: s
     if (!deleted) {
       return NextResponse.json({ error: "Skill not found" }, { status: 404 });
     }
-    return NextResponse.json({ success: true });
+    // Removed skill = composition change → durable snapshot.
+    const snapshotId = snapshotAfterMutation("skill-deleted");
+    return NextResponse.json({ success: true, snapshotId });
   } catch (err: unknown) {
     const error = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error }, { status: 500 });
@@ -66,10 +69,14 @@ export async function PUT(request: Request, props: { params: Promise<{ id: strin
 
     await skillRegistry.loadFromDatabase();
 
+    // Update (enable/disable/mode) changes the effective skill set → snapshot.
+    const snapshotId = snapshotAfterMutation("skill-updated");
+
     return NextResponse.json({
       success: true,
       enabled: validation.data.enabled,
       mode: validation.data.mode,
+      snapshotId,
     });
   } catch (err: unknown) {
     const error = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));

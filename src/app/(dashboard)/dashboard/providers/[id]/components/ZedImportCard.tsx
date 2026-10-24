@@ -31,7 +31,10 @@ export default function ZedImportCard({ fetchConnections, notify }: ZedImportCar
         if (data.zedDockerEnvironment) {
           setShowZedManual(true);
         }
-        notify.error(data.error || t("zedImportFailed"));
+        notify.error(
+          data.error?.message ??
+            (typeof data.error === "string" ? data.error : t("zedImportFailed"))
+        );
       } else if (!data.count) {
         const found = data.credentials?.length ?? 0;
         if (found === 0) {

@@ -472,6 +472,8 @@ For any non-trivial change, read the matching deep-dive first:
 
 **Both test runners must pass**: `npm run test:unit` (Node native — most tests) AND `npm run test:vitest` (MCP server, autoCombo, cache) cover **non-overlapping files**. Both are wired in CI (jobs `test-unit` and `test-vitest`) and must be green before merging. A PR where only one suite passes may silently ship broken MCP tools or routing regressions.
 
+**Demo-grade verification (operator directive, 2026-10-22)**: When the operator asks to "test it" / "show me it working", the deliverable is a live demonstration of the ACTUAL feature running end-to-end — real server/container started, real code path exercised, real output (commands + observed results) reported back. Schema-only checks, unit tests against stubs/mocks, or "it doesn't crash" verification do NOT satisfy this request. Never stop at a lower fidelity than what "it works" means, and never present a partial check as completion. This directive MUST be included verbatim in the prompt of every subagent that may verify work on the operator's behalf.
+
 **Bug fix / issue triage protocol (Hard Rule #18)**: Every fix for a reported issue must be validated by one of the following — no exceptions:
 
 1. **TDD (preferred)** — write a failing test reproducing the bug → fix it → confirm the test passes. The test becomes the permanent regression guard. Touch only the files the test proves need changing; nothing more.

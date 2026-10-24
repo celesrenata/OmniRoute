@@ -394,7 +394,75 @@ export interface LiveRequest {
 }
 
 /**
+ * Bounded live-request lifecycle event (M4). Derived from the existing
+ * request started/completed/failed events on the *same* gated live-requests
+ * feed — no second socket is opened. Each row keeps its source event's
+ * timestamp as `observedAt` (provenance, not capture time) and is deduped
+ * against replays/backfill so a re-delivered transition contributes exactly
+ * one observation.
+ */
+export interface LiveRequestLifecycleEvent {
+  phase: "started" | "completed" | "failed";
+  requestId: string;
+  provider?: string;
+  model?: string;
+  outcome?: "success" | "error" | "unknown";
+  error?: string;
+  observedAt: number;
+}
+
+/** Bounded number of lifecycle events exposed (newest kept). */
+const MAX_LIFECYCLE_EVENTS = 256;
+
+/**
+ * Dedupe key for a lifecycle event — the same logical transition arriving
+ * twice (backlog replay + live delivery, or two sources for one request)
+ * collapses to a single row. Keying on (phase, requestId, observedAt) keeps
+ * two genuinely distinct requests to the same provider apart.
+ */
+function lifecycleDedupeKey(event: LiveRequestLifecycleEvent): string {
+  return `${event.phase}:${event.requestId}:${event.observedAt}`;
+}
+
+/**
+ * Fold a new event into the bounded, deduped lifecycle list, keeping the
+ * newest `max` rows sorted ascending by observedAt. Returns the SAME array
+ * reference when the event is a no-op (out-of-window, duplicate, or bounded
+ * away) so `useMemo` consumers do not re-render on redundant frames.
+ */
+function ingestLifecycleEvent(
+  prev: LiveRequestLifecycleEvent[],
+  event: LiveRequestLifecycleEvent,
+  max = MAX_LIFECYCLE_EVENTS
+): LiveRequestLifecycleEvent[] {
+  // Duplicate guard: the same (phase, requestId, observedAt) is a no-op.
+  if (prev.some((e) => lifecycleDedupeKey(e) === lifecycleDedupeKey(event))) {
+    return prev;
+  }
+
+  // Out-of-window guard: an event older than the oldest already-pooled one by
+  // more than one "slot" would push every pooled row forward — but we still
+  // keep the list bounded, so we insert and re-slice. We do, however, drop
+  // events that are clearly stale (observedAt <= the oldest pooled event's
+  // observedAt AND we are at capacity) to bound memory under a silent drain.
+  const atCapacity = prev.length >= max;
+  const oldest = atCapacity ? prev[0] : null;
+  if (oldest && event.observedAt <= oldest.observedAt) {
+    return prev; // stale relative to the pool; drop to keep the window bounded
+  }
+
+  const next = [...prev, event];
+  next.sort((a, b) => a.observedAt - b.observedAt || a.phase.localeCompare(b.phase));
+  return next.length > max ? next.slice(next.length - max) : next;
+}
+
+/**
  * Hook for monitoring live requests.
+ *
+ * Exposes the active/completed request state (unchanged) plus a bounded,
+ * deduped, out-of-order-safe `lifecycleEvents` stream for the Atomic renderer
+ * (M4). It rides the *single* visibility-gated live-requests WebSocket
+ * (`useLiveDashboard`) — a second socket is never opened.
  */
 export function useLiveRequests(options?: UseLiveDashboardOptions) {
   const [requestState, setRequestState] = useState<{
@@ -404,75 +472,120 @@ export function useLiveRequests(options?: UseLiveDashboardOptions) {
     active: new Map(),
     completed: [],
   });
+  const [lifecycleState, setLifecycleState] = useState<LiveRequestLifecycleEvent[]>([]);
   const maxCompleted = 100;
 
-  const handleEvent = useCallback((event: WsEventPayload) => {
-    if (event.channel !== "requests") return;
+  /**
+   * Fold one bounded lifecycle transition into the state list. Reads the
+   * source event's own timestamp as `observedAt` (provenance) and falls back
+   * to the frame timestamp only when the payload carried none.
+   */
+  const recordLifecycleEvent = useCallback(
+    (event: WsEventPayload, partial: Omit<LiveRequestLifecycleEvent, "observedAt">) => {
+      if (typeof partial.requestId !== "string" || partial.requestId.length === 0) return;
+      const observedAt =
+        typeof event.timestamp === "number" && Number.isFinite(event.timestamp)
+          ? event.timestamp
+          : Date.now();
+      setLifecycleState((prev) =>
+        ingestLifecycleEvent(prev, { ...partial, observedAt }, MAX_LIFECYCLE_EVENTS)
+      );
+    },
+    []
+  );
 
-    if (event.event === "request.started") {
-      const data = event.data as any;
-      setRequestState((prev) => {
-        const active = new Map(prev.active);
-        active.set(data.id, {
-          id: data.id,
-          model: data.model,
+  const handleEvent = useCallback(
+    (event: WsEventPayload) => {
+      if (event.channel !== "requests") return;
+
+      if (event.event === "request.started") {
+        const data = event.data as any;
+        recordLifecycleEvent(event, {
+          phase: "started",
+          requestId: data.id,
           provider: data.provider,
-          timestamp: data.timestamp,
-          status: "pending",
-          comboName: data.comboName,
+          model: data.model,
         });
-        return { active, completed: prev.completed };
-      });
-    } else if (event.event === "request.streaming") {
-      const data = event.data as any;
-      setRequestState((prev) => {
-        const active = new Map(prev.active);
-        const existing = active.get(data.id);
-        if (existing) {
-          active.set(data.id, { ...existing, status: "running" });
-        }
-        return { active, completed: prev.completed };
-      });
-    } else if (event.event === "request.completed") {
-      const data = event.data as any;
-      setRequestState((prev) => {
-        const active = new Map(prev.active);
-        const existing = active.get(data.id);
-        if (existing) {
-          active.delete(data.id);
-          const done: LiveRequest = {
-            ...existing,
-            status: data.status === "success" ? "success" : "error",
-            tokensInput: data.tokensInput,
-            tokensOutput: data.tokensOutput,
-            latencyMs: data.latencyMs,
-            error: data.error,
-          };
-          const completed = [done, ...prev.completed].slice(0, maxCompleted);
-          return { active, completed };
-        }
-        return prev;
-      });
-    } else if (event.event === "request.failed") {
-      const data = event.data as any;
-      setRequestState((prev) => {
-        const active = new Map(prev.active);
-        const existing = active.get(data.id);
-        if (existing) {
-          active.delete(data.id);
-          const done: LiveRequest = {
-            ...existing,
-            status: "error",
-            error: data.error,
-            latencyMs: data.latencyMs,
-          };
-          const completed = [done, ...prev.completed].slice(0, maxCompleted);
-          return { active, completed };
-        }
-        return prev;
-      });
-    }
-  }, []);
+        setRequestState((prev) => {
+          const active = new Map(prev.active);
+          active.set(data.id, {
+            id: data.id,
+            model: data.model,
+            provider: data.provider,
+            timestamp: data.timestamp,
+            status: "pending",
+            comboName: data.comboName,
+          });
+          return { active, completed: prev.completed };
+        });
+      } else if (event.event === "request.streaming") {
+        const data = event.data as any;
+        setRequestState((prev) => {
+          const active = new Map(prev.active);
+          const existing = active.get(data.id);
+          if (existing) {
+            active.set(data.id, { ...existing, status: "running" });
+          }
+          return { active, completed: prev.completed };
+        });
+      } else if (event.event === "request.completed") {
+        const data = event.data as any;
+        recordLifecycleEvent(event, {
+          phase: "completed",
+          requestId: data.id,
+          provider: data.provider,
+          model: data.model,
+          outcome: data.status === "success" ? "success" : "error",
+          error: data.error,
+        });
+        setRequestState((prev) => {
+          const active = new Map(prev.active);
+          const existing = active.get(data.id);
+          if (existing) {
+            active.delete(data.id);
+            const done: LiveRequest = {
+              ...existing,
+              status: data.status === "success" ? "success" : "error",
+              tokensInput: data.tokensInput,
+              tokensOutput: data.tokensOutput,
+              latencyMs: data.latencyMs,
+              error: data.error,
+            };
+            const completed = [done, ...prev.completed].slice(0, maxCompleted);
+            return { active, completed };
+          }
+          return prev;
+        });
+      } else if (event.event === "request.failed") {
+        const data = event.data as any;
+        recordLifecycleEvent(event, {
+          phase: "failed",
+          requestId: data.id,
+          provider: data.provider,
+          model: data.model,
+          outcome: "error",
+          error: data.error,
+        });
+        setRequestState((prev) => {
+          const active = new Map(prev.active);
+          const existing = active.get(data.id);
+          if (existing) {
+            active.delete(data.id);
+            const done: LiveRequest = {
+              ...existing,
+              status: "error",
+              error: data.error,
+              latencyMs: data.latencyMs,
+            };
+            const completed = [done, ...prev.completed].slice(0, maxCompleted);
+            return { active, completed };
+          }
+          return prev;
+        });
+      }
+    },
+    [recordLifecycleEvent]
+  );
 
   const { connection, reconnect } = useLiveDashboard({
     channels: ["requests"],
@@ -484,6 +597,12 @@ export function useLiveRequests(options?: UseLiveDashboardOptions) {
     activeRequests: Array.from(requestState.active.values()),
     completedRequests: requestState.completed,
     activeCount: requestState.active.size,
+    /**
+     * Bounded, deduped live-request lifecycle events (M4) — newest-first
+     * feed, same socket as `activeRequests`. Drives the Atomic renderer's
+     * start/complete/fail discharges; the 2D renderer ignores it.
+     */
+    lifecycleEvents: lifecycleState,
     isConnected: connection.isConnected,
     reconnect,
   };

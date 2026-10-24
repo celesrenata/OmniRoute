@@ -105,7 +105,7 @@ export function updateScore(apiKeyId: string, scope: string, points: number): vo
       `INSERT INTO leaderboard (api_key_id, scope, score, updated_at)
      VALUES (?, ?, ?, datetime('now'))
      ON CONFLICT(api_key_id, scope)
-     DO UPDATE SET score = score + excluded.score, updated_at = datetime('now')`
+     DO UPDATE SET score = leaderboard.score + excluded.score, updated_at = datetime('now')`
     )
     .run(apiKeyId, scope, points);
 }
@@ -173,7 +173,7 @@ export function addXp(apiKeyId: string, action: string, amount: number, metadata
       `INSERT INTO xp_action_counts (api_key_id, action, count, updated_at)
      VALUES (?, ?, COALESCE(CAST(json_extract(?, '$.amount') AS INTEGER), 1), datetime('now'))
      ON CONFLICT(api_key_id, action)
-     DO UPDATE SET count = count + excluded.count, updated_at = datetime('now')`
+     DO UPDATE SET count = xp_action_counts.count + excluded.count, updated_at = datetime('now')`
     )
     .run(apiKeyId, action, metadata ?? null);
 
@@ -182,7 +182,7 @@ export function addXp(apiKeyId: string, action: string, amount: number, metadata
       `INSERT INTO user_levels (api_key_id, total_xp, current_level, updated_at)
      VALUES (?, ?, ?, datetime('now'))
      ON CONFLICT(api_key_id)
-     DO UPDATE SET total_xp = total_xp + excluded.total_xp, updated_at = datetime('now')`
+     DO UPDATE SET total_xp = user_levels.total_xp + excluded.total_xp, updated_at = datetime('now')`
     )
     .run(apiKeyId, amount, calculateLevel(amount));
 }

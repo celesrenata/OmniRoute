@@ -54,7 +54,7 @@ export async function getCacheMetrics() {
       FROM usage_history
       WHERE provider IS NOT NULL
       GROUP BY provider
-      HAVING cachedRequests > 0
+      HAVING SUM(CASE WHEN tokens_cache_read > 0 OR tokens_cache_creation > 0 THEN 1 ELSE 0 END) > 0
     `
       )
       .all() as Array<{

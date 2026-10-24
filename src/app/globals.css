@@ -854,3 +854,290 @@ html[dir="rtl"] :where(.material-symbols-outlined, .traffic-lights, .react-flow)
     display: none;
   }
 }
+
+/* ==========================================================================
+   Atomic topology scene (src/plugins/atomic-topology) — UX correction.
+   The scene host + its DOM overlays have no other stylesheets, so the panel
+   presentation (visible border/background) and the label/legend/controls/
+   tooltip chrome live here. The 3D canvas itself is transparent; the
+   backdrop is this host's background.
+   ========================================================================== */
+
+/* The renderer-owned host + the scene host get the visible panel treatment. */
+.atomic-topology-host {
+  border-radius: 12px;
+}
+
+.atomic-scene-host {
+  border: 1px solid var(--color-border, rgba(148, 163, 184, 0.16));
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(59, 108, 189, 0.12), transparent 60%),
+    var(--color-bg, #0b1018);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 26px -14px rgba(0, 0, 0, 0.6);
+}
+
+/* The 3D canvas fills the host; the empty-state keeps the same backdrop. */
+.atomic-scene-canvas,
+.atomic-scene-canvas canvas {
+  display: block;
+}
+
+/* --------------------------------------------------------------------------
+   Labels — two modes.
+   - `--projected`: one chip per atom, absolutely anchored at the host origin
+     and positioned by per-frame `transform` (rAF — no React re-render).
+   - `--roster`: the compact bottom-right fallback panel (pre-first-frame,
+     no-WebGL, or before the scene module loads).
+   -------------------------------------------------------------------------- */
+
+.atomic-labels__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  padding: 2px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #e2e8f0;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.atomic-labels__row:hover,
+.atomic-labels__row:focus-visible {
+  border-color: rgba(226, 232, 240, 0.55);
+  background: rgba(30, 41, 59, 0.92);
+  outline: none;
+}
+
+.atomic-labels__row.is-focused {
+  border-color: var(--color-primary, #e54d5e);
+  box-shadow:
+    0 0 0 1px rgba(229, 77, 94, 0.35),
+    0 4px 14px -6px rgba(229, 77, 94, 0.5);
+}
+
+.atomic-labels__swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.atomic-labels__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atomic-labels__state {
+  flex: none;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(226, 232, 240, 0.55);
+}
+
+/* Health/traffic state colors (swatch ring + state text). */
+.atomic-labels__row--error .atomic-labels__state {
+  color: #f87171;
+}
+.atomic-labels__row--active .atomic-labels__state {
+  color: #7dd3fc;
+}
+.atomic-labels__row--healthy .atomic-labels__state {
+  color: #4ade80;
+}
+.atomic-labels__row--idle .atomic-labels__state,
+.atomic-labels__row--last .atomic-labels__state {
+  color: rgba(226, 232, 240, 0.55);
+}
+
+/* Projected mode: chips anchored at the host origin; the rAF loop writes the
+   translate. `will-change: transform` keeps them on their own layer so
+   per-frame moves never reflow the overlay. */
+.atomic-labels--projected .atomic-labels__row {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .atomic-labels--projected .atomic-labels__row {
+    /* Short smoothing between per-frame projections (the rAF loop writes a
+       new transform every frame; this eases sub-pixel jitter). */
+    transition:
+      transform 70ms linear,
+      border-color 120ms ease,
+      background 120ms ease,
+      box-shadow 120ms ease;
+  }
+}
+
+/* Roster fallback mode: compact bottom-right panel. */
+.atomic-labels--roster {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-height: 70%;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+/* --------------------------------------------------------------------------
+   Legend (bottom-left) + controls (top-center) + tooltip (top-right, below
+   the telemetry badge). The host's own top-left corner is reserved for the
+   host-owned 2D/Atomic view-mode toggle, so the controls sit top-center.
+   -------------------------------------------------------------------------- */
+
+/* OR-ATOM-003 (V7): the legend is a small multi-section key — Lanes /
+   States / Events — so lane vs. health-state vs. transient-event colors are
+   never conflated. */
+.atomic-legend {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 46%;
+  padding: 6px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.62);
+  color: #e2e8f0;
+  font-size: 10px;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+
+.atomic-legend__section {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.atomic-legend__title {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(226, 232, 240, 0.45);
+  min-width: 42px;
+}
+
+.atomic-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.atomic-legend__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+/* Honest missing-data copy (e.g. "no active lane observable — not an error"). */
+.atomic-legend__note {
+  color: rgba(226, 232, 240, 0.55);
+  font-style: italic;
+}
+
+/* OR-ATOM-003 (V7): the control group — a Pause/Resume button + a Reset-view
+   button. The live/stale indicator lives solely in the telemetry badge
+   (top-right); the pause chip no longer carries a "live" dot. */
+.atomic-controls {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #e2e8f0;
+  font-size: 11px;
+  backdrop-filter: blur(6px);
+}
+
+.atomic-controls__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.atomic-controls__btn:hover,
+.atomic-controls__btn:focus-visible {
+  background: rgba(30, 41, 59, 0.9);
+  color: #f1f5f9;
+  outline: none;
+}
+
+.atomic-controls__btn:focus-visible {
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.5);
+}
+
+.atomic-controls__icon {
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* Paused: amber icon tint (state, not "liveness" — no green dot anymore). */
+.atomic-controls--paused .atomic-controls__icon {
+  color: #fbbf24;
+}
+
+.atomic-tooltip {
+  position: absolute;
+  top: 36px;
+  right: 8px;
+  z-index: 5;
+  max-width: 240px;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #e2e8f0;
+  font-size: 11px;
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+}
+
+.atomic-tooltip__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

@@ -1,33 +1,369 @@
 /**
- * Atomic labels overlay — the DOM label *roster* (OR-ATOM-001 v2, M3 Phase B).
+ * Atomic labels overlay — DOM labels associated with the rendered atoms
+ * (OR-ATOM-001 v2, UX correction replacing the detached bottom-right roster).
  *
- * This is the bounded-scope stand-in for spatially-projected screen labels
- * (which would require `three` camera math or drei's `<Html>`). Instead of
- * projecting each atom's world position to screen space, it renders a compact
- * *roster* panel (bottom-right) listing every atom with its label, lane hue,
- * and health/traffic state. Selecting a row:
+ * Two presentation modes, chosen by projection availability:
+ *
+ * 1. **Projected labels** (the default once the scene has written at least one
+ *    frame — `cameraState.valid`): each atom gets a compact DOM label positioned
+ *    next to its *on-screen* position, projected from the live camera (position
+ *    + orbit target + viewport size) written every frame into the shared
+ *    {@link AtomicCameraState}. The position updates run in a
+ *    `requestAnimationFrame` loop that mutates `transform` directly — no React
+ *    re-render, no `three` import (the math lives in the pure `../projection`).
+ * 2. **Compact roster fallback** (bottom-right): shown while projection is not
+ *    safely available — before the first scene frame, when the 3D canvas is
+ *    absent (WebGL2 unavailable → the host's empty state), or when the scene
+ *    module has not loaded yet.
+ *
+ * Interaction (both modes): selecting an atom
  *   - calls `onFocusRequest(atomId)` to center the view on that atom, and
- *   - for provider atoms, calls `onProviderClick(providerId)` to fire the
- *     delegated provider-click (the host's `onProviderClick`).
+ *   - for provider atoms, calls `onProviderClick(providerId)` (the host's
+ *     delegated provider-click).
  *
- * Pure React + CSS only (no `three`) — safe under jsdom. The roster is a pure
- * function of the descriptors, so a renderer swap keeps the same labels.
+ * Keyboard: every label is a real `<button>` (Tab-reachable, Enter/Space
+ * activate, `aria-pressed` reflects the focused atom), so the 3D view stays
+ * operable without a pointer.
  *
- * Explicit unknown: this is NOT a projected label (it does not track an atom's
- * on-screen position). It is a stable list, which is the bounded scope
- * documented in the adapter.
+ * Pure React + CSS only (no `three` / R3F) — safe under jsdom.
+ *
+ * Collision boxes use the *rendered* chip width: each chip is measured once
+ * per snapshot (`getBoundingClientRect`) and kept fresh by a `ResizeObserver`
+ * (ref-only — no per-frame React state, so the rAF loop never triggers a
+ * re-render). When no measurement is available (jsdom, first frame, or a
+ * missing element) the pure {@link ../labelCollision.estimateChipWidth}
+ * fallback — a conservative, CSS-matched estimate — is used instead.
  */
+import { useEffect, useRef } from "react";
+
 import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
+import { createProjector } from "../projection";
+import {
+  LABEL_OFFSET_Y,
+  LABEL_PRIORITY_TIERS,
+  labelRect,
+  resolveLabelCollision,
+} from "../labelCollision";
+import type { AtomicCameraState } from "../scene/sceneContext";
 
 /**
- * The DOM label roster.
+ * Hub-chip vertical offset (OR-ATOM-003, V2). `LABEL_OFFSET_Y` (-28, *above*
+ * the anchor) puts the hub chip directly on the nucleus — the hub is the
+ * origin and the largest 3D mass, so the label occludes the atom it names.
+ * The hub chip is instead anchored *below* the nucleus so it reads as a
+ * caption, not an occlusion. A local constant (not in `labelCollision.ts`)
+ * so the frozen `labelRect` / `LABEL_OFFSET_Y` pins stay untouched; the
+ * offset is applied to the projected `y` *before* `labelRect` and to the
+ * chip transform, keeping collision box and rendered chip consistent.
  *
- * @param descriptors    the atom descriptors (one row per atom).
- * @param focusNodeId    the atom currently centered (highlighted in the roster).
+ * +46: nucleus screen half-height + chip height (24) + clearance.
+ */
+const HUB_LABEL_OFFSET_Y = 46;
+
+/**
+ * The atomic labels overlay.
+ *
+ * @param descriptors    the atom descriptors (one label/row per atom).
+ * @param focusNodeId    the atom currently centered (highlighted).
  * @param onProviderClick delegated provider-click (provider atoms only).
  * @param onFocusRequest  let the host center the view on an atom.
+ * @param cameraState     the shared per-frame camera snapshot the scene writes
+ *   (the projected-label mode). When `undefined` or `valid === false`, the
+ *   compact roster fallback is rendered.
  */
 export function AtomicLabels({
+  descriptors,
+  focusNodeId,
+  onProviderClick,
+  onFocusRequest,
+  cameraState,
+}: {
+  descriptors: AtomVisualDescriptor[];
+  focusNodeId: string | null;
+  onProviderClick: (providerId: string) => void;
+  onFocusRequest?: (nodeId: string) => void;
+  cameraState?: AtomicCameraState;
+}) {
+  // Projection is usable only once the scene has written at least one frame
+  // and reported a non-degenerate viewport.
+  const projected =
+    cameraState != null &&
+    cameraState.valid &&
+    cameraState.viewportWidth > 0 &&
+    cameraState.viewportHeight > 0;
+
+  if (!projected) {
+    return (
+      <RosterFallback
+        descriptors={descriptors}
+        focusNodeId={focusNodeId}
+        onProviderClick={onProviderClick}
+        onFocusRequest={onFocusRequest}
+      />
+    );
+  }
+
+  return (
+    <ProjectedLabels
+      descriptors={descriptors}
+      focusNodeId={focusNodeId}
+      onProviderClick={onProviderClick}
+      onFocusRequest={onFocusRequest}
+      cameraState={cameraState}
+    />
+  );
+}
+
+/**
+ * The shared selection behavior: center the view on the atom, and fire the
+ * delegated provider-click for provider atoms.
+ */
+function useAtomSelection(
+  onProviderClick: (providerId: string) => void,
+  onFocusRequest?: (nodeId: string) => void
+) {
+  return (descriptor: AtomVisualDescriptor) => {
+    onFocusRequest?.(descriptor.id);
+    if (descriptor.kind !== "hub" && descriptor.providerId) {
+      onProviderClick(descriptor.providerId);
+    }
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Projected mode — one label per atom, positioned next to the atom    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The screen-space collision priority of a label (OR-ATOM-002, V3): a focused
+ * atom always wins a collision; the hub (the scene's anchor) is next; then
+ * the visual-state emphasis (error > active > last > healthy > idle). Pure —
+ * deterministic for a given descriptor + focus.
+ */
+function labelPriority(descriptor: AtomVisualDescriptor, focusNodeId: string | null): number {
+  if (focusNodeId === descriptor.id) return LABEL_PRIORITY_TIERS.focused;
+  if (descriptor.kind === "hub") return LABEL_PRIORITY_TIERS.hub;
+  const byState: Record<AtomVisualDescriptor["visualState"]["state"], number> = {
+    error: LABEL_PRIORITY_TIERS.error,
+    active: LABEL_PRIORITY_TIERS.active,
+    last: LABEL_PRIORITY_TIERS.last,
+    healthy: LABEL_PRIORITY_TIERS.healthy,
+    idle: LABEL_PRIORITY_TIERS.idle,
+  };
+  return byState[descriptor.visualState.state] ?? LABEL_PRIORITY_TIERS.default;
+}
+
+function ProjectedLabels({
+  descriptors,
+  focusNodeId,
+  onProviderClick,
+  onFocusRequest,
+  cameraState,
+}: {
+  descriptors: AtomVisualDescriptor[];
+  focusNodeId: string | null;
+  onProviderClick: (providerId: string) => void;
+  onFocusRequest?: (nodeId: string) => void;
+  cameraState: AtomicCameraState;
+}) {
+  const handleSelect = useAtomSelection(onProviderClick, onFocusRequest);
+
+  // One stable node ref per atom (snapshot order). The rAF loop projects each
+  // atom against the *live* camera state and mutates `transform`/visibility.
+  const labelRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  // Live rendered chip widths (CSS px), per atom id. The rAF loop reads these
+  // to size each chip's collision box, so the resolver works on the *actual*
+  // rendered width — an under-estimate is exactly the OR-ATOM-002 label
+  // overlap bug. Ref-only writes: no per-frame React state churn.
+  const measuredWidths = useRef<Record<string, number>>({});
+
+  // Measure every chip once per snapshot (the descriptor identity changes
+  // with each new snapshot), and keep the measurements fresh with a
+  // ResizeObserver (font load, reflow, zoom). `visibility: hidden` chips
+  // still lay out, so the first measurement is valid even before the first
+  // rAF frame reveals them.
+  useEffect(() => {
+    const widths: Record<string, number> = {};
+    const measure = (el: HTMLElement) => {
+      const id = el.dataset.atomId;
+      if (!id) return;
+      const w = el.getBoundingClientRect().width;
+      if (Number.isFinite(w) && w > 0) widths[id] = w;
+    };
+    const els = Object.values(labelRefs.current).filter(
+      (el): el is HTMLButtonElement => el !== null
+    );
+    els.forEach(measure);
+    // jsdom has no ResizeObserver; the one-shot measurement above still works.
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver((entries) => {
+        for (const entry of entries) measure(entry.target as HTMLElement);
+      });
+      els.forEach((el) => observer?.observe(el));
+    }
+    measuredWidths.current = widths;
+    return () => {
+      observer?.disconnect();
+      measuredWidths.current = {};
+    };
+  }, [descriptors]);
+
+  // The loop re-runs when the descriptor set changes (a new snapshot identity)
+  // or when the host re-creates the shared camera state; `cameraState` itself
+  // is a stable mutable object read fresh every frame.
+  useEffect(() => {
+    let raf = 0;
+    const labels = descriptors;
+
+    const tick = () => {
+      if (labels.length > 0) {
+        const project = createProjector(
+          {
+            position: cameraState.position,
+            target: cameraState.target,
+            fovDeg: cameraState.fovDeg,
+            aspect: cameraState.aspect,
+          },
+          {
+            width: cameraState.viewportWidth,
+            height: cameraState.viewportHeight,
+          }
+        );
+
+        // Project every atom, build its chip rect, then resolve screen-space
+        // collisions (V3 — OR-ATOM-002): the higher-priority label wins;
+        // lower-priority labels that overlap a placed one are hidden.
+        //
+        // Hub-label offset (OR-ATOM-003, V2): the hub chip anchors *below*
+        // the nucleus (a positive downward offset) instead of on top of it.
+        // `labelRect` is left untouched (the frozen pins assert its
+        // `LABEL_OFFSET_Y` math), so the per-label offset is applied here to
+        // the projected `y` before the rect is computed — and the same
+        // offset drives the chip transform below, so the collision box and
+        // the rendered chip stay consistent.
+        const entries = labels.map((descriptor) => {
+          const p = project([descriptor.position.x, descriptor.position.y, descriptor.position.z]);
+          const yOff = descriptor.kind === "hub" ? HUB_LABEL_OFFSET_Y : LABEL_OFFSET_Y;
+          return {
+            descriptor,
+            p,
+            yOff,
+            rect: labelRect({
+              id: descriptor.id,
+              label: descriptor.label,
+              state: descriptor.visualState.state,
+              x: p.x,
+              y: p.y + yOff,
+              priority: labelPriority(descriptor, focusNodeId),
+              viewportWidth: cameraState.viewportWidth,
+              viewportHeight: cameraState.viewportHeight,
+              // Live DOM measurement when the host could read it; the pure
+              // estimator is the fallback inside `labelRect`.
+              measuredWidth: measuredWidths.current[descriptor.id],
+            }),
+          };
+        });
+        const hiddenIds = new Set(
+          resolveLabelCollision(entries.map((e) => e.rect))
+            .filter((v) => v.hidden)
+            .map((v) => v.id)
+        );
+
+        for (const { descriptor, p, yOff } of entries) {
+          const el = labelRefs.current[descriptor.id];
+          if (!el) continue;
+          // Hide when behind the camera, when projected far outside the
+          // viewport (margin = label half-width, so re-entry is smooth), when
+          // the projection is degenerate, or when the collision pass hid it.
+          const marginX = 80;
+          const offscreen =
+            p.behind ||
+            p.x < -marginX ||
+            p.x > cameraState.viewportWidth + marginX ||
+            p.y < -marginX ||
+            p.y > cameraState.viewportHeight + marginX;
+          if (offscreen || hiddenIds.has(descriptor.id)) {
+            el.style.visibility = "hidden";
+            el.style.pointerEvents = "none";
+          } else {
+            el.style.visibility = "visible";
+            el.style.pointerEvents = "auto";
+            // Per-label offset: hub anchored below the nucleus (V2), other
+            // chips above the anchor (`LABEL_OFFSET_Y`) as before.
+            el.style.transform = `translate(${p.x}px, ${p.y + yOff}px)`;
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [cameraState, descriptors, focusNodeId]);
+
+  return (
+    <div
+      className="atomic-labels atomic-labels--projected"
+      data-atomic-labels="projected"
+      role="list"
+      aria-label="Topology atoms"
+      style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+    >
+      {descriptors.map((descriptor) => {
+        const isFocused = focusNodeId === descriptor.id;
+        const state = descriptor.visualState.state;
+        const rowClass = [
+          "atomic-labels__row",
+          "atomic-labels__row--projected",
+          descriptor.kind === "hub" ? "atomic-labels__row--hub" : "atomic-labels__row--atom",
+          `atomic-labels__row--${state}`,
+          isFocused ? "is-focused" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        return (
+          <button
+            key={descriptor.id}
+            type="button"
+            ref={(el) => {
+              labelRefs.current[descriptor.id] = el;
+            }}
+            className={rowClass}
+            data-atom-id={descriptor.id}
+            data-kind={descriptor.kind}
+            data-visual-state={state}
+            data-focused={isFocused ? "true" : "false"}
+            aria-pressed={isFocused}
+            aria-label={`${descriptor.label} — atom, ${state}`}
+            onClick={() => handleSelect(descriptor)}
+            // Initial hidden state; the rAF loop positions + reveals it on the
+            // first frame.
+            style={{ visibility: "hidden" }}
+          >
+            <span
+              className="atomic-labels__swatch"
+              style={{ backgroundColor: descriptor.laneHue }}
+              aria-hidden="true"
+            />
+            <span className="atomic-labels__text">{descriptor.label}</span>
+            <span className="atomic-labels__state" aria-hidden="true">
+              {state}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Roster fallback — compact bottom-right panel (pre-frame / no-WebGL) */
+/* ------------------------------------------------------------------ */
+
+function RosterFallback({
   descriptors,
   focusNodeId,
   onProviderClick,
@@ -38,11 +374,12 @@ export function AtomicLabels({
   onProviderClick: (providerId: string) => void;
   onFocusRequest?: (nodeId: string) => void;
 }) {
-  // One row per atom (snapshot order — stable).
+  const handleSelect = useAtomSelection(onProviderClick, onFocusRequest);
+
   return (
     <div
-      className="atomic-labels"
-      data-atomic-labels="true"
+      className="atomic-labels atomic-labels--roster"
+      data-atomic-labels="roster"
       role="list"
       aria-label="Topology atoms"
       style={{ pointerEvents: "auto" }}
@@ -60,11 +397,6 @@ export function AtomicLabels({
           .filter(Boolean)
           .join(" ");
 
-        const handleRowClick = () => {
-          onFocusRequest?.(descriptor.id);
-          if (!isHub && descriptor.providerId) onProviderClick(descriptor.providerId);
-        };
-
         return (
           <button
             key={descriptor.id}
@@ -74,7 +406,9 @@ export function AtomicLabels({
             data-kind={descriptor.kind}
             data-visual-state={state}
             data-focused={isFocused ? "true" : "false"}
-            onClick={handleRowClick}
+            aria-pressed={isFocused}
+            aria-label={`${descriptor.label} — atom, ${state}`}
+            onClick={() => handleSelect(descriptor)}
           >
             <span
               className="atomic-labels__swatch"

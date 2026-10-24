@@ -35,19 +35,22 @@
  * `useEffect` (client-only).
  *
  * Explicit unknowns (bounded scope — deliberately NOT implemented):
- * - **Camera auto-fit**: the scene uses a fixed camera; auto-fitting an
- *   arbitrary atom count is an explicit unknown.
  * - **Spatially-projected labels**: labels are a DOM *roster* (a panel listing
  *   every atom), not pixel-projected screen labels. True projection would
  *   require `three` (for the camera math) or drei's `<Html>`, both of which
  *   would pull the 3D stack into the static graph or add a heavy dependency.
- * - **Event-pool pulses (M4)**: atoms/links reflect snapshot state only.
  * - **Live queue telemetry**: the snapshot carries no queue depth, so atom
  *   vibration is always "unavailable" (never fabricated) in this phase.
  * - **GPU device atoms (`kind: "gpu"`)**: never emitted by M1; rendered
  *   forward-compatibly, but no M1 snapshot carries them.
+ *
+ * Implemented (M4/M6): the bounded request-lifecycle event pool (transient
+ * discharges), the deterministic camera fit/focus, the quality-fallback
+ * ladder, reduced-motion, the document-hidden pause, the WebGL context-loss
+ * guard, and the telemetry stale/unavailable badge — all wired through the
+ * host-owned {@link AtomicSceneContextValue} (see `./scene/sceneContext.ts`).
  */
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import type {
@@ -58,6 +61,7 @@ import type { TopologySceneSnapshot } from "@/shared/topology/domain/types";
 
 import { detectTopologyCapabilities } from "./capabilities";
 import { computeAtomicLayout, type AtomicLayoutNode } from "./layout";
+import { computeFitRadiusFromPositions } from "./cameraFit";
 import {
   asJobLane,
   laneHue,
@@ -66,6 +70,7 @@ import {
   queueVibration,
   resolveVisualState,
   type JobLane,
+  type TopologyLane,
   type SpinResult,
   type VibrationResult,
   type AtomicVisualState,
@@ -76,11 +81,35 @@ import { AtomicControls } from "./overlays/AtomicControls";
 import { AtomicLegend } from "./overlays/AtomicLegend";
 import { AtomicLabels } from "./overlays/AtomicLabels";
 import { AtomicTooltip } from "./overlays/AtomicTooltip";
+import { AtomicTelemetryStatus, type AtomicTelemetryState } from "./overlays/AtomicTelemetryStatus";
+import {
+  createAtomicEventPool,
+  mapLifecycleToAtomicEvents,
+  type AtomicEventPool,
+} from "./eventPool";
+import { resolveSceneQuality, type QualityProbe } from "./quality";
+import { createAtomicCameraState, type AtomicSceneContextValue } from "./scene/sceneContext";
 
 // Re-export the pure visual-encoding types so the scene/overlay subtree has a
 // single import point (this adapter) rather than reaching into `visualEncoding`
 // directly.
 export type { JobLane, SpinResult, VibrationResult, AtomicVisualState, AtomicVisualStateInput };
+
+/**
+ * The snapshot-feed freshness window (ms) the telemetry badge keys off: a
+ * snapshot older than this is `stale`, a missing/invalid `capturedAt` is
+ * `unavailable`, otherwise `available`. Named so the threshold is a single
+ * value change, not a refactor.
+ */
+const TELEMETRY_FRESH_WINDOW_MS = 5_000;
+
+/**
+ * The world-unit margin added beyond the farthest ring atom's centerline when
+ * computing the responsive fit radius (UX correction): the atom's visual
+ * extent (radius + electron cloud, matching the scene's `ATOM_RADIUS + 16`),
+ * so the outermost atom sits just inside the frustum rather than on its edge.
+ */
+const ATOM_FIT_MARGIN = 38;
 
 /* ------------------------------------------------------------------ */
 /* Typed error for the unsupported-WebGL path                          */
@@ -131,8 +160,19 @@ export interface AtomVisualDescriptor {
   providerId?: string;
   /** World-space position (from {@link computeAtomicLayout}; hub = origin). */
   position: { x: number; y: number; z: number };
-  /** Deterministic atom color (provider → `modelColor(providerId)`, else slate). */
+  /**
+   * Base atom color. For provider atoms: the first observed in-flight model
+   * color (honest identity), or neutral slate when no models are observed.
+   * For hub/gpu: neutral slate. Never a provider-hash guess.
+   */
   color: string;
+  /**
+   * Observed in-flight model colors (≤3). Each entry is `modelColor(modelId)`
+   * for a distinct model actually seen in-flight. Empty when no models are
+   * observed — the scene renders only the neutral base in that case.
+   * This is the ground truth for the layered nucleus (item 5).
+   */
+  modelColors: string[];
   /** Resolved job lane (M1 has no per-node lane → `"unknown"`). */
   lane: JobLane;
   /** Lane hue (used by overlays: legend, labels, tooltip). */
@@ -224,14 +264,21 @@ export function resolveAtomDescriptors(
     // silently rendering an unmapped lane.
     const lane: JobLane = isHub ? "unknown" : asJobLane(node.lane?.value ?? "unknown");
 
-    // Deterministic color: providers key off `modelColor(providerId)` (a
-    // stable seeded hash); anything else (hub / unknown) is a neutral slate.
-    const color =
-      node.kind === "provider" && node.providerId
-        ? modelColor(node.providerId)
-        : UNKNOWN_ATOM_COLOR;
+    // Honest model-color composition (OR-ATOM-002 item 4): colors come ONLY
+    // from observed in-flight model ids — never from a provider-hash guess.
+    // At most 3 distinct model colors are rendered; the remainder is neutral.
+    const inFlightModelIds = node.inFlightModels?.value;
+    const modelColors =
+      inFlightModelIds && inFlightModelIds.length > 0
+        ? inFlightModelIds.slice(0, 3).map((m) => modelColor(m))
+        : [];
+    const color = modelColors.length > 0 ? modelColors[0] : UNKNOWN_ATOM_COLOR;
 
-    const spin = spinRadiansPerSecond(node.activeRequests?.value ?? null, SPIN_REFERENCE_TPS);
+    // Honest spin (OR-ATOM-002 item 2): the snapshot carries a request
+    // *count*, not a tokens-per-second measurement. Feeding a count into
+    // `spinRadiansPerSecond` would fabricate a TPS value. The domain has no
+    // observed TPS in the snapshot → the honest encoding is `unavailable`.
+    const spin = spinRadiansPerSecond(null, SPIN_REFERENCE_TPS);
     // M1 carries no queue telemetry; `null` → "unavailable" (never fabricated).
     const vibration = queueVibration(null);
     const visualState = resolveVisualState({
@@ -254,6 +301,7 @@ export function resolveAtomDescriptors(
       visualState,
       activeRequests: node.activeRequests?.value ?? null,
       ringIndex,
+      modelColors,
     };
   });
 }
@@ -263,8 +311,18 @@ export function resolveAtomDescriptors(
  * Pure (no DOM / WebGL); the 3D scene styles each route edge from these.
  */
 export function resolveLinkDescriptors(snapshot: TopologySceneSnapshot): LinkVisualDescriptor[] {
+  // Map node id → observed lane so a link can inherit its target atom's lane.
+  // The `Observed` wrapper may be present with a `null` value (unrecognizable
+  // lane), so check the value itself, not just the wrapper's presence.
+  const nodeLaneById = new Map<string, TopologyLane | null>();
+  for (const n of snapshot.nodes) {
+    if (n.lane && n.lane.value != null) nodeLaneById.set(n.id, n.lane.value);
+  }
   return snapshot.links.map((link) => {
-    const lane: JobLane = "unknown";
+    // Honest lane (OR-ATOM-002 item 3): join the target node's observed lane
+    // when present; fall back to explicit "unknown" when absent.
+    const targetLane = nodeLaneById.get(link.target);
+    const lane: JobLane = targetLane ? asJobLane(targetLane) : "unknown";
     const visualState = resolveVisualState({ health: link.health, traffic: link.traffic });
     return {
       id: link.id,
@@ -297,6 +355,12 @@ export interface AtomicSceneProps {
   paused: boolean;
   focusNodeId: string | null;
   emptyStateLabel?: string;
+  /**
+   * The host-owned ambient scene state (event pool, focus, reduced motion,
+   * quality, camera framing). Carried into the scene via the
+   * `AtomicSceneContext` provider.
+   */
+  sceneContext: AtomicSceneContextValue;
 }
 
 /** Props for the client-only scene host component. */
@@ -307,8 +371,20 @@ export interface AtomicTopologyRendererProps {
   size: { width: number; height: number };
   /** Whether continuous animation is paused (host-driven via `setPaused`). */
   paused: boolean;
+  /**
+   * Monotonic reset token (OR-ATOM-003, V7): bumped on each "reset view"
+   * request so the scene's `CameraRig` re-applies the base fit. `0` until the
+   * first reset. Carried into the scene via {@link AtomicSceneContextValue}.
+   */
+  resetToken: number;
   /** The atom id the view should center on (host-driven via `focusNode`). */
   focusNodeId: string | null;
+  /**
+   * The bounded request-lifecycle event pool owned by the imperative instance
+   * (stable across renders). Absent on the steady-state-only path — the scene
+   * primitives treat it as "no discharge".
+   */
+  eventPool?: AtomicEventPool;
   /** Renderer options (empty-state label + delegated provider click). */
   options: TopologyRendererOptions;
   /**
@@ -350,9 +426,12 @@ function canCreateWebGL2AtRender(): boolean {
 export function AtomicTopologyRenderer({
   snapshot,
   paused,
+  resetToken,
   focusNodeId,
   options,
   onFocusRequest,
+  eventPool,
+  size,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
 
@@ -381,6 +460,89 @@ export function AtomicTopologyRenderer({
     ? (descriptors.find((d) => d.id === focusNodeId) ?? null)
     : null;
 
+  // Environment signals are stable for the lifetime of this host, so probe
+  // them once (the WebGL2 probe creates a real context — not free to repeat on
+  // every render).
+  const { reducedMotion, quality } = useMemo(() => {
+    const caps = detectTopologyCapabilities();
+    const probe: QualityProbe = {
+      webgl2: caps.webgl2,
+      devicePixelRatio: typeof window !== "undefined" ? window.devicePixelRatio : undefined,
+      hardwareConcurrency:
+        typeof navigator !== "undefined" ? navigator.hardwareConcurrency : undefined,
+      deviceMemoryGiB:
+        typeof navigator !== "undefined"
+          ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+          : undefined,
+    };
+    return {
+      reducedMotion: caps.reducedMotion,
+      quality: resolveSceneQuality(probe),
+    };
+  }, []);
+
+  // The stable per-frame camera snapshot the DOM label overlay reads
+  // (UX correction — projected labels). Created once; the scene writes to it
+  // every frame and the overlay reads it via requestAnimationFrame. A single
+  // mutable object shared between the R3F tree (writers) and the DOM overlay
+  // (reader) — kept outside React state so per-frame writes never re-render.
+  const [cameraState] = useState(() => createAtomicCameraState());
+
+  // Responsive framing (UX correction): fit the *actual* layout bounds, not
+  // the constant `DEFAULT_FIT_RADIUS`. The hub is the origin, so only the ring
+  // atoms contribute; the margin covers the atom radius + electron cloud.
+  const ringPositions = descriptors.filter((d) => d.kind !== "hub");
+  const fitRadius = computeFitRadiusFromPositions(
+    ringPositions.map((d) => d.position),
+    ATOM_FIT_MARGIN
+  );
+
+  // The live viewport aspect drives the fit: a wide, short canvas needs a
+  // different framing than a tall one. Before the first measured size both
+  // dimensions are 0 → fall back to the square default (aspect 1).
+  const cameraAspect = size.width > 0 && size.height > 0 ? size.width / size.height : 1;
+
+  // The host-owned ambient scene state (M4/M6): the instance's stable event
+  // pool, the focused atom's world position, and the shared camera framing.
+  // Carried into the scene via the `AtomicSceneContext` provider.
+  const sceneContext: AtomicSceneContextValue = {
+    pool: eventPool ?? null,
+    focusTarget: focusedDescriptor ? focusedDescriptor.position : null,
+    reducedMotion,
+    quality,
+    cameraFovDeg: 50,
+    cameraAspect,
+    // Deterministic discharge clock for render-time (reduced-motion) reads:
+    // the snapshot's own capture time, so renders never touch the wall clock.
+    nowMs: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
+    cameraState,
+    fitRadius,
+    resetToken,
+  };
+
+  // Feed-freshness state for the telemetry badge (M6): `unavailable` when the
+  // snapshot has no usable `capturedAt`, `stale` when the feed was older than
+  // the freshness window *when it arrived*, `available` otherwise. The
+  // freshness is measured once per snapshot, and measured *asynchronously*
+  // (deferred in an effect) — `Date.now()` during render is impure, and a
+  // synchronous `setState` inside an effect is a cascading-render risk, so
+  // the measurement runs one tick after the snapshot lands. A snapshot does
+  // not age in place, so the badge reflects the feed state at the moment it
+  // became observable.
+  const capturedAt = snapshot.capturedAt;
+  const [telemetryState, setTelemetryState] = useState<AtomicTelemetryState>("unavailable");
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (capturedAt != null && Number.isFinite(capturedAt)) {
+        const ageMs = Date.now() - capturedAt;
+        setTelemetryState(ageMs > TELEMETRY_FRESH_WINDOW_MS ? "stale" : "available");
+      } else {
+        setTelemetryState("unavailable");
+      }
+    }, 0);
+    return () => clearTimeout(id);
+  }, [capturedAt]);
+
   const handleProviderClick = useCallback(
     (providerId: string) => {
       options.onProviderClick?.(providerId);
@@ -404,6 +566,7 @@ export function AtomicTopologyRenderer({
             paused={paused}
             focusNodeId={focusNodeId}
             emptyStateLabel={options.emptyStateLabel}
+            sceneContext={sceneContext}
           />
         ) : (
           <div
@@ -429,6 +592,7 @@ export function AtomicTopologyRenderer({
         className="atomic-overlays"
         style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
       >
+        <AtomicTelemetryStatus state={telemetryState} capturedAt={capturedAt} />
         <AtomicLegend descriptors={descriptors} />
         <AtomicControls paused={paused} />
         <AtomicLabels
@@ -436,8 +600,9 @@ export function AtomicTopologyRenderer({
           focusNodeId={focusNodeId}
           onProviderClick={handleProviderClick}
           onFocusRequest={onFocusRequest}
+          cameraState={cameraState}
         />
-        <AtomicTooltip descriptor={focusedDescriptor} />
+        <AtomicTooltip descriptor={focusedDescriptor} capturedAt={capturedAt} />
       </div>
     </div>
   );
@@ -459,6 +624,8 @@ interface AtomicInstanceState {
   paused: boolean;
   focusNodeId: string | null;
   options: TopologyRendererOptions;
+  /** Monotonic "reset view" token (OR-ATOM-003, V7) — bumped on reset requests. */
+  resetToken: number;
 }
 
 /**
@@ -504,9 +671,49 @@ export function createAtomicTopologyInstance(
     paused: false,
     focusNodeId: null,
     options,
+    resetToken: 0,
   };
 
   let disposed = false;
+
+  // Delegated overlay controls (OR-ATOM-003, V7): the pause chip and the
+  // reset-view button in `overlays/AtomicControls.tsx` are presentational —
+  // they dispatch `window` CustomEvents, and this instance (the single owner
+  // of the animation state) is the listener. Wiring them here — rather than in
+  // the host panel — keeps the controls authoritative for every mount path and
+  // lets a bare renderer instance respond to the same chips. Both listeners
+  // are removed in `dispose()` so a destroyed instance never lingers on the
+  // `window` event bus.
+  const onTogglePause = (event: Event): void => {
+    if (disposed) return;
+    const detail =
+      event instanceof CustomEvent && typeof event.detail === "object" && event.detail !== null
+        ? (event.detail as { pause?: unknown }).pause
+        : !state.paused;
+    state.paused = detail === true;
+    render();
+  };
+  const onResetView = (): void => {
+    if (disposed) return;
+    // Monotonic: the scene's `CameraRig` re-applies the base fit when this
+    // changes, even while an atom is focused (reset frames the whole scene).
+    state.resetToken += 1;
+    render();
+  };
+  window.addEventListener("atomic:toggle-pause", onTogglePause);
+  window.addEventListener("atomic:reset-view", onResetView);
+
+  // The renderer owns the bounded request-lifecycle event pool (M4): a stable
+  // ref handed to the host, populated from each snapshot's `lifecycle` stream
+  // on `update`, and cleared on `dispose`. The scene reads it per-frame
+  // (inside `useFrame`) for transient discharges — never React state.
+  const pool = createAtomicEventPool();
+
+  const ingestSnapshot = (snapshot: TopologySceneSnapshot): void => {
+    if (disposed) return;
+    const nowMs = Date.now();
+    for (const e of mapLifecycleToAtomicEvents(snapshot)) pool.ingest(e, nowMs);
+  };
 
   const render = (): void => {
     if (disposed) return;
@@ -518,8 +725,10 @@ export function createAtomicTopologyInstance(
         snapshot={state.snapshot}
         size={state.size}
         paused={state.paused}
+        resetToken={state.resetToken}
         focusNodeId={state.focusNodeId}
         options={state.options}
+        eventPool={pool}
         onFocusRequest={(nodeId: string) => {
           if (disposed) return;
           state.focusNodeId = nodeId;
@@ -529,13 +738,15 @@ export function createAtomicTopologyInstance(
     );
   };
 
-  // Render the initial snapshot.
+  // Ingest the initial snapshot's lifecycle stream, then render it.
+  ingestSnapshot(initial);
   render();
 
   return {
     update(snapshot: TopologySceneSnapshot): void {
       if (disposed) return;
       state.snapshot = snapshot;
+      ingestSnapshot(snapshot);
       render();
     },
     resize(width: number, height: number): void {
@@ -556,6 +767,12 @@ export function createAtomicTopologyInstance(
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      // Detach the delegated control listeners so a destroyed instance never
+      // keeps reacting to `atomic:toggle-pause` / `atomic:reset-view` events.
+      window.removeEventListener("atomic:toggle-pause", onTogglePause);
+      window.removeEventListener("atomic:reset-view", onResetView);
+      // Release the event pool so no pooled events survive the teardown.
+      pool.clear();
       try {
         root.unmount();
       } catch {
