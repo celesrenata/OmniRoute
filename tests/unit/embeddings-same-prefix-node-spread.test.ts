@@ -10,8 +10,8 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const { createProviderNode } = await import("../../src/lib/db/providers/nodes.ts");
-const { createEmbeddingResponse, pickRandomMatchingNode } =
-  await import("../../src/lib/embeddings/service.ts");
+const { createEmbeddingResponse } = await import("../../src/lib/embeddings/service.ts");
+const { pickRandomMatchingNode } = await import("../../src/shared/utils/pickRandomMatchingNode.ts");
 
 test.after(() => {
   core.resetDbInstance();
