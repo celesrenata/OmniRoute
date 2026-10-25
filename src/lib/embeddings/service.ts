@@ -49,6 +49,27 @@ function isNoAuthLocalEmbeddingHost(hostname: string): boolean {
   return isPrivateHost(hostname) && !isCloudMetadataHost(hostname);
 }
 
+/**
+ * Pick one element at random from those matching `predicate`, or null when
+ * none match. Used to spread embedding traffic across multiple
+ * `provider_nodes` that share a single model prefix — a plain `.find()` pins
+ * every request to the first registered node, leaving the rest idle while the
+ * pinned node saturates (one GPU absorbing a whole index batch → latency climbs
+ * until the client times out and reports "the provider is down", even though
+ * the service is alive). #arcforge-embeddings.
+ */
+export function pickRandomMatchingNode<T>(
+  items: readonly T[],
+  predicate: (item: T) => boolean
+): T | null {
+  const matches: T[] = [];
+  for (const item of items) {
+    if (predicate(item)) matches.push(item);
+  }
+  if (matches.length === 0) return null;
+  return matches[Math.floor(Math.random() * matches.length)];
+}
+
 export interface EmbeddingHandlerOptions {
   clientRawRequest?: {
     endpoint: string;
@@ -190,9 +211,12 @@ export async function createEmbeddingResponse(
   }
 
   let credentials: ProviderCredentialsResult | null = null;
+  // #arcforge-embeddings: several provider_nodes can share one model prefix
+  // (one per GPU host). Spread requests across all of them instead of pinning
+  // to the first registered node — see pickRandomMatchingNode().
   let providerConfig: EmbeddingProvider | null =
     options.resolvedProvider ||
-    dynamicProviders.find((dp) => dp.id === provider) ||
+    pickRandomMatchingNode(dynamicProviders, (dp) => dp.id === provider) ||
     getEmbeddingProvider(provider) ||
     null;
   let credentialsProviderId = provider;
@@ -264,7 +288,10 @@ export async function createEmbeddingResponse(
   if (!providerConfig) {
     try {
       const allNodes = (await getCachedProviderNodes()) as unknown as EmbeddingProviderNodeRow[];
-      const matchingNode = (Array.isArray(allNodes) ? allNodes : []).find(
+      // #arcforge-embeddings: same-prefix nodes load-balance here too (see
+      // pickRandomMatchingNode).
+      const matchingNode = pickRandomMatchingNode(
+        Array.isArray(allNodes) ? allNodes : [],
         (n) =>
           n.prefix === provider &&
           (n.apiType === "chat" || n.apiType === "responses" || n.apiType === "embeddings") &&
