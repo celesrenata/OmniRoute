@@ -25,6 +25,7 @@ import { generateRequestId } from "@/shared/utils/requestId";
 import { CORS_HEADERS } from "@omniroute/open-sse/utils/cors.ts";
 import { deriveRerankProviderForChatProvider } from "@omniroute/open-sse/config/rerankRegistry.ts";
 import { resolveAlibabaQwen3RerankUrl } from "@/shared/constants/alibabaProviderRegions";
+import { pickRandomMatchingNode } from "@/shared/utils/pickRandomMatchingNode";
 
 /**
  * Handle CORS preflight
@@ -169,7 +170,10 @@ async function postHandler(request, context) {
   if (parts.length >= 2) {
     const prefix = parts[0];
     const localModel = parts.slice(1).join("/");
-    const localProvider = localProviders.find((p) => p.id === prefix);
+    // #arcforge-embeddings: several provider_nodes can share one model prefix
+    // (one per GPU host). Spread requests across all of them instead of pinning
+    // to the first registered node — see pickRandomMatchingNode().
+    const localProvider = pickRandomMatchingNode(localProviders, (p) => p.id === prefix);
 
     if (localProvider) {
       const credentials = await getProviderCredentialsWithQuotaPreflight(localProvider.providerId);
