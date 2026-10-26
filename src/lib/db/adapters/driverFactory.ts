@@ -298,6 +298,20 @@ export function isPackBootForcedSqlJsSmoke(env: NodeJS.ProcessEnv): boolean {
   return env.OMNIROUTE_PACK_BOOT_SMOKE === "1" && env.OMNIROUTE_PACK_BOOT_FORCE_SQLJS === "1";
 }
 
+/**
+ * True when DATABASE_DRIVER selects a socket-backed adapter (PostgreSQL) instead
+ * of an embedded/SQLite file.
+ *
+ * Such a driver has no synchronous SQLite driver to discover: opening one just to
+ * close it again costs a real round-trip, and the close itself is the libpq
+ * teardown that aborts the process on Node 26 (see releasePgClient() in
+ * postgresAdapter.ts). Callers that only mean to probe must skip it entirely.
+ */
+export function isSocketDatabaseDriver(env: NodeJS.ProcessEnv = process.env): boolean {
+  const driver = env.DATABASE_DRIVER;
+  return driver === "postgres" || driver === "pg-native";
+}
+
 /** Tenta abrir com better-sqlite3 e node:sqlite sincronamente. Retorna null se ambos falharem. */
 export function tryOpenSync(
   filePath: string,
@@ -305,7 +319,7 @@ export function tryOpenSync(
 ): SqliteAdapter | null {
   // Try the database driver specified by env. This overrides all automatic selection.
   const specifiedDriver = process.env.DATABASE_DRIVER;
-  if (specifiedDriver === "postgres" || specifiedDriver === "pg-native") {
+  if (isSocketDatabaseDriver(process.env)) {
     // Attempt to create and connect to Postgres adapter
     try {
       const adapter = createPostgresAdapter({

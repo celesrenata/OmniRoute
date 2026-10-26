@@ -22,6 +22,53 @@
 import type { SqliteAdapter, PreparedStatement, RunResult } from "./types";
 import { runtimeRequire } from "./runtimeRequire";
 
+/**
+ * Ended pg-native clients are deliberately kept reachable — see releasePgClient().
+ *
+ * Bounded so a pathological reset loop cannot retain wrappers forever; the cap is
+ * far above any realistic number of adapter closes in a process lifetime.
+ */
+const retainedPgClients: unknown[] = [];
+const MAX_RETAINED_PG_CLIENTS = 256;
+
+/**
+ * Close a pg-native client without letting libuv read freed memory.
+ *
+ * pg-native's binding (libpq 1.11.0) embeds the connection's `uv_poll_t` inside
+ * the native `Connection` object. `PQ#finish()` calls
+ * `uv_close((uv_handle_t *) &self->poll_watcher, NULL)` — with NO close callback —
+ * and then drops the wrapper's own reference. The close only completes on a later
+ * event-loop iteration, so if V8 collects the JS wrapper first, libuv's closing
+ * handle queue points at freed memory and the whole process aborts:
+ *
+ *   Assertion `handle->flags & UV_HANDLE_CLOSING' failed.
+ *     ../deps/uv/src/unix/core.c:314
+ *   Aborted (core dumped)   // exit 134
+ *
+ * Observed with a PostgreSQL-backed deployment: `ensureDbInitialized()` opens a
+ * throwaway probe connection at boot and closes it, so every boot SIGABRT'd ~2s
+ * in and the pod crashlooped forever. Keeping the ended client referenced until
+ * the loop drains the close queue makes teardown safe; the socket itself is still
+ * closed, only the small native wrapper is retained.
+ */
+export function releasePgClient(client: { end: () => unknown }): void {
+  retainedPgClients.push(client);
+  if (retainedPgClients.length > MAX_RETAINED_PG_CLIENTS) {
+    retainedPgClients.splice(0, retainedPgClients.length - MAX_RETAINED_PG_CLIENTS);
+  }
+  client.end();
+}
+
+/** Test seam: how many ended clients releasePgClient() still retains. */
+export function getRetainedPgClientCount(): number {
+  return retainedPgClients.length;
+}
+
+/** Test seam: drop retained references. Never called by production code. */
+export function resetRetainedPgClientsForTest(): void {
+  retainedPgClients.length = 0;
+}
+
 // Helper that converts SQLite-style '?' parameters to PostgreSQL '$1' style,
 // skipping any '?' that lives inside a single-quoted string literal.
 // Exported for unit coverage (tests/unit/db/translateParams.test.ts).
@@ -538,11 +585,11 @@ function getClientForConnection(config: {
 
   try {
     client.connectSync(connStr);
-    return { client, cleanup: () => client.end() };
+    return { client, cleanup: () => releasePgClient(client) };
   } catch (err) {
     // Make sure we properly clean up on failure to avoid hanging connections
     try {
-      client.end();
+      releasePgClient(client);
     } catch {}
     throw err;
   }
@@ -558,6 +605,10 @@ export function createPostgresAdapter(config: {
 }): SqliteAdapter {
   const clientHolder = getClientForConnection(config);
   const client = clientHolder.client;
+  // close() must be idempotent: shutdown, reset and backup paths can all ask the
+  // same adapter to close, and a second libpq teardown on an already-finished
+  // connection is not safe.
+  let closed = false;
 
   const adapter: SqliteAdapter = {
     driver: "pg-native",
@@ -1056,6 +1107,8 @@ export function createPostgresAdapter(config: {
 
     // Called on adapter close to clean up resources
     close(): void {
+      if (closed) return;
+      closed = true;
       clientHolder.cleanup();
     },
 
