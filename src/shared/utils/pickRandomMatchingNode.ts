@@ -14,10 +14,32 @@ export function pickRandomMatchingNode<T>(
   items: readonly T[],
   predicate: (item: T) => boolean
 ): T | null {
+  const [first] = matchingNodesInRandomOrder(items, predicate);
+  return first ?? null;
+}
+
+/**
+ * Every matching element in random order (Fisher-Yates), so a caller can walk the
+ * candidates until one is actually usable.
+ *
+ * A shared prefix is not a capability: the same `arcforge` prefix can cover both
+ * `ArcForge Embeddings NN` (port 8100) and `ArcForge Rerank NN` (port 8101), and only
+ * the nodes registered in `provider_connections` can serve a credentialed route. Picking
+ * one at random and failing the request on the first credential-less node turns a
+ * half-registered prefix into a ~50% error rate — walk the shuffled candidates instead
+ * and keep the pick random across the ones that resolve.
+ */
+export function matchingNodesInRandomOrder<T>(
+  items: readonly T[],
+  predicate: (item: T) => boolean
+): T[] {
   const matches: T[] = [];
   for (const item of items) {
     if (predicate(item)) matches.push(item);
   }
-  if (matches.length === 0) return null;
-  return matches[Math.floor(Math.random() * matches.length)];
+  for (let i = matches.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [matches[i], matches[j]] = [matches[j], matches[i]];
+  }
+  return matches;
 }

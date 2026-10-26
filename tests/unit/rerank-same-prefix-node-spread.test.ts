@@ -168,4 +168,101 @@ test.describe("#arcforge-embeddings: rerank same-prefix node spread", () => {
     }
     assert.equal(hit, 6, "a lone node must still receive every request");
   });
+
+  // Production shape: one prefix covers two capabilities. `arcforge` fronts both
+  // `ArcForge Embeddings NN` (:8100, api_type=embeddings) and `ArcForge Rerank NN`
+  // (:8101, api_type=rerank), and only the rerank nodes have `provider_connections`
+  // rows. A shared prefix is not a capability, so a blind random pick landed on a
+  // credential-less node for ~half of the requests and answered 400 "No credentials
+  // for local provider: arcforge" — while every node was healthy.
+  test("nodes without credentials for this route are skipped, not failed", async () => {
+    for (const [i, host] of hosts.entries()) {
+      await createProviderNode({
+        id: `openai-compatible-embeddings-arcforge-${i + 1}`,
+        name: `ArcForge Embeddings ${i + 1}`,
+        type: "openai",
+        prefix: "arcforge",
+        baseUrl: `http://${host}:8100/v1`,
+        apiType: "embeddings",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    invalidateDbCache("nodes");
+    invalidateDbCache("connections");
+
+    const seenHosts = new Set<string>();
+    globalThis.fetch = async (url: string | URL | Request, _init?: RequestInit) => {
+      seenHosts.add(new URL(String(url)).host);
+      return new Response(JSON.stringify({ results: [{ index: 0, relevance_score: 0.9 }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    for (let i = 0; i < 40; i++) {
+      const res = await POST(
+        new Request("http://localhost/v1/rerank", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "arcforge/qwen3-reranker-0.6b",
+            query: "what is a cat",
+            documents: ["a cat is a small animal", "the stock market fell"],
+            top_n: 1,
+          }),
+        }),
+        {}
+      );
+      const body = await res.text();
+      assert.equal(
+        res.status,
+        200,
+        `request ${i} must skip the credential-less same-prefix node, got ${res.status}: ${body}`
+      );
+    }
+
+    assert.ok(seenHosts.size >= 2, "credentialed rerank nodes must still be load-balanced");
+    for (const host of seenHosts) {
+      assert.ok(
+        hosts.some((h) => host === `${h}:8101`),
+        `request reached ${host}; a node without a provider_connections row must never be used`
+      );
+    }
+  });
+
+  test("a prefix with no credentialed node still fails with a clear 400", async () => {
+    await createProviderNode({
+      id: "openai-compatible-rerank-noconn-1",
+      name: "Unregistered Rerank",
+      type: "openai",
+      prefix: "noconn",
+      baseUrl: "http://10.30.9.10:8101/v1",
+      apiType: "rerank",
+      createdAt: now,
+      updatedAt: now,
+    });
+    invalidateDbCache("nodes");
+    invalidateDbCache("connections");
+
+    globalThis.fetch = async () => {
+      throw new Error("upstream must not be called without credentials");
+    };
+
+    const res = await POST(
+      new Request("http://localhost/v1/rerank", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "noconn/qwen3-reranker-0.6b",
+          query: "q",
+          documents: ["a"],
+        }),
+      }),
+      {}
+    );
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.match(String(body?.error?.message), /No credentials for local provider: noconn/);
+  });
 });
