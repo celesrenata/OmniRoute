@@ -746,6 +746,20 @@ the stale-enforcement added in Fase 6A.3.
     VERBATIM no prompt de todo subagente que toque git; (e) se `_tasks` aparecer como symlink
     quebrado, NÃO commitar nada — restaurar do remote e avisar o operador. O gate
     `check:tracked-artifacts` (pre-commit + CI) bloqueia `_tasks` rastreado em qualquer forma.
+24. **PR targets are restricted: NEVER open a pull request against any repository except
+    `FTA-developers` or `celesrenata` — unless the human explicitly directs a specific
+    target.** The only permitted PR target repos are `FTA-developers/…` and
+    `celesrenata/…` (e.g. `celesrenata/OmniRoute`). Do NOT open a PR against upstream
+    `diegosouzapw/OmniRoute` (or any other third-party repo/fork) on your own initiative:
+    the operator's fork `celesrenata/OmniRoute` is the build source for the k8s deploy, and
+    cross-repo PRs against the upstream default branch (which has diverged from the fork)
+    produce `CONFLICTING`/`DIRTY` PRs that serve no purpose and spam the tracker. Before
+    opening ANY PR, confirm the target repo is `FTA-developers` or `celesrenata`; if the
+    work is meant for upstream, STOP and ask the operator first — only proceed on explicit
+    direction naming the target repo + branch. When in doubt, ask. (Incident 2026-10-26:
+    PR #18215 opened cross-repo against `diegosouzapw/OmniRoute:release/v3.8.52`; fork and
+    upstream had diverged → `CONFLICTING`/`DIRTY`; operator ordered it closed and the
+    branch deleted.)
 
 ---
 
