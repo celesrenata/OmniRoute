@@ -25,7 +25,7 @@ import { generateRequestId } from "@/shared/utils/requestId";
 import { CORS_HEADERS } from "@omniroute/open-sse/utils/cors.ts";
 import { deriveRerankProviderForChatProvider } from "@omniroute/open-sse/config/rerankRegistry.ts";
 import { resolveAlibabaQwen3RerankUrl } from "@/shared/constants/alibabaProviderRegions";
-import { pickRandomMatchingNode } from "@/shared/utils/pickRandomMatchingNode";
+import { matchingNodesInRandomOrder } from "@/shared/utils/pickRandomMatchingNode";
 
 /**
  * Handle CORS preflight
@@ -173,104 +173,94 @@ async function postHandler(request, context) {
     // #arcforge-embeddings: several provider_nodes can share one model prefix
     // (one per GPU host). Spread requests across all of them instead of pinning
     // to the first registered node — see pickRandomMatchingNode().
-    const localProvider = pickRandomMatchingNode(localProviders, (p) => p.id === prefix);
-
-    if (localProvider) {
-      const credentials = await getProviderCredentialsWithQuotaPreflight(localProvider.providerId);
-      if (!credentials) {
-        return errorResponse(
-          HTTP_STATUS.BAD_REQUEST,
-          `No credentials for local provider: ${prefix}`
-        );
-      }
-      if (isAllRateLimitedCredentials(credentials)) {
-        return rateLimitedProviderResponse(prefix, credentials);
-      }
-
-      const token = credentials?.apiKey || credentials?.accessToken;
-      const startTime = Date.now();
-      // One body serves every known local server: Cohere/OpenAI spelling (`documents`,
-      // `return_documents`) plus the TEI spelling (`texts`, `return_text`). See
-      // `_shared/rerankLocalNodeShapes.ts`.
-      const upstreamBody = JSON.stringify(
-        buildLocalRerankRequestBody({
-          model: localModel,
-          query: body.query,
-          documents: body.documents,
-          top_n: body.top_n as number | undefined,
-          return_documents: body.return_documents as boolean | undefined,
-        })
+    //
+    // A shared prefix is not a capability: the same prefix may also cover nodes for a
+    // different local endpoint (e.g. `ArcForge Embeddings NN` on :8100 alongside
+    // `ArcForge Rerank NN` on :8101), and those have no `provider_connections` row for
+    // this route. Walk the shuffled candidates and use the first one whose credentials
+    // resolve, instead of failing the request on a credential-less pick.
+    const candidates = matchingNodesInRandomOrder(localProviders, (p) => p.id === prefix);
+    if (candidates.length === 0) {
+      // No provider_node matches this prefix at all (e.g. a remote node that is
+      // opted out) — keep the historical "Invalid rerank model" answer.
+      return errorResponse(
+        HTTP_STATUS.BAD_REQUEST,
+        `Invalid rerank model: ${body.model}. Use format: provider/model`
       );
-      const upstreamInit: RequestInit = {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: upstreamBody,
-      };
-      try {
-        let res = await fetch(localProvider.baseUrl, upstreamInit);
+    }
+    let localProvider: (typeof candidates)[number] | null = null;
+    let credentials: Awaited<ReturnType<typeof getProviderCredentialsWithQuotaPreflight>> = null;
+    let rateLimited: typeof credentials = null;
+    for (const candidate of candidates) {
+      const candidateCredentials = await getProviderCredentialsWithQuotaPreflight(
+        candidate.providerId
+      );
+      if (!candidateCredentials) continue;
+      if (isAllRateLimitedCredentials(candidateCredentials)) {
+        rateLimited ??= candidateCredentials;
+        continue;
+      }
+      localProvider = candidate;
+      credentials = candidateCredentials;
+      break;
+    }
 
-        // Some local providers (e.g. Infinity, TEI) mount at /rerank rather than /v1/rerank
-        if (res.status === 404 && localProvider.baseUrl.endsWith("/v1/rerank")) {
-          const fallbackUrl = localProvider.baseUrl.replace(/\/v1\/rerank$/, "/rerank");
-          try {
-            const fallbackRes = await fetch(fallbackUrl, upstreamInit);
-            if (fallbackRes.ok || fallbackRes.status !== 404) {
-              res = fallbackRes;
-            }
-          } catch {
-            // retain original 404 response if fallback fetch fails
+    if (!localProvider) {
+      if (rateLimited) return rateLimitedProviderResponse(prefix, rateLimited);
+      return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for local provider: ${prefix}`);
+    }
+
+    const token = credentials?.apiKey || credentials?.accessToken;
+    const startTime = Date.now();
+    // One body serves every known local server: Cohere/OpenAI spelling (`documents`,
+    // `return_documents`) plus the TEI spelling (`texts`, `return_text`). See
+    // `_shared/rerankLocalNodeShapes.ts`.
+    const upstreamBody = JSON.stringify(
+      buildLocalRerankRequestBody({
+        model: localModel,
+        query: body.query,
+        documents: body.documents,
+        top_n: body.top_n as number | undefined,
+        return_documents: body.return_documents as boolean | undefined,
+      })
+    );
+    const upstreamInit: RequestInit = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: upstreamBody,
+    };
+    try {
+      let res = await fetch(localProvider.baseUrl, upstreamInit);
+
+      // Some local providers (e.g. Infinity, TEI) mount at /rerank rather than /v1/rerank
+      if (res.status === 404 && localProvider.baseUrl.endsWith("/v1/rerank")) {
+        const fallbackUrl = localProvider.baseUrl.replace(/\/v1\/rerank$/, "/rerank");
+        try {
+          const fallbackRes = await fetch(fallbackUrl, upstreamInit);
+          if (fallbackRes.ok || fallbackRes.status !== 404) {
+            res = fallbackRes;
           }
+        } catch {
+          // retain original 404 response if fallback fetch fails
         }
+      }
 
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          const errorMessage =
-            errData.message || errData.detail || `Provider returned HTTP ${res.status}`;
-          saveCallLog({
-            method: "POST",
-            path: "/v1/rerank",
-            status: res.status,
-            model: body.model,
-            provider: prefix,
-            connectionId:
-              (credentials as { connectionId?: string } | null)?.connectionId || undefined,
-            duration: Date.now() - startTime,
-            requestBody: {
-              model: body.model,
-              query: body.query,
-              documents: body.documents,
-              top_n: body.top_n,
-              return_documents: body.return_documents,
-            },
-            responseBody: errData,
-            error: errorMessage,
-            apiKeyId: policy.apiKeyInfo?.id || undefined,
-            apiKeyName: policy.apiKeyInfo?.name || undefined,
-          }).catch(() => {});
-          return errorResponse(res.status, errorMessage);
-        }
-
-        // Fold TEI's bare `[{index, score, text}]`, `score`-only gateways, and
-        // Voyage-style `{data: [...]}` into the Cohere envelope clients (and the
-        // memory engine, which reads `relevance_score`) expect.
-        const data = normalizeLocalRerankResponse(await res.json(), body.documents, {
-          top_n: body.top_n as number | undefined,
-          return_documents: body.return_documents as boolean | undefined,
-        });
-        const latencyMs = Date.now() - startTime;
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const errorMessage =
+          errData.message || errData.detail || `Provider returned HTTP ${res.status}`;
         saveCallLog({
           method: "POST",
           path: "/v1/rerank",
-          status: 200,
+          status: res.status,
           model: body.model,
           provider: prefix,
           connectionId:
             (credentials as { connectionId?: string } | null)?.connectionId || undefined,
-          duration: latencyMs,
-          tokens: { prompt_tokens: 0, completion_tokens: 0 },
+          duration: Date.now() - startTime,
           requestBody: {
             model: body.model,
             query: body.query,
@@ -278,39 +268,69 @@ async function postHandler(request, context) {
             top_n: body.top_n,
             return_documents: body.return_documents,
           },
-          responseBody: data,
+          responseBody: errData,
+          error: errorMessage,
           apiKeyId: policy.apiKeyInfo?.id || undefined,
           apiKeyName: policy.apiKeyInfo?.name || undefined,
         }).catch(() => {});
-
-        const headers = new Headers({ ...CORS_HEADERS, "Content-Type": "application/json" });
-        attachOmniRouteMetaHeaders(headers, {
-          provider: prefix,
-          model: localModel,
-          costUsd: 0,
-          latencyMs,
-          requestId: generateRequestId(),
-        });
-        return new Response(JSON.stringify(data), {
-          status: 200,
-          headers,
-        });
-      } catch (err: any) {
-        saveCallLog({
-          method: "POST",
-          path: "/v1/rerank",
-          status: 500,
-          model: body.model,
-          provider: prefix,
-          connectionId:
-            (credentials as { connectionId?: string } | null)?.connectionId || undefined,
-          duration: Date.now() - startTime,
-          error: err.message,
-          apiKeyId: policy.apiKeyInfo?.id || undefined,
-          apiKeyName: policy.apiKeyInfo?.name || undefined,
-        }).catch(() => {});
-        return errorResponse(500, `Rerank request failed: ${err.message}`);
+        return errorResponse(res.status, errorMessage);
       }
+
+      // Fold TEI's bare `[{index, score, text}]`, `score`-only gateways, and
+      // Voyage-style `{data: [...]}` into the Cohere envelope clients (and the
+      // memory engine, which reads `relevance_score`) expect.
+      const data = normalizeLocalRerankResponse(await res.json(), body.documents, {
+        top_n: body.top_n as number | undefined,
+        return_documents: body.return_documents as boolean | undefined,
+      });
+      const latencyMs = Date.now() - startTime;
+      saveCallLog({
+        method: "POST",
+        path: "/v1/rerank",
+        status: 200,
+        model: body.model,
+        provider: prefix,
+        connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+        duration: latencyMs,
+        tokens: { prompt_tokens: 0, completion_tokens: 0 },
+        requestBody: {
+          model: body.model,
+          query: body.query,
+          documents: body.documents,
+          top_n: body.top_n,
+          return_documents: body.return_documents,
+        },
+        responseBody: data,
+        apiKeyId: policy.apiKeyInfo?.id || undefined,
+        apiKeyName: policy.apiKeyInfo?.name || undefined,
+      }).catch(() => {});
+
+      const headers = new Headers({ ...CORS_HEADERS, "Content-Type": "application/json" });
+      attachOmniRouteMetaHeaders(headers, {
+        provider: prefix,
+        model: localModel,
+        costUsd: 0,
+        latencyMs,
+        requestId: generateRequestId(),
+      });
+      return new Response(JSON.stringify(data), {
+        status: 200,
+        headers,
+      });
+    } catch (err: any) {
+      saveCallLog({
+        method: "POST",
+        path: "/v1/rerank",
+        status: 500,
+        model: body.model,
+        provider: prefix,
+        connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+        duration: Date.now() - startTime,
+        error: err.message,
+        apiKeyId: policy.apiKeyInfo?.id || undefined,
+        apiKeyName: policy.apiKeyInfo?.name || undefined,
+      }).catch(() => {});
+      return errorResponse(500, `Rerank request failed: ${err.message}`);
     }
   }
 
