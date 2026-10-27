@@ -44,11 +44,10 @@ import {
   allowlistedMetricNames,
   gpuIdentityFromLabels,
   isAcceptableSampleTime,
-  isVramMetric,
   mappingForMetric,
   observationFieldFor,
   runtimeIdentityFromLabels,
-  vramScaleFor,
+  scaleFieldValue,
   type CounterRateEngine,
   type MetricSample,
 } from "./metricMapping";
@@ -289,12 +288,11 @@ function applyGrafanaSample(args: GrafanaSampleArgs): void {
   if (!mapping) return;
   const { field, unit } = observationFieldFor(mapping);
   // T5.6b1: DCGM VRAM gauges are MiB on the stock dcgm-exporter; scale to
-  // bytes ONLY when the operator configured vramUnit="mib". The decision
-  // lives in the shared helper (metricMapping.ts) so all three adapters agree;
-  // non-VRAM gauges (util/temp/power) and the vLLM counter are never scaled.
-  const value = isVramMetric(metricName)
-    ? sample.value * vramScaleFor(args.config.vramUnit)
-    : sample.value;
+  // bytes ONLY when vramUnit="mib"; the macmon scaled ratio is 0..1 → 0..100
+  // (out-of-range → null, never clamped). The decision lives in the shared
+  // helper (metricMapping.ts) so all adapters agree; temp/power and the
+  // counter are never scaled.
+  const value = scaleFieldValue(sample.value, args.config.vramUnit, metricName);
 
   if (mapping.kind === "gpu") {
     const id = gpuIdentityFromLabels(sample.labels, labelKeys);

@@ -19,7 +19,7 @@
  *   - unit guards apply (percent outside [0,100] → unknown, row still emitted);
  *   - one failing or malformed metric never poisons the snapshot; an abort does
  *     propagate (category "aborted");
- *   - exactly the 6 allowlisted metrics are queried (version-controlled set).
+ *   - exactly the 9 allowlisted metrics are queried (version-controlled set).
  */
 
 import assert from "node:assert/strict";
@@ -76,7 +76,7 @@ function series(
 
 /**
  * Recording fake fetch: routes by the encoded metric name in the query path.
- * Unknown metrics default to a 404 (so a snapshot always "sees" all six).
+ * Unknown metrics default to a 404 (so a snapshot always "sees" all nine).
  */
 function makeFakeFetch(payloads: Record<string, FakeResponseSpec> = {}) {
   const calls: { url: string; init?: RequestInit }[] = [];
@@ -103,7 +103,7 @@ function mutableFetch(get: () => unknown) {
   return { fetchImpl };
 }
 
-/** All six allowlisted metrics, each one series on the shared GPU. */
+/** All nine allowlisted metrics, each one series on the shared GPU. */
 function allMetrics(): Record<string, FakeResponseSpec> {
   return {
     DCGM_FI_DEV_GPU_UTIL: { body: { data: { result: series(GPU_LABELS, 73.5) } } },
@@ -178,13 +178,13 @@ describe("prometheus provider: probe", () => {
 });
 
 describe("prometheus provider: snapshot — GPU gauges", () => {
-  it("queries exactly the six allowlisted metrics, one bounded request each", async () => {
+  it("queries exactly the nine allowlisted metrics, one bounded request each", async () => {
     const { calls, fetchImpl } = makeFakeFetch(allMetrics());
     const provider = createPrometheusProvider({ config: config(), fetchImpl, now: fixtureNow });
 
     await provider.snapshot(QUERY);
 
-    assert.equal(calls.length, 6);
+    assert.equal(calls.length, 9);
     // Query shape: fixed path + encoded allowlisted metric (no user PromQL).
     assert.equal(
       calls[0].url,
@@ -203,6 +203,9 @@ describe("prometheus provider: snapshot — GPU gauges", () => {
       "DCGM_FI_DEV_GPU_TEMP",
       "DCGM_FI_DEV_GPU_UTIL",
       "DCGM_FI_DEV_POWER_USAGE",
+      "macmon_gpu_power_watts",
+      "macmon_gpu_scaled_ratio",
+      "macmon_gpu_temp_celsius",
       "vllm:generation_tokens_total",
     ]);
   });

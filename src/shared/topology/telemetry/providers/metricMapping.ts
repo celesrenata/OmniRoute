@@ -93,30 +93,46 @@ export const FLEET_METRIC_MAPPING: Record<MetricField, MetricMappingEntry> = {
 
 /**
  * Allowlisted upstream metric NAMES (version-controlled; never user-defined).
- * DCGM export-tool field IDs and the documented vLLM counter. This is the
- * only set of queries/adapters may issue — the SSRF chokepoint.
+ * DCGM export-tool field IDs, the documented vLLM counter, and the macmon
+ * (Apple SMC) GPU gauges. This is the only set of queries/adapters may issue
+ * — the SSRF chokepoint.
+ *
+ * Keys are the upstream metric NAMES, values the normalized field they map
+ * to. Multiple upstream names may map to the SAME field (DCGM and macmon both
+ * feed `gpu_util` / `gpu_temperature_c` / `gpu_power_w`) — the map is
+ * name→field, never field→name, so no name can silently shadow another.
+ *
+ * macmon GPU (macmon ≥0.7.x exporter, e.g. the `macmon_apple_gpu` Prometheus
+ * job): ONLY `macmon_gpu_scaled_ratio` / `macmon_gpu_temp_celsius` /
+ * `macmon_gpu_power_watts` are mapped. The deprecated
+ * `macmon_gpu_usage_ratio` alias and the adjacent `macmon_gpu_active_ratio` /
+ * `macmon_gpu_freq_mhz` / `macmon_gpu_ram_power_watts` are deliberately OFF
+ * this list — unknown names are dropped silently, never fabricated. macmon
+ * (SMC) exposes NO discrete GPU memory metric (Apple GPUs use shared system
+ * RAM), so a macmon GPU row carries no vram fields by design.
  */
-export const ALLOWLISTED_METRIC_NAMES: ReadonlyMap<MetricField, string> = new Map([
-  ["gpu_util", "DCGM_FI_DEV_GPU_UTIL"],
-  ["gpu_vram_used_bytes", "DCGM_FI_DEV_FB_USED"],
-  ["gpu_vram_total_bytes", "DCGM_FI_DEV_FB_TOTAL"],
-  ["gpu_temperature_c", "DCGM_FI_DEV_GPU_TEMP"],
-  ["gpu_power_w", "DCGM_FI_DEV_POWER_USAGE"],
-  ["runtime_output_tokens_total", "vllm:generation_tokens_total"],
+export const ALLOWLISTED_METRIC_NAMES: ReadonlyMap<string, MetricField> = new Map([
+  ["DCGM_FI_DEV_GPU_UTIL", "gpu_util"],
+  ["DCGM_FI_DEV_FB_USED", "gpu_vram_used_bytes"],
+  ["DCGM_FI_DEV_FB_TOTAL", "gpu_vram_total_bytes"],
+  ["DCGM_FI_DEV_GPU_TEMP", "gpu_temperature_c"],
+  ["DCGM_FI_DEV_POWER_USAGE", "gpu_power_w"],
+  ["vllm:generation_tokens_total", "runtime_output_tokens_total"],
+  // macmon (Apple SMC) — scaled ratio is 0..1 (scaled); see ratioScaleFor().
+  ["macmon_gpu_scaled_ratio", "gpu_util"],
+  ["macmon_gpu_temp_celsius", "gpu_temperature_c"],
+  ["macmon_gpu_power_watts", "gpu_power_w"],
 ]);
 
-const nameToField = new Map<string, MetricField>();
-for (const [field, name] of ALLOWLISTED_METRIC_NAMES) nameToField.set(name, field);
-
-/** Reverse lookup: upstream metric name → mapping entry (or null). */
+/** Lookup: upstream metric name → mapping entry (or null). */
 export function mappingForMetric(name: string): MetricMappingEntry | null {
-  const field = nameToField.get(name);
+  const field = ALLOWLISTED_METRIC_NAMES.get(name);
   return field ? FLEET_METRIC_MAPPING[field] : null;
 }
 
 /** All allowlisted upstream metric names (for building query sets). */
 export function allowlistedMetricNames(): string[] {
-  return [...ALLOWLISTED_METRIC_NAMES.values()];
+  return [...ALLOWLISTED_METRIC_NAMES.keys()];
 }
 
 /**
@@ -129,6 +145,33 @@ export function allowlistedMetricNames(): string[] {
  */
 export function vramScaleFor(vramUnit: "bytes" | "mib"): number {
   return vramUnit === "mib" ? 1048_576 : 1;
+}
+
+/**
+ * Scale factor for the macmon Apple SMC GPU scaled ratio (0..1 → 0..100).
+ * Returns `null` — never a clamped value — when the raw sample is outside
+ * the documented 0..1 range (out-of-range is not a valid measurement;
+ * dropping it as unknown is the honesty invariant).
+ */
+export function ratioScaleFor(raw: number): number | null {
+  return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw * 100 : null;
+}
+
+/**
+ * Single value-scale decision point shared by the prometheus / grafana
+ * adapters (a copy-pasted scale in any one of them is a bug). VRAM gauges
+ * scale with the `vramUnit` knob; the macmon scaled ratio is always 0..1→0..100
+ * and out-of-range raws come back as `null` (unknown, never clamped).
+ * Everything else is a pass-through.
+ */
+export function scaleFieldValue(
+  raw: number,
+  vramUnit: "bytes" | "mib",
+  metricName: string
+): number | null {
+  if (isVramMetric(metricName)) return raw * vramScaleFor(vramUnit);
+  if (metricName === "macmon_gpu_scaled_ratio") return ratioScaleFor(raw);
+  return raw;
 }
 
 /**
@@ -189,15 +232,14 @@ export function resolveFleetMetricLabelKeys(
   return out;
 }
 
-/** True when a label value is usable as an identity fact (no id-breaking chars). */
+/**
+ * True when a label value is usable as an identity fact. The structural
+ * separators of the canonical id `kind:host:id` (`:` and `/`) stay
+ * forbidden; spaces are LEGAL — macmon's `uuid` label is the chip display
+ * name ("Apple M5 Max"), a real one-GPU-per-host device identity.
+ */
 function isUsableIdentity(v: string | undefined): v is string {
-  return (
-    typeof v === "string" &&
-    v.trim() !== "" &&
-    !v.includes(":") &&
-    !v.includes(" ") &&
-    !v.includes("/")
-  );
+  return typeof v === "string" && v.trim() !== "" && !v.includes(":") && !v.includes("/");
 }
 
 /**

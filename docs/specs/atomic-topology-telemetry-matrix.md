@@ -358,6 +358,49 @@ row. Pinned by `tooltipQueueLabel.test.ts`.
 "no data" — never 0, never a decal; stale values are dropped upstream
 (§7.2.5) and surface as "no data".
 
+### 7.2.7 OR-ATOM-005 / T5.14b-2 — macmon (Apple SMC) GPU source
+
+The shared allowlist
+([metricMapping.ts](../../src/shared/topology/telemetry/providers/metricMapping.ts)
+→ `ALLOWLISTED_METRIC_NAMES`, name→field) maps the macmon exporter's Apple
+GPU gauges (Prometheus job `macmon_apple_gpu`) onto `kind:"gpu"` rows.
+**Live-verified** against `127.0.0.1:9090` (2026-10-27): the source rows
+carry the labels `hostname` (host key) and `uuid` (device key, e.g.
+`Apple M5 Max`) plus a redundant `chip` label. The join keys are the
+operator-configured `OMNIROUTE_FLEET_METRICS_LABEL_HOST` /
+`OMNIROUTE_FLEET_METRICS_LABEL_GPU_DEVICE` (defaults `host` / `gpu_uuid`;
+the deployed macmon source uses `hostname` / `uuid`).
+
+| Upstream metric           | Field               | Scale                       | Notes                                              |
+| ------------------------- | ------------------- | --------------------------- | -------------------------------------------------- |
+| `macmon_gpu_scaled_ratio` | `gpu_util`          | ratio × 100 (0..1 → 0..100) | out-of-range values are **dropped**, never clamped |
+| `macmon_gpu_temp_celsius` | `gpu_temperature_c` | pass-through (°C)           | same GPU row as util (shared join)                 |
+| `macmon_gpu_power_watts`  | `gpu_power_w`       | pass-through (W)            | same GPU row as util (shared join)                 |
+
+- **VRAM absent by design.** macmon (SMC) exposes **no** discrete GPU memory
+  metric — Apple GPUs use shared system RAM — so macmon GPU rows carry no
+  `gpu_vram_*` fields. The fields are _absent_, never a fabricated 0.
+- **Four adjacent macmon families are deliberately OFF the allowlist** —
+  unknown names are dropped silently, never fabricated: the deprecated
+  `macmon_gpu_usage_ratio` alias, `macmon_gpu_active_ratio`,
+  `macmon_gpu_freq_mhz`, and `macmon_gpu_ram_power_watts`.
+- Scale is applied per source name in `scaleFieldValue()` /
+  `ratioScaleFor()` (metricMapping.ts); the observation `basis` records the
+  **raw upstream name** (e.g. `macmon_gpu_scaled_ratio`) so provenance shows
+  the true source, not the normalized field.
+- **Identity contract:** the canonical id `kind:host:id` splits only on `:`
+  and `/`; spaces inside the device id are **legal** (`isUsableIdentity` /
+  `hasForbiddenChars` reject only `:` and `/` — the live
+  `uuid: "Apple M5 Max"` value is preserved in the id, e.g.
+  `gpu:stabulous:Apple M5 Max`). A sample missing the device label is
+  dropped, never guessed.
+
+Pinned by `tests/unit/telemetry/telemetry-provider-prometheus-macmon.test.ts`
+(12 cases — allowlist, mapping + scale, VRAM absence, excluded-family silent
+drop, missing-uuid drop, out-of-range drop, DCGM/vLLM regression, space
+identity contract); the prometheus + grafana provider suites carry the
+9-name allowlist cardinality.
+
 ## 8. Centralized collection decision (M0)
 
 - M2 shipped (T005): the endpoint itself exists — `GET /api/telemetry/fleet`

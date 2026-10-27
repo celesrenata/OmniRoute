@@ -34,11 +34,10 @@ import {
   allowlistedMetricNames,
   gpuIdentityFromLabels,
   isAcceptableSampleTime,
-  isVramMetric,
   mappingForMetric,
   observationFieldFor,
   runtimeIdentityFromLabels,
-  vramScaleFor,
+  scaleFieldValue,
   type CounterRateEngine,
   type MetricSample,
 } from "./metricMapping";
@@ -78,11 +77,6 @@ function normalizeLabels(raw: unknown): Record<string, string> {
     }
   }
   return out;
-}
-
-function basisForMetric(name: string): string {
-  // Provenance tag: single token naming the upstream metric (no credential shape).
-  return name.replace(/[^a-z0-9:_-]/gi, "-");
 }
 
 function runtimeBasis(): string {
@@ -224,12 +218,11 @@ function applyPrometheusSample(args: SampleApplyArgs): void {
   if (mapping === null) return;
   const { field, unit } = observationFieldFor(mapping);
   // T5.6b1: DCGM VRAM gauges are MiB on the stock dcgm-exporter; scale to
-  // bytes ONLY when the operator configured vramUnit="mib". The decision
-  // lives in the shared helper (metricMapping.ts) so all three adapters agree;
-  // non-VRAM gauges (util/temp/power) and the counter are never scaled.
-  const value = isVramMetric(sample.metric)
-    ? sample.value * vramScaleFor(config.vramUnit)
-    : sample.value;
+  // bytes ONLY when vramUnit="mib"; the macmon scaled ratio is 0..1 → 0..100
+  // (out-of-range → null, never clamped). The decision lives in the shared
+  // helper (metricMapping.ts) so all adapters agree; temp/power and the
+  // counter are never scaled.
+  const value = scaleFieldValue(sample.value, config.vramUnit, sample.metric);
 
   if (mapping.kind === "gpu") {
     const id = gpuIdentityFromLabels(sample.labels, labelKeys);
@@ -243,7 +236,10 @@ function applyPrometheusSample(args: SampleApplyArgs): void {
         : capturedAt,
       capturedAt,
       windowMs: queryWindowMs,
-      basis: basisForMetric(sample.metric),
+      // Provenance: the real upstream metric name verbatim. Allowlisted
+      // names are single tokens without credential shape; sanitizing would
+      // mangle the macmon_gpu_* basis.
+      basis: sample.metric,
       freshnessMs,
       unit,
     });
