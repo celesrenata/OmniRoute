@@ -110,20 +110,43 @@ test("fleet telemetry route: 400 bad query, 408 abort, 503 backend failure", () 
   assert.match(src, /TelemetryAbortedError/);
 });
 
-test("fleet telemetry server wiring: native adapter is the ONLY registered provider", () => {
+test("fleet telemetry server wiring: native adapter mandatory, external optional (OR-ATOM-005)", () => {
   const wiring = fs.readFileSync(wiringPath, "utf8");
+
+  // Native adapter is ALWAYS registered (mandatory backend).
   assert.match(wiring, /createProductionOmnirouteProvider/);
   assert.match(
     wiring,
     /await\s+import\s*\(\s*["']\.\/providers\/omniroute\.ts["']\s*\)/,
-    "provider must be imported dynamically (keeps DB out of the static import graph)"
+    "native provider must be imported dynamically (keeps DB out of the static import graph)"
   );
+
+  // Optional external adapters: imported from the provider factories,
+  // registered conditionally via readFleetMetricsConfig(). A misconfigured
+  // or down external source must never 503 the endpoint.
+  assert.match(
+    wiring,
+    /readFleetMetricsConfig/,
+    "external adapter registration must be gated by readFleetMetricsConfig"
+  );
+  assert.match(
+    wiring,
+    /registerExternalAdapter/,
+    "external adapter registration must be isolated in a dedicated function"
+  );
+
+  // At most two providers may be registered (native + one external).
   const registerCalls = wiring.match(/\.register\(/g) ?? [];
-  assert.equal(registerCalls.length, 1, "exactly one provider may be registered");
   assert.ok(
-    !/import\s+[^;]*from\s*["'][^"']*(prometheus|influx|grafana)/i.test(wiring),
-    "server wiring must not import an external telemetry backend"
+    registerCalls.length >= 1 && registerCalls.length <= 2,
+    `at most two providers may be registered (native + optional external), found ${registerCalls.length}`
   );
+
+  // The wiring may import external backend factories (they are optional).
+  // But it must NOT issue its own upstream fetch — all network goes through
+  // the providers' fleetMetricsFetch (SSRF-safe).
+  assert.ok(!/\bfetch\(/.test(wiring), "wiring must not issue its own upstream fetch");
+
   assert.match(
     wiring,
     /export\s+function\s+resetFleetTelemetryGatewayForTests/,

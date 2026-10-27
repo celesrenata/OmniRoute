@@ -1,12 +1,19 @@
 /**
- * Fleet telemetry — server-side gateway wiring (T005 / M2, OR-ATOM-001 v2).
+ * Fleet telemetry — server-side gateway wiring (T005 / M2, OR-ATOM-001 v2;
+ * extended by OR-ATOM-005 / Step 5 for optional external adapters).
  *
- * ONE process-wide `FleetTelemetryGateway` with the OmniRoute-native adapter as
- * its only registered backend. The adapter's production producers (DB rows,
- * breaker states, limiter counts, call logs) are imported DYNAMICALLY on first
- * use, so importing this module — and therefore the API route — never pulls
- * the SQLite layer or the rate-limit manager into a test bundle or a
- * cold-start critical path.
+ * ONE process-wide `FleetTelemetryGateway`. The OmniRoute-native adapter is
+ * MANDATORY and always registered first. The adapter's production producers
+ * (DB rows, breaker states, limiter counts, call logs) are imported
+ * DYNAMICALLY on first use, so importing this module — and therefore the
+ * API route — never pulls the SQLite layer or the rate-limit manager into
+ * a test bundle or a cold-start critical path.
+ *
+ * An OPTIONAL external metrics adapter (Prometheus / InfluxDB2 / Grafana)
+ * is registered when `OMNIROUTE_FLEET_METRICS_SOURCE` is set to a concrete
+ * backend and the URL passes SSRF validation. A misconfigured, down, or
+ * unreachable external source NEVER makes the endpoint 503 — the native
+ * adapter keeps serving, and the failure degrades to a server-side warning.
  *
  * Boundaries (M0 audit, see `providers/omniroute.ts` header):
  * - NO browser fan-out, NO per-atom queries: one bounded snapshot per call.
@@ -18,7 +25,11 @@
 
 import pino from "pino";
 
+import { readFleetMetricsConfig } from "./fleetMetricsConfig";
 import { FleetTelemetryGateway } from "./gateway";
+import { createInfluxProvider } from "./providers/influxdb2";
+import { createGrafanaProvider } from "./providers/grafana";
+import { createPrometheusProvider } from "./providers/prometheus";
 import type { FleetTelemetryProvider, FleetTelemetryQuery, FleetTelemetrySnapshot } from "./types";
 
 const logger = pino({ name: "fleet-telemetry-gateway" });
@@ -43,8 +54,53 @@ export async function getFleetTelemetryGateway(): Promise<FleetTelemetryGateway>
       },
     });
     gateway.register(provider);
+
+    // Optional external metrics adapter (opt-in via OMNIROUTE_FLEET_METRICS_SOURCE).
+    // A misconfigured / down / unreachable external source NEVER makes the
+    // endpoint 503 — construction failures degrade to a server-side warning
+    // and the native adapter keeps serving.
+    registerExternalAdapter(gateway);
   }
   return gateway;
+}
+
+/**
+ * Build and register the configured external metrics adapter, if any.
+ * No-op when the env says "none" / "auto" / "unset" (the native adapter is
+ * still the sole backend). Construction failures are caught and logged —
+ * the endpoint stays alive on the native adapter alone.
+ */
+function registerExternalAdapter(gateway: FleetTelemetryGateway): void {
+  const resolved = readFleetMetricsConfig();
+  if (!resolved.enabled || !resolved.config) return;
+
+  const config = resolved.config;
+  try {
+    let external: FleetTelemetryProvider;
+    switch (resolved.kind) {
+      case "prometheus":
+        external = createPrometheusProvider({ config });
+        break;
+      case "influxdb2":
+        external = createInfluxProvider({ config });
+        break;
+      case "grafana":
+        external = createGrafanaProvider({
+          config,
+          datasourceUid: config.datasourceUid ?? "",
+        });
+        break;
+      default:
+        return;
+    }
+    gateway.register(external);
+    logger.info({ kind: resolved.kind }, "fleet telemetry: external adapter registered");
+  } catch (err) {
+    logger.warn(
+      { err, kind: resolved.kind },
+      "fleet telemetry: external adapter registration failed — native adapter still active"
+    );
+  }
 }
 
 /**

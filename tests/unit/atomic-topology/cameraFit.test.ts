@@ -178,6 +178,32 @@ test("computeFitRadiusFromPositions: clamps to [MIN_FIT_RADIUS, DEFAULT_FIT_RADI
   assert.equal(computeFitRadiusFromPositions([{ x: 2000, y: 0, z: 0 }]), cap);
 });
 
+test("computeFitRadiusFromPositions: maxRadius raises the cap for the outer device band (OR-ATOM-005 T5.4)", () => {
+  const positions = [{ x: 1200, y: 0, z: 0 }];
+  // Without a cap override the default headroom cap (1363.5) clamps 1222 → OK
+  // here, but the real device band (e.g. a ring at 1010+160=1170 + margin)
+  // can exceed it: the farthest device atom must NOT be clipped.
+  const defaultCap = DEFAULT_FIT_RADIUS * 1.35;
+  assert.equal(computeFitRadiusFromPositions(positions), 1200 + 22);
+  // A device band whose farthest atom is at 1400 + margin: without maxRadius
+  // the radius is clamped to 1363.5 (atom clipped); with maxRadius=1438 it is
+  // framed in full (1400 + 38 margin, the band's own cap).
+  const farDevice = [{ x: 1400, y: 0, z: 0 }];
+  assert.equal(
+    computeFitRadiusFromPositions(farDevice, 38),
+    defaultCap,
+    "no maxRadius → default cap clips"
+  );
+  assert.equal(
+    computeFitRadiusFromPositions(farDevice, 38, 1438),
+    1400 + 38,
+    "maxRadius → outer band framed"
+  );
+  // maxRadius below the measured radius is ignored (the default cap wins) —
+  // a stale band cap never shrinks the framing.
+  assert.equal(computeFitRadiusFromPositions(farDevice, 38, 1000), defaultCap);
+});
+
 test("computeFitRadiusFromPositions: ignores non-finite positions, deterministic", () => {
   const positions = [
     { x: NaN, y: 0, z: 0 },

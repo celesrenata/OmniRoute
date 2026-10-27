@@ -28,6 +28,8 @@
 
 import type { TopologyLane } from "./lane";
 
+import type { ReconciliationResult } from "../telemetry/reconcile";
+
 /** Atom kinds a topology node can represent. */
 export type AtomKind = "hub" | "provider" | "gpu";
 
@@ -159,4 +161,13 @@ export interface TopologySceneSnapshot {
    * watched the feed and nothing happened", which the core cannot know.
    */
   lifecycle?: TopologyLifecycleEvent[];
+  /**
+   * Fleet-telemetry reconciliation (OR-ATOM-005 / Step 5), when the input
+   * carried a reconciliation. Renderer-neutral: the 2D ReactFlow renderer
+   * reads only `nodes` / `links` and ignores this block; the 3D atomic
+   * renderer consumes it to place GPU / runtime atoms alongside providers.
+   * `null` / `undefined` → no device telemetry in this snapshot (absent,
+   * never an empty claim).
+   */
+  fleetTelemetry?: ReconciliationResult | null;
 }

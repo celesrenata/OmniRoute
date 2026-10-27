@@ -48,6 +48,18 @@ function spinCopy(descriptor: AtomVisualDescriptor): string {
 }
 
 /**
+ * The queue row's label, by atom kind — the two queues are DIFFERENT systems
+ * and must never read as one (T5.4 labeling freeze). Provider atoms carry the
+ * OmniRoute request rate-limiter queue (basis `rateLimitManager:counts.QUEUED`);
+ * runtime device atoms carry the inference-scheduler queue. GPU atoms have no
+ * queue of their own, so the row (always "unavailable" for them) uses the
+ * rate-limiter label as the closest fleet concept.
+ */
+export function queueRowLabel(kind: AtomVisualDescriptor["kind"]): string {
+  return kind === "runtime" ? "Sched. queue" : "Rate-limit queue";
+}
+
+/**
  * Human copy for the queue row, by provenance. "zero" is a real observed
  * empty queue; "unavailable" means no queue telemetry exists.
  */
@@ -90,6 +102,15 @@ export function AtomicTooltip({
     capturedAt != null && Number.isFinite(capturedAt)
       ? new Date(capturedAt).toLocaleTimeString()
       : "source unavailable";
+  // T5.4: device-atom facts (GPU util/VRAM/temp/watts; runtime queue/model).
+  // Every value is a real measurement; `null` → "no data" (never `0`).
+  const facts = descriptor.deviceFacts;
+  const numOrNoData = (v: number | null | undefined, fmt?: (n: number) => string): string =>
+    v == null ? "no data" : (fmt ?? ((n) => String(n)))(v);
+  const fleetSampleLabel =
+    descriptor.fleetSampledAt != null && Number.isFinite(descriptor.fleetSampledAt)
+      ? new Date(descriptor.fleetSampledAt).toLocaleTimeString()
+      : "no fleet sample";
 
   return (
     <div
@@ -120,12 +141,43 @@ export function AtomicTooltip({
         <dd>{state}</dd>
         <dt>Spin</dt>
         <dd>{spinCopy(descriptor)}</dd>
-        <dt>Queue</dt>
+        <dt>{queueRowLabel(descriptor.kind)}</dt>
         <dd>{queueCopy(descriptor)}</dd>
         <dt>In flight</dt>
         <dd>{activeRequests}</dd>
         <dt>Captured</dt>
         <dd>{capturedLabel}</dd>
+        {facts ? (
+          <>
+            {facts.kind === "gpu" ? (
+              <>
+                <dt>GPU util</dt>
+                <dd>{numOrNoData(facts.utilizationPercent, (n) => `${n.toFixed(1)}%`)}</dd>
+                <dt>VRAM</dt>
+                <dd>
+                  {facts.vramUsedBytes != null && facts.vramTotalBytes != null
+                    ? `${(facts.vramUsedBytes / 1e9).toFixed(2)} / ${(facts.vramTotalBytes / 1e9).toFixed(2)} GB`
+                    : "no data"}
+                </dd>
+                <dt>Temp</dt>
+                <dd>{numOrNoData(facts.temperatureC, (n) => `${n.toFixed(1)} °C`)}</dd>
+                <dt>Power</dt>
+                <dd>{numOrNoData(facts.powerWatts, (n) => `${n.toFixed(1)} W`)}</dd>
+              </>
+            ) : (
+              <>
+                <dt>Queue depth</dt>
+                <dd>{numOrNoData(facts.queuedJobs)}</dd>
+                <dt>Active jobs</dt>
+                <dd>{numOrNoData(facts.activeJobs)}</dd>
+                <dt>Model</dt>
+                <dd>{facts.modelId ?? "no data"}</dd>
+              </>
+            )}
+          </>
+        ) : null}
+        <dt>Fleet sample</dt>
+        <dd>{fleetSampleLabel}</dd>
       </dl>
     </div>
   );
