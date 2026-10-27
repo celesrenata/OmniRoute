@@ -18,7 +18,7 @@
  *   - identity rules mirror the shared mapping (GPU needs host + device;
  *     runtime counter needs runtime identity; unknown → dropped, never
  *     fabricated);
- *   - exactly the 6 allowlisted metrics are queried (no user PromQL);
+ *   - exactly the 11 allowlisted metrics are queried (no user PromQL);
  *   - one failing metric never poisons the snapshot; an abort propagates
  *     (category "aborted").
  */
@@ -89,7 +89,7 @@ function resultsFor(framesByMetric: Record<string, unknown>): Record<string, Fak
 /**
  * Recording fake fetch: routes by the metric name in the POST body's
  * `queries[0].query`. Unknown metrics default to a 404 (the snapshot always
- * "sees" all six allowlisted queries).
+ * "sees" all eleven allowlisted queries).
  */
 function makeFakeFetch(payloads: Record<string, FakeResponseSpec> = {}) {
   const calls: { url: string; init?: RequestInit }[] = [];
@@ -176,7 +176,7 @@ describe("grafana provider: probe", () => {
 });
 
 describe("grafana provider: snapshot — GPU gauges via ds/query", () => {
-  it("queries exactly the six allowlisted metrics via POST /api/ds/query", async () => {
+  it("queries exactly the eleven allowlisted metrics via POST /api/ds/query", async () => {
     const payloads = resultsFor({
       DCGM_FI_DEV_GPU_UTIL: [frame(GPU_LABELS, [T0_ISO], [73.5])],
     });
@@ -190,7 +190,7 @@ describe("grafana provider: snapshot — GPU gauges via ds/query", () => {
 
     await provider.snapshot(QUERY);
 
-    assert.equal(calls.length, 6);
+    assert.equal(calls.length, 11);
     assert.equal(calls[0].url, "http://127.0.0.1:3000/api/ds/query");
     assert.equal(calls[0].init?.method, "POST");
     const body = JSON.parse(calls[0].init?.body as string);
@@ -520,5 +520,57 @@ describe("grafana provider: snapshot — DCGM VRAM MiB→bytes scale (T5.6b1)", 
     assert.equal(row.utilizationPercent?.value, 73.5);
     assert.equal(row.temperatureC?.value, 61);
     assert.equal(row.powerWatts?.value, 220.25);
+  });
+});
+
+describe("grafana provider: snapshot — scheduler gauges + macmon (name-keyed allowlist)", () => {
+  it("maps the vLLM scheduler gauges onto ONE runtime row (queuedJobs / activeJobs)", async () => {
+    const payloads = resultsFor({
+      "vllm:num_requests_waiting": [frame(RUNTIME_LABELS, [T0_ISO], [7])],
+      "vllm:num_requests_running": [frame(RUNTIME_LABELS, [T0_ISO], [11])],
+    });
+    const { fetchImpl } = makeFakeFetch(payloads);
+    const provider = createGrafanaProvider({
+      config: config(),
+      datasourceUid: DS_UID,
+      fetchImpl,
+      now: fixtureNow,
+    });
+
+    const snapshot = await provider.snapshot(QUERY);
+
+    assert.equal(snapshot.resources.length, 1);
+    const row = findBy(snapshot, "runtime:h1:rt-0");
+    assert.ok(row);
+    assert.equal(row.kind, "runtime");
+    assert.equal(row.runtimeId, "rt-0");
+    assert.equal(row.queuedJobs?.value, 7);
+    assert.equal(row.queuedJobs?.source, "grafana");
+    assert.equal(row.queuedJobs?.basis, BASIS);
+    assert.equal(row.activeJobs?.value, 11);
+  });
+
+  it("scales the macmon scaled ratio (0..1) to 0..100 percent on a gpu row (no VRAM)", async () => {
+    const payloads = resultsFor({
+      macmon_gpu_scaled_ratio: [frame(GPU_LABELS, [T0_ISO], [0.5])],
+    });
+    const { fetchImpl } = makeFakeFetch(payloads);
+    const provider = createGrafanaProvider({
+      config: config(),
+      datasourceUid: DS_UID,
+      fetchImpl,
+      now: fixtureNow,
+    });
+
+    const snapshot = await provider.snapshot(QUERY);
+
+    const row = snapshot.resources[0];
+    assert.ok(row);
+    assert.equal(row.resourceId, "gpu:h1:uuid-0");
+    assert.equal(row.utilizationPercent?.value, 50);
+    assert.equal(row.utilizationPercent?.basis, BASIS);
+    // macmon exposes NO discrete VRAM — absent, never a fabricated zero.
+    assert.equal(row.vramUsedBytes, undefined);
+    assert.equal(row.vramTotalBytes, undefined);
   });
 });

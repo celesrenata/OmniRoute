@@ -29,6 +29,7 @@ import { readFleetMetricsConfig } from "./fleetMetricsConfig";
 import { FleetTelemetryGateway } from "./gateway";
 import { createInfluxProvider } from "./providers/influxdb2";
 import { createGrafanaProvider } from "./providers/grafana";
+import { createCounterRateEngine } from "./providers/metricMapping";
 import { createPrometheusProvider } from "./providers/prometheus";
 import type { FleetTelemetryProvider, FleetTelemetryQuery, FleetTelemetrySnapshot } from "./types";
 
@@ -79,7 +80,13 @@ function registerExternalAdapter(gateway: FleetTelemetryGateway): void {
     let external: FleetTelemetryProvider;
     switch (resolved.kind) {
       case "prometheus":
-        external = createPrometheusProvider({ config });
+        // ONE bounded, persistent counter engine per registered adapter —
+        // it survives across snapshots so the vLLM counter forms a real
+        // windowed rate (without it the rate is always null).
+        external = createPrometheusProvider({
+          config,
+          counterEngine: createCounterRateEngine(),
+        });
         break;
       case "influxdb2":
         external = createInfluxProvider({ config });
@@ -88,6 +95,7 @@ function registerExternalAdapter(gateway: FleetTelemetryGateway): void {
         external = createGrafanaProvider({
           config,
           datasourceUid: config.datasourceUid ?? "",
+          counterEngine: createCounterRateEngine(),
         });
         break;
       default:

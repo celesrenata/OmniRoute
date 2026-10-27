@@ -19,7 +19,8 @@
  *   - unit guards apply (percent outside [0,100] → unknown, row still emitted);
  *   - one failing or malformed metric never poisons the snapshot; an abort does
  *     propagate (category "aborted");
- *   - exactly the 6 allowlisted metrics are queried (version-controlled set).
+ *   - exactly the 11 allowlisted metrics are queried (version-controlled set:
+ *     5 DCGM gauges + vLLM counter + 2 vLLM scheduler gauges + 3 macmon gauges).
  */
 
 import assert from "node:assert/strict";
@@ -30,7 +31,11 @@ import {
   FleetMetricsHttpError,
   type FetchLike,
 } from "../../../src/shared/topology/telemetry/providers/fleetMetricsHttp";
-import { createCounterRateEngine } from "../../../src/shared/topology/telemetry/providers/metricMapping";
+import {
+  ALLOWLISTED_METRIC_NAMES,
+  createCounterRateEngine,
+  mappingForMetric,
+} from "../../../src/shared/topology/telemetry/providers/metricMapping";
 import { createPrometheusProvider } from "../../../src/shared/topology/telemetry/providers/prometheus";
 import type {
   FleetResourceObservation,
@@ -76,7 +81,7 @@ function series(
 
 /**
  * Recording fake fetch: routes by the encoded metric name in the query path.
- * Unknown metrics default to a 404 (so a snapshot always "sees" all six).
+ * Unknown metrics default to a 404 (so a snapshot always "sees" all eleven).
  */
 function makeFakeFetch(payloads: Record<string, FakeResponseSpec> = {}) {
   const calls: { url: string; init?: RequestInit }[] = [];
@@ -103,7 +108,8 @@ function mutableFetch(get: () => unknown) {
   return { fetchImpl };
 }
 
-/** All six allowlisted metrics, each one series on the shared GPU. */
+/** The DCGM gauges + the vLLM counter (a subset of the allowlist): one
+ * series on the shared GPU each. */
 function allMetrics(): Record<string, FakeResponseSpec> {
   return {
     DCGM_FI_DEV_GPU_UTIL: { body: { data: { result: series(GPU_LABELS, 73.5) } } },
@@ -178,13 +184,13 @@ describe("prometheus provider: probe", () => {
 });
 
 describe("prometheus provider: snapshot — GPU gauges", () => {
-  it("queries exactly the six allowlisted metrics, one bounded request each", async () => {
+  it("queries exactly the eleven allowlisted metrics, one bounded request each", async () => {
     const { calls, fetchImpl } = makeFakeFetch(allMetrics());
     const provider = createPrometheusProvider({ config: config(), fetchImpl, now: fixtureNow });
 
     await provider.snapshot(QUERY);
 
-    assert.equal(calls.length, 6);
+    assert.equal(calls.length, 11);
     // Query shape: fixed path + encoded allowlisted metric (no user PromQL).
     assert.equal(
       calls[0].url,
@@ -203,7 +209,12 @@ describe("prometheus provider: snapshot — GPU gauges", () => {
       "DCGM_FI_DEV_GPU_TEMP",
       "DCGM_FI_DEV_GPU_UTIL",
       "DCGM_FI_DEV_POWER_USAGE",
+      "macmon_gpu_power_watts",
+      "macmon_gpu_scaled_ratio",
+      "macmon_gpu_temp_celsius",
       "vllm:generation_tokens_total",
+      "vllm:num_requests_running",
+      "vllm:num_requests_waiting",
     ]);
   });
 
@@ -542,5 +553,89 @@ describe("prometheus provider: snapshot — DCGM VRAM MiB→bytes scale (T5.6b1)
     assert.ok(row);
     assert.equal(row.vramUsedBytes?.value, 2_147_483_648);
     assert.equal(row.vramTotalBytes?.value, 8_589_934_592);
+  });
+});
+
+describe("prometheus provider: snapshot — scheduler gauges + macmon (name-keyed allowlist)", () => {
+  it("maps the vLLM scheduler gauges onto ONE runtime row (queuedJobs / activeJobs)", async () => {
+    const { fetchImpl } = makeFakeFetch({
+      "vllm:num_requests_waiting": { body: { data: { result: series(RUNTIME_LABELS, 7) } } },
+      "vllm:num_requests_running": { body: { data: { result: series(RUNTIME_LABELS, 11) } } },
+    });
+    const provider = createPrometheusProvider({ config: config(), fetchImpl, now: fixtureNow });
+
+    const snapshot = await provider.snapshot(QUERY);
+
+    assert.equal(snapshot.resources.length, 1);
+    const row = findBy(snapshot, "runtime:h1:rt-0");
+    assert.ok(row);
+    assert.equal(row.kind, "runtime");
+    assert.equal(row.hostId, "h1");
+    assert.equal(row.runtimeId, "rt-0");
+    assert.equal(row.queuedJobs?.value, 7);
+    assert.equal(row.queuedJobs?.source, "prometheus");
+    assert.equal(row.queuedJobs?.basis, "vllm:num_requests_waiting");
+    assert.equal(row.activeJobs?.value, 11);
+    assert.equal(row.activeJobs?.basis, "vllm:num_requests_running");
+  });
+
+  it("scales the macmon scaled ratio (0..1) to 0..100 percent on a gpu row (no VRAM)", async () => {
+    const { fetchImpl } = makeFakeFetch({
+      macmon_gpu_scaled_ratio: { body: { data: { result: series(GPU_LABELS, 0.5) } } },
+    });
+    const provider = createPrometheusProvider({ config: config(), fetchImpl, now: fixtureNow });
+
+    const snapshot = await provider.snapshot(QUERY);
+
+    assert.equal(snapshot.resources.length, 1);
+    const row = snapshot.resources[0];
+    assert.equal(row.resourceId, "gpu:h1:uuid-0");
+    assert.equal(row.utilizationPercent?.value, 50);
+    assert.equal(row.utilizationPercent?.source, "prometheus");
+    assert.equal(row.utilizationPercent?.basis, "macmon_gpu_scaled_ratio");
+    // macmon exposes NO discrete VRAM — absent, never a fabricated zero.
+    assert.equal(row.vramUsedBytes, undefined);
+    assert.equal(row.vramTotalBytes, undefined);
+  });
+
+  it("reports an out-of-range macmon ratio as UNKNOWN (never clamped, never fabricated)", async () => {
+    const { fetchImpl } = makeFakeFetch({
+      macmon_gpu_scaled_ratio: { body: { data: { result: series(GPU_LABELS, 1.5) } } },
+    });
+    const provider = createPrometheusProvider({ config: config(), fetchImpl, now: fixtureNow });
+
+    const snapshot = await provider.snapshot(QUERY);
+
+    const row = snapshot.resources[0];
+    assert.ok(row);
+    assert.equal(row.resourceId, "gpu:h1:uuid-0");
+    assert.equal(row.utilizationPercent?.value, null);
+    assert.equal(row.utilizationPercent?.source, "prometheus");
+    assert.equal(row.utilizationPercent?.basis, "macmon_gpu_scaled_ratio");
+  });
+
+  it("allowlist is name-keyed: DCGM + macmon collisions survive (all 11 names resolve)", () => {
+    // Regression guard for the old field-keyed Map: the macmon entries shared
+    // the gpu_util / gpu_temperature_c / gpu_power_w fields with DCGM, and a
+    // field-keyed map silently dropped the DCGM names (5 of 11 never queried).
+    assert.equal(ALLOWLISTED_METRIC_NAMES.size, 11);
+    assert.deepEqual([...ALLOWLISTED_METRIC_NAMES.keys()].sort(), [
+      "DCGM_FI_DEV_FB_TOTAL",
+      "DCGM_FI_DEV_FB_USED",
+      "DCGM_FI_DEV_GPU_TEMP",
+      "DCGM_FI_DEV_GPU_UTIL",
+      "DCGM_FI_DEV_POWER_USAGE",
+      "macmon_gpu_power_watts",
+      "macmon_gpu_scaled_ratio",
+      "macmon_gpu_temp_celsius",
+      "vllm:generation_tokens_total",
+      "vllm:num_requests_running",
+      "vllm:num_requests_waiting",
+    ]);
+    assert.equal(mappingForMetric("DCGM_FI_DEV_GPU_UTIL")?.field, "gpu_util");
+    assert.equal(mappingForMetric("macmon_gpu_scaled_ratio")?.field, "gpu_util");
+    assert.equal(mappingForMetric("vllm:num_requests_waiting")?.field, "runtime_scheduler_waiting");
+    assert.equal(mappingForMetric("vllm:num_requests_running")?.field, "runtime_scheduler_running");
+    assert.equal(mappingForMetric("not_a_metric"), null);
   });
 });

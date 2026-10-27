@@ -216,7 +216,49 @@ path only. The M0 audit (this document) found no telemetry backend **shipped in
 the repository**; Step 5 adds **operator-configured** external adapters as
 opt-in backends alongside the mandatory native adapter.
 
-### 7.2.1 Optional external metrics adapters
+### 7.2.1 Shared metric mapping + allowlist (OR-ATOM-005 / Step 5)
+
+`src/shared/topology/telemetry/providers/metricMapping.ts` is the single source
+of truth for the allowlist; the three adapters only ever query names from this
+set (the SSRF chokepoint). The allowlist is **keyed by upstream metric NAME,
+not by normalized field**: DCGM and macmon feed the same normalized fields
+(`gpu_util` / `gpu_temperature_c` / `gpu_power_w`), and a field-keyed map
+silently dropped the DCGM names (a load-time duplicate-name guard throws on
+collision).
+
+The 11 allowlisted names:
+
+| Upstream name                  | Normalized field        | Kind    | Unit        |
+| ------------------------------ | ----------------------- | ------- | ----------- |
+| `DCGM_FI_DEV_GPU_UTIL`         | `utilizationPercent`    | gpu     | percent     |
+| `DCGM_FI_DEV_FB_USED`          | `vramUsedBytes`         | gpu     | bytes       |
+| `DCGM_FI_DEV_FB_TOTAL`         | `vramTotalBytes`        | gpu     | bytes       |
+| `DCGM_FI_DEV_GPU_TEMP`         | `temperatureC`          | gpu     | celsius     |
+| `DCGM_FI_DEV_POWER_USAGE`      | `powerWatts`            | gpu     | watts       |
+| `vllm:generation_tokens_total` | `outputTokensPerSecond` | runtime | tps (rate)  |
+| `vllm:num_requests_waiting`    | `queuedJobs`            | runtime | nonNegative |
+| `vllm:num_requests_running`    | `activeJobs`            | runtime | nonNegative |
+| `macmon_gpu_scaled_ratio`      | `utilizationPercent`    | gpu     | percent     |
+| `macmon_gpu_temp_celsius`      | `temperatureC`          | gpu     | celsius     |
+| `macmon_gpu_power_watts`       | `powerWatts`            | gpu     | watts       |
+
+Semantic invariants pinned by the adapter tests:
+
+- **Scaling** routes through `scaleFieldValue()` in one place: DCGM VRAM
+  MiB→bytes only when `vramUnit="mib"`; `macmon_gpu_scaled_ratio` 0..1 → 0..100
+  with out-of-range values reported as **unknown (null)**, never clamped;
+  everything else passes through.
+- **Counter rate** (`vllm:generation_tokens_total` → `outputTokensPerSecond`)
+  is a windowed rate from the shared `createCounterRateEngine()` — a counter
+  reset (`value < previous`) returns **null** (never negative) and re-baselines
+  state for the next read; bounded by `maxSeries` with LRU eviction. The
+  gateway passes one engine per stateful adapter (`registerExternalAdapter`),
+  so the production vLLM rate is no longer always-null.
+- **Runtime-level facts only on runtime rows**: the vLLM counter and the
+  scheduler gauges map onto a `kind:"runtime"` row only when a stable
+  `runtime_id` identity is present — never split across GPUs, never fabricated.
+
+### 7.2.2 Optional external metrics adapters
 
 Three HTTP-based adapters are available, each registered **only** when the
 operator configures it via env (opt-in; the native adapter always stays
@@ -237,7 +279,7 @@ external). Per-provider **snapshot** failures remain graceful (timeout →
 warning + drop, never 503): see `FleetTelemetryGateway.snapshot()` in
 [src/shared/topology/telemetry/gateway.ts](../../src/shared/topology/telemetry/gateway.ts).
 
-### 7.2.2 Reconciliation block in the fleet response
+### 7.2.3 Reconciliation block in the fleet response
 
 The `GET /api/telemetry/fleet` response now carries an additive
 `reconciliation` block (OR-ATOM-005 / Step 5) alongside the raw `snapshot`.
@@ -265,7 +307,7 @@ GPU / runtime nodes are emitted **only** for devices with a proven canonical ID
 providers stay provider atoms. Edges carry explicit provenance (basis +
 sampledAt); a missing relationship is an **absent** edge, never a guessed one.
 
-### 7.2.3 Renderer-neutral domain snapshot
+### 7.2.4 Renderer-neutral domain snapshot
 
 `TopologySceneSnapshot` (src/shared/topology/domain/types.ts) gained an optional
 `fleetTelemetry?: ReconciliationResult | null` field, carried additively by
@@ -275,7 +317,7 @@ atomic renderer consumes it to place GPU / runtime atoms alongside providers.
 `null` / `undefined` → no device telemetry in this snapshot (absent, never an
 empty claim).
 
-### 7.2.4 InfluxDB 2 row-based identity parsing
+### 7.2.5 InfluxDB 2 row-based identity parsing
 
 The InfluxDB 2 adapter reads identity tags (`host_id`, `gpu_uuid`, `runtime_id`)
 from column values in the JSON `rows` response (InfluxDB HTTP API v2 shape),
@@ -285,7 +327,7 @@ builds canonical `gpu:<host_id>:<uuid>` / `runtime:<host_id>:<id>` resource
 IDs via `buildCanonicalResourceId()` — never display labels, never a bare
 PCI index.
 
-### 7.2.5 Staleness semantics
+### 7.2.6 Staleness semantics
 
 Staleness is computed upstream by `mergeSnapshots.mergeSnapshots()` (age >
 3 × windowMs → `stale: true`, value decayed to `null`). `reconcileSnapshot()`
@@ -293,10 +335,10 @@ trusts the pre-computed `stale` flag rather than re-deriving age. A sample
 without a known `windowMs` can only be judged stale by the explicit flag —
 its sampling interval is unknown.
 
-### 7.2.6 OR-ATOM-005 / T5.4 — renderer seam: measured motion + device band
+### 7.2.7 OR-ATOM-005 / T5.4 — renderer seam: measured motion + device band
 
 The 3D atomic renderer (`src/plugins/atomic-topology/`) consumes
-`snapshot.fleetTelemetry` (added in §7.2.3) at a single pure seam —
+`snapshot.fleetTelemetry` (added in §7.2.4) at a single pure seam —
 `resolveAtomDescriptors()` in
 [src/plugins/atomic-topology/AtomicTopologyRenderer.tsx](../../src/plugins/atomic-topology/AtomicTopologyRenderer.tsx).
 Everything downstream of the seam (scene, camera, labels, overlays) is
@@ -346,7 +388,7 @@ Without a device band the cap is `undefined` and fit math is unchanged.
 rendered numbers came from.
 
 **Queue labeling (limiter ≠ scheduler).** The OmniRoute request
-**rate-limiter** queue (basis `rateLimitManager:counts.QUEUED`, §7.2.2) and
+**rate-limiter** queue (basis `rateLimitManager:counts.QUEUED`, §7.2.3) and
 the inference-**scheduler** queue are different systems and are labeled
 separately in the tooltip: `queueRowLabel()`
 ([AtomicTooltip.tsx](../../src/plugins/atomic-topology/overlays/AtomicTooltip.tsx))
@@ -356,7 +398,7 @@ row. Pinned by `tooltipQueueLabel.test.ts`.
 
 **No-data policy (unchanged).** An unobserved value stays "unavailable" /
 "no data" — never 0, never a decal; stale values are dropped upstream
-(§7.2.5) and surface as "no data".
+(§7.2.6) and surface as "no data".
 
 ## 8. Centralized collection decision (M0)
 
