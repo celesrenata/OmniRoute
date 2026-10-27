@@ -56,6 +56,7 @@ import { AtomNode } from "./AtomNode";
 import { EnergyLink } from "./EnergyLink";
 import { SceneOrbitControls } from "./SceneOrbitControls";
 import { ContextGuard } from "./ContextGuard";
+import { CanvasContextGuard, SceneClockDriver, useReducedMotionSync } from "./sceneState";
 import { AtomicSceneContext, type AtomicSceneContextValue } from "./sceneContext";
 
 /** The scene's vertical FOV — shared by the camera fit math and the camera. */
@@ -80,6 +81,9 @@ export function AtomicScene({
   const [documentHidden, setDocumentHidden] = useState<boolean>(() =>
     typeof document !== "undefined" ? document.hidden : false
   );
+  // Track prefers-reduced-motion → static render (OR-ATOM-007, accessibility.md).
+  // Mirrors the media query into the shared scene state; a no-op under SSR.
+  useReducedMotionSync();
   useEffect(() => {
     if (typeof document === "undefined") return;
     const onVisibility = () => setDocumentHidden(document.hidden);
@@ -98,6 +102,13 @@ export function AtomicScene({
       dpr={[1, budget.dprMax]}
     >
       <AtomicSceneContext.Provider value={context}>
+        {/* OR-ATOM-007: pause-aware shared clock. Mounted FIRST so its useFrame
+            advances sceneClock before every scene component reads it. */}
+        <SceneClockDriver paused={effectivePaused} />
+        {/* OR-ATOM-007: freeze the shared clock on WebGL2 context loss.
+            Complements ContextGuard (which re-invalidates the renderer on
+            restore) — together the scene holds a static frame and resumes. */}
+        <CanvasContextGuard />
         <ContextGuard />
         <CameraRig context={context} />
         <CameraStateWriter context={context} />

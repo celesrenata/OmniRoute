@@ -1,30 +1,33 @@
 "use client";
 
 /**
- * Electron cloud — the reusable multi-shell **elliptical** orbital system an
- * atom (or the hub nucleus) wears (OR-ATOM-003, V5).
+ * Electron cloud — layered, non-coplanar sprite orbital system (OR-ATOM-007).
  *
- * 2–3 tilted **elliptical** orbital shells (not flat circular tori). Each shell
- * is a thin luminous orbital line, a translucent volumetric "filament shell"
- * (the luminous volume), and a few bright electrons that travel *along* the
- * ellipse with a short curved trailing ghost (the "comet tail"). Shells are
- * tilted at distinct angles so the cloud reads as a 3D orbital system, not a
- * flat disc.
+ * The reusable orbital shell an atom (or the hub nucleus) wears. Each shell is
+ * a tilted **great circle** (2–3 shells, non-coplanar — the orientation is
+ * deterministic from a seed, see {@link cloudShells}) with a slightly different
+ * radius and a per-shell speed/phase multiplier, so the cloud reads as a 3D
+ * orbital system rather than a flat disc.
  *
- * **Dominant lane hue:** the whole cloud is tinted by the atom's dominant lane
- * hue (neutral slate when the lane is unknown) — passed in as `color`.
+ * Electrons are **soft additive sprites** — ONE shared radial-gradient
+ * `CanvasTexture` (generated at module scope, disposed at scene unmount — NOT
+ * per-atom) tinted by the atom's dominant lane hue, size attenuated,
+ * `depthWrite: false`, `AdditiveBlending` so the shells layer into a luminous
+ * cloud (visual-design-foundations: additive layer separation on a dark
+ * background).
  *
- * **Tone-mapped glow:** no postprocessing. The luminous look comes from
- * elevated `emissiveIntensity` on the orbit line + electrons + a translucent
- * volumetric shell (three's built-in tone mapping handles the rolloff).
+ * **Quality budget (release contract, unchanged):** the total electron count
+ * is the `electronCount` prop — the quality-scaled `cloudParticles` budget —
+ * distributed across `shellCount` shells by {@link distributeElectrons}
+ * (the 4:6:8 per-shell ratio, capped at the total). At `low` quality the
+ * budget is smaller and fewer shells are used, so the per-atom draw-call
+ * budget stays flat.
  *
- * **Bounded draw calls:** the total electron count is capped by the quality
- * budget (`cloudParticles`), distributed across `shellCount` shells. At the
- * `low` quality the outer shell is dropped (2 shells) and each shell carries
- * fewer electrons, keeping the per-atom draw-call budget flat.
- *
- * **Reduced motion / pause:** each electron holds its position when `paused`
- * is true (no per-frame advance); the cloud still renders statically.
+ * **Pause / reduced-motion / context-loss:** every shell's spin is driven by
+ * the shared pause-aware {@link sceneClock} — `paused` (or a lost context, or
+ * `prefers-reduced-motion`) freezes the accumulated angle **exactly** (the
+ * clock holds still, so there is no drift and no jump on resume). Zero
+ * per-frame allocations; only each spin group's `rotation.y` is mutated.
  *
  * `three` / R3F are confined to this `scene/**` subtree.
  */
@@ -32,11 +35,25 @@ import { useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
-import { type ElectronShellConfig, electronShellConfig } from "./geometry";
+import { cloudShells, distributeElectrons } from "./cloudShells";
+import { getSharedGlowTexture } from "./sceneResources";
+import { sceneClock, sceneState } from "./sceneState";
 
-/** Props for the multi-shell electron cloud. */
+/** Electron sprite size, in atom-relative units (tuned soft). */
+const ELECTRON_SPRITE_SCALE = 0.13;
+
+/**
+ * Shared seed for clouds that do not pass one (atoms + the hub nucleus). A
+ * fixed constant (never `Math.random`): the cloud is stable across atoms and
+ * renders — a per-atom hue/seed is *not* part of the release props contract,
+ * so this keeps the caller API unchanged while still giving every shell a
+ * distinct, deterministic tilt (OR-ATOM-007).
+ */
+const CLOUD_SEED = 0;
+
+/** Props for the multi-shell electron cloud (release API — unchanged). */
 export interface ElectronCloudProps {
-  /** Shell radius (world units) — the major-axis radius of the outermost orbit. */
+  /** Shell radius (world units) — the base radius of the innermost orbit. */
   radius: number;
   /** Spin speed in radians/second (from `spinRadiansPerSecond`; ambient for the cloud). */
   speed: number;
@@ -44,31 +61,24 @@ export interface ElectronCloudProps {
   paused: boolean;
   /** Electron/orbit color (lane hue; neutral fallback when lane is unknown). */
   color: string;
-  /** Total electron budget across all shells (from `QUALITY_BUDGETS`). */
+  /** Total electron budget across all shells (from `QUALITY_BUDGETS[quality].cloudParticles`). */
   electronCount?: number;
   /** Number of orbital shells (default 3; clamped to ≥1, ≤3). */
   shellCount?: number;
+  /**
+   * Optional deterministic seed for the per-shell tilt/phase fan-out (default
+   * {@link CLOUD_SEED}). Same seed → same shells (OR-ATOM-007 determinism).
+   */
+  seed?: number;
 }
 
 /**
- * Per-shell tilt / speed / radius / ellipticity tables and the per-shell
- * static geometry (the pure {@link ElectronShellConfig}) live in
- * `./geometry` — deterministic and unit-tested; this component only renders
- * them.
- */
-/** Angular lag of the trailing ghost behind each electron (radians). */
-const TRAIL_LAG = 0.22;
-
-/** A single shell's static geometry configuration (pure, memoized). */
-type ShellConfig = ElectronShellConfig;
-
-/**
- * A multi-shell elliptical orbital electron cloud around an atom.
+ * A multi-shell non-coplanar sprite orbital electron cloud around an atom.
  *
  * Pure with respect to props: `speed` / `paused` come from the pure
- * {@link AtomVisualDescriptor} encoding; the only per-frame mutation is the
- * per-electron position advance along its ellipse (imperative three.js, not
- * React state — no per-frame React allocation).
+ * {@link AtomVisualDescriptor} encoding; the only per-frame mutation is each
+ * shell's rotation (an imperative three.js update, not React state — no
+ * per-frame React allocation).
  */
 export function ElectronCloud({
   radius,
@@ -77,121 +87,82 @@ export function ElectronCloud({
   color,
   electronCount = 12,
   shellCount = 3,
+  seed = CLOUD_SEED,
 }: ElectronCloudProps) {
-  const shells = useMemo<ShellConfig[]>(
-    () => electronShellConfig(radius, electronCount, shellCount),
-    [radius, electronCount, shellCount]
+  const spinRefs = useRef<Array<THREE.Group | null>>([]);
+  const glow = useMemo(() => getSharedGlowTexture(), []);
+
+  // Deterministic per-shell orientation + timing (non-coplanar great circles).
+  const shells = useMemo(() => cloudShells(seed, shellCount), [seed, shellCount]);
+
+  // Distribute the release's total electron budget across the shells (the
+  // 4:6:8 ratio, capped at `electronCount`) so the per-atom sprite count
+  // follows the quality tier, not a fixed count.
+  const counts = useMemo(
+    () => distributeElectrons(seed, shellCount, electronCount),
+    [seed, shellCount, electronCount]
   );
 
-  // Flat per-electron / per-ghost mesh refs (indexed by shell-major order).
-  const electronRefs = useRef<(THREE.Mesh | null)[]>([]);
-  const ghostRefs = useRef<(THREE.Mesh | null)[]>([]);
-  // Per-shell orbital phase (advanced per frame; never React state). The
-  // lazy initialization happens *inside* the frame loop — reading or writing a
-  // ref during render is disallowed (react-hooks/refs), and the electrons are
-  // rendered at their static starting positions anyway, so the first frame
-  // after an unpause / shell-count change is the right moment to reset.
-  const phaseRef = useRef<number[]>([]);
-
-  useFrame((_state, delta) => {
-    if (phaseRef.current.length !== shells.length) {
-      phaseRef.current = shells.map(() => 0);
-    }
-    if (paused) return;
-    const dt = Math.min(delta, 0.1);
-    for (let s = 0; s < shells.length; s += 1) {
-      const { rx, rz, electrons } = shells[s];
-      phaseRef.current[s] =
-        (phaseRef.current[s] + speed * shells[s].speedFactor * dt) % (Math.PI * 2);
-      const phase = phaseRef.current[s];
-      for (let i = 0; i < electrons.length; i += 1) {
-        const angle = phase + (i / electrons.length) * Math.PI * 2;
-        const electron = electronRefs.current[s * 16 + i];
-        if (electron) electron.position.set(Math.cos(angle) * rx, 0, Math.sin(angle) * rz);
-        const ghost = ghostRefs.current[s * 16 + i];
-        if (ghost) {
-          const gAngle = angle - TRAIL_LAG;
-          ghost.position.set(Math.cos(gAngle) * rx, 0, Math.sin(gAngle) * rz);
+  // Per-shell electron positions on a unit circle, scaled by the shell radius.
+  const electronOffsets = useMemo<Array<Array<[number, number, number]>>>(
+    () =>
+      shells.map((shell, i) => {
+        const r = radius * shell.radiusMultiplier;
+        const n = counts[i] ?? 0;
+        const out: Array<[number, number, number]> = [];
+        for (let j = 0; j < n; j += 1) {
+          const a = (n > 0 ? (j / n) * Math.PI * 2 : 0) + shell.phaseOffset;
+          out.push([Math.cos(a) * r, 0, Math.sin(a) * r]);
         }
-      }
-    }
+        return out;
+      }),
+    [shells, counts, radius]
+  );
+
+  // Per-frame: advance each shell's rotation from the shared pause-aware
+  // clock. `paused` (or a lost context / reduced motion) freezes the
+  // accumulated angle exactly (the clock holds still → no drift, no jump).
+  useFrame(() => {
+    const frozen = paused || sceneState.contextLost || sceneState.reducedMotion;
+    const t = sceneClock.now;
+    const base = frozen ? 0 : speed;
+    spinRefs.current.forEach((group, i) => {
+      if (!group) return;
+      const shell = shells[i];
+      if (!shell) return;
+      const w = frozen ? 0 : base * shell.speedMultiplier;
+      // Absolute angle from the (frozen) clock → exact freeze, no drift.
+      group.rotation.y = (w * t + shell.phaseOffset) % (Math.PI * 2);
+    });
   });
 
-  const electronRadius = Math.max(2.2, radius * 0.045);
+  // SSR / no-DOM (or WebGL2 unavailable): no sprites to render.
+  if (!glow) return null;
+
+  const spriteScale = Math.max(4, radius * ELECTRON_SPRITE_SCALE);
 
   return (
     <group>
-      {shells.map((shell, s) => (
-        <group key={s} rotation={[shell.tiltX, 0, shell.tiltZ]}>
-          {/* Elliptical orbital line (thin luminous torus, squashed to an ellipse). */}
-          <mesh rotation={[Math.PI / 2, 0, 0]} scale={[1, shell.ellipticity, 1]}>
-            <torusGeometry args={[shell.rx, Math.max(0.7, shell.rx * 0.01), 6, 64]} />
-            <meshStandardMaterial
-              color={color}
-              emissive={color}
-              emissiveIntensity={0.9}
-              roughness={0.5}
-              metalness={0.1}
-              transparent
-              opacity={0.55}
-            />
-          </mesh>
-
-          {/* Translucent volumetric filament shell — the luminous cloud volume. */}
-          <mesh rotation={[Math.PI / 2, 0, 0]} scale={[1, shell.ellipticity, 1]}>
-            <torusGeometry args={[shell.rx, shell.rx * 0.09, 6, 48]} />
-            <meshStandardMaterial
-              color={color}
-              emissive={color}
-              emissiveIntensity={0.35}
-              roughness={0.6}
-              metalness={0}
-              transparent
-              opacity={0.1}
-              depthWrite={false}
-            />
-          </mesh>
-
-          {/* Electrons + curved trailing ghosts (travel along the ellipse). */}
-          {shell.electrons.map((pos, i) => (
-            <group key={i}>
-              <mesh
-                position={pos}
-                ref={(mesh) => {
-                  electronRefs.current[s * 16 + i] = mesh;
-                }}
-              >
-                <sphereGeometry args={[electronRadius, 12, 12]} />
-                <meshStandardMaterial
+      {shells.map((shell, i) => (
+        <group key={i} rotation={shell.tilt}>
+          <group
+            ref={(g) => {
+              spinRefs.current[i] = g;
+            }}
+          >
+            {electronOffsets[i].map((p, j) => (
+              <sprite key={j} position={p} scale={[spriteScale, spriteScale, 1]}>
+                <spriteMaterial
+                  map={glow}
                   color={color}
-                  emissive={color}
-                  emissiveIntensity={1.2}
-                  roughness={0.35}
-                  metalness={0.15}
-                />
-              </mesh>
-              {/* Trailing ghost — the curved "comet tail" behind the electron. */}
-              <mesh
-                position={pos}
-                scale={0.65}
-                ref={(mesh) => {
-                  ghostRefs.current[s * 16 + i] = mesh;
-                }}
-              >
-                <sphereGeometry args={[electronRadius, 10, 10]} />
-                <meshStandardMaterial
-                  color={color}
-                  emissive={color}
-                  emissiveIntensity={0.5}
-                  roughness={0.5}
-                  metalness={0.1}
                   transparent
-                  opacity={0.4}
+                  opacity={0.85}
                   depthWrite={false}
+                  blending={THREE.AdditiveBlending}
                 />
-              </mesh>
-            </group>
-          ))}
+              </sprite>
+            ))}
+          </group>
         </group>
       ))}
     </group>

@@ -36,6 +36,9 @@ import type { AtomVisualDescriptor, AtomicVisualState } from "../AtomicTopologyR
 import { QUALITY_BUDGETS } from "../quality";
 import { useAtomicSceneContext } from "./sceneContext";
 import { ElectronCloud } from "./ElectronCloud";
+import { breathingScale } from "./motion";
+import { sceneClock, sceneState } from "./sceneState";
+import { getSharedGlowTexture } from "./sceneResources";
 import {
   HUB_BRAND_ACCENT,
   NUCLEUS_CLUSTER_RADIUS_FACTOR,
@@ -54,6 +57,19 @@ const NUCLEUS_STATE_COLOR: Record<AtomicVisualState, string> = {
   healthy: "#3b82f6",
   idle: "#64748b",
 };
+
+/** Breathing amplitude: ±2 % on the core scale (OR-ATOM-007 luminous core). */
+const BREATH_AMPLITUDE = 0.02;
+/** Breathing periods per state (s): error is urgent, others ambient (OR-ATOM-007). */
+const BREATH_PERIOD: Record<AtomicVisualState, number> = {
+  error: 1.2,
+  active: 2.2,
+  last: 3,
+  healthy: 3,
+  idle: 3.5,
+};
+/** Outer glow sprite diameter, nucleus-relative (OR-ATOM-007 light-source read). */
+const GLOW_SPRITE_SCALE = 2.6;
 
 export function Nucleus({
   descriptor,
@@ -89,6 +105,11 @@ export function Nucleus({
 
   // Instanced-mesh ref (the GPU-instanced particle cluster).
   const clusterRef = useRef<THREE.InstancedMesh | null>(null);
+  // Breathing core ref (OR-ATOM-007): only the core sphere's scale is mutated
+  // per frame; the instanced cluster + halo keep their release contract.
+  const coreRef = useRef<THREE.Mesh | null>(null);
+  const glowTexture = useMemo(() => getSharedGlowTexture(), []);
+  const state = descriptor.visualState.state;
 
   // Set instance matrices + colors once (deterministic layout).
   useEffect(() => {
@@ -111,6 +132,16 @@ export function Nucleus({
   const spinSpeed = descriptor.spin.value;
 
   useFrame((_state, delta) => {
+    // Luminous-core breathing (OR-ATOM-007): ±2 % on the core sphere, driven
+    // by the shared pause-aware clock — `paused` / context-lost /
+    // reduced-motion freezes it exactly (static frame, no drift, no jump).
+    const core = coreRef.current;
+    if (core) {
+      const frozen = paused || sceneState.contextLost || sceneState.reducedMotion;
+      core.scale.setScalar(
+        frozen ? 1 : breathingScale(sceneClock.now, BREATH_PERIOD[state], BREATH_AMPLITUDE, true)
+      );
+    }
     if (paused) return;
     const mesh = clusterRef.current;
     if (!mesh) return;
@@ -120,8 +151,24 @@ export function Nucleus({
 
   return (
     <group position={[0, 0, 0]}>
-      {/* Brand-accent core sphere (hub identity, separate from health). */}
-      <mesh>
+      {/* OR-ATOM-007 — outer additive glow sprite: a shared radial-gradient
+          texture so the hub reads as the scene's primary light source.
+          Static (a light-source representation — it does not breathe). */}
+      {glowTexture && (
+        <sprite scale={[NUCLEUS_RADIUS * GLOW_SPRITE_SCALE, NUCLEUS_RADIUS * GLOW_SPRITE_SCALE, 1]}>
+          <spriteMaterial
+            map={glowTexture}
+            color={coreColor}
+            transparent
+            opacity={0.18}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+          />
+        </sprite>
+      )}
+      {/* Brand-accent core sphere (hub identity, separate from health).
+          `coreRef` carries the OR-ATOM-007 luminous breathing scale. */}
+      <mesh ref={coreRef}>
         <sphereGeometry args={[NUCLEUS_RADIUS * 0.52, 48, 48]} />
         <meshStandardMaterial
           color={coreColor}

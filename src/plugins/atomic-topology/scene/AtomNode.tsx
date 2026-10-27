@@ -60,6 +60,9 @@ import {
   ATOM_NUCLEUS_PARTICLE_RADIUS,
   atomNucleusParticleField,
 } from "./geometry";
+import { breathingScale } from "./motion";
+import { sceneClock, sceneState } from "./sceneState";
+import { getSharedGlowTexture } from "./sceneResources";
 
 /** World-space radius of a ring atom's core sphere. */
 const ATOM_RADIUS = 22;
@@ -71,6 +74,11 @@ const DISCHARGE_SCALE = 0.22;
 const DISCHARGE_EMISSIVE_BOOST = 0.9;
 /** A live failed discharge tints the emissive toward this red. */
 const FAILED_DISCHARGE_COLOR = "#ef4444";
+
+/** Breathing amplitude: ±2 % on the core scale (OR-ATOM-007 luminous core). */
+const BREATH_AMPLITUDE = 0.02;
+/** Outer glow sprite diameter, atom-relative (OR-ATOM-007 light-source read). */
+const GLOW_SPRITE_SCALE = 2.4;
 
 /** Per-state emissive boost (a focused/error atom glows brighter). */
 const STATE_EMISSIVE: Record<AtomVisualDescriptor["visualState"]["state"], number> = {
@@ -92,6 +100,10 @@ export function AtomNode({
 }) {
   const groupRef = useRef<THREE.Group | null>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  // Breathing core: the sphere + instanced cluster live in this inner group so
+  // the ±2 % breathing scale composes with the outer group's discharge scale
+  // (and does not touch the electron cloud, which is a sibling).
+  const coreGroupRef = useRef<THREE.Group | null>(null);
 
   const { pool, reducedMotion, quality, nowMs } = useAtomicSceneContext();
 
@@ -120,14 +132,34 @@ export function AtomNode({
       ? pool.effectsFor(dischargeProviderId, nowMs)
       : { intensity: 0, red: false };
 
+  // OR-ATOM-007 — luminous core: an outer additive glow sprite (shared
+  // radial-gradient texture) so the atom reads as a light source on the dark
+  // background. Breathing (±2 %) is applied per-frame in `useFrame` from the
+  // shared pause-aware clock below.
+  const glowTexture = useMemo(() => getSharedGlowTexture(), []);
+  // Breathing cadence: only a *measured* spin breathes (idle / unmeasured →
+  // still); period is a slow fixed 3 s. `0` → `breathingScale` returns 1.
+  const breathPeriod = descriptor.spin.mode === "measured" ? 3 : 0;
+
   // Per-frame update: apply the queue vibration (a small positional tremor)
   // when a queue is measured, plus the transient request discharge on the
-  // emissive material + scale. No React state is allocated per frame — the
-  // material/scale are mutated imperatively (three.js refs), so there are no
-  // per-frame re-renders.
+  // emissive material + scale, plus the luminous-core breathing (OR-ATOM-007).
+  // No React state is allocated per frame — the material/scale are mutated
+  // imperatively (three.js refs), so there are no per-frame re-renders.
   useFrame((state) => {
     const group = groupRef.current;
     if (!group) return;
+
+    // Luminous-core breathing (OR-ATOM-007): a ±2 % scale on the core group,
+    // driven by the shared pause-aware clock — `paused` / context-lost /
+    // reduced-motion freezes it exactly (static frame, no drift, no jump).
+    const coreGroup = coreGroupRef.current;
+    if (coreGroup) {
+      const frozen = paused || sceneState.contextLost || sceneState.reducedMotion;
+      coreGroup.scale.setScalar(
+        frozen ? 1 : breathingScale(sceneClock.now, breathPeriod, BREATH_AMPLITUDE, true)
+      );
+    }
 
     // Position: vibration tremor (or rest position).
     if (vibrating) {
@@ -191,35 +223,55 @@ export function AtomNode({
 
   return (
     <group ref={groupRef} position={basePosition}>
-      {/* Core sphere — the neutral/lane base body under the cluster. */}
-      <mesh scale={scale}>
-        <sphereGeometry args={[ATOM_RADIUS * 0.62, 32, 32]} />
-        <meshStandardMaterial
-          ref={materialRef}
-          color={descriptor.color}
-          emissive={emissiveColor}
-          emissiveIntensity={emissiveIntensity}
-          roughness={0.4}
-          metalness={0.25}
-        />
-      </mesh>
-      {/* Dense instanced nucleus cluster (V4): observed model colors or the
+      {/* OR-ATOM-007 — outer additive glow sprite: a shared radial-gradient
+          texture so the atom reads as a light source on the dark background.
+          Static (a light-source representation — it does not breathe). */}
+      {glowTexture && (
+        <sprite scale={[ATOM_RADIUS * GLOW_SPRITE_SCALE, ATOM_RADIUS * GLOW_SPRITE_SCALE, 1]}>
+          <spriteMaterial
+            map={glowTexture}
+            color={emissiveColor}
+            transparent
+            opacity={0.18}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+          />
+        </sprite>
+      )}
+      {/* Breathing core group (OR-ATOM-007 luminous breathing): wraps the core
+          sphere + instanced cluster so the per-frame ±2 % scale composes with
+          each element's `scale` and the outer group's transient discharge scale. */}
+      <group ref={coreGroupRef}>
+        {/* Core sphere — the neutral/lane base body under the cluster. */}
+        <mesh scale={scale}>
+          <sphereGeometry args={[ATOM_RADIUS * 0.62, 32, 32]} />
+          <meshStandardMaterial
+            ref={materialRef}
+            color={descriptor.color}
+            emissive={emissiveColor}
+            emissiveIntensity={emissiveIntensity}
+            roughness={0.4}
+            metalness={0.25}
+          />
+        </mesh>
+        {/* Dense instanced nucleus cluster (V4): observed model colors or the
           neutral proton/neutron palette — 1 draw call per atom. */}
-      <instancedMesh
-        ref={clusterRef}
-        args={[undefined, undefined, nucleusCount]}
-        key={nucleusCount}
-        scale={scale}
-      >
-        <sphereGeometry args={[1, 10, 10]} />
-        <meshStandardMaterial
-          color="#ffffff"
-          emissive="#ffffff"
-          emissiveIntensity={0.35}
-          roughness={0.35}
-          metalness={0.15}
-        />
-      </instancedMesh>
+        <instancedMesh
+          ref={clusterRef}
+          args={[undefined, undefined, nucleusCount]}
+          key={nucleusCount}
+          scale={scale}
+        >
+          <sphereGeometry args={[1, 10, 10]} />
+          <meshStandardMaterial
+            color="#ffffff"
+            emissive="#ffffff"
+            emissiveIntensity={0.35}
+            roughness={0.35}
+            metalness={0.15}
+          />
+        </instancedMesh>
+      </group>
 
       {/* Electron cloud spinning at the per-atom speed (frozen when paused or
           reduced-motion; the discharge pulse does not touch the cloud). */}
