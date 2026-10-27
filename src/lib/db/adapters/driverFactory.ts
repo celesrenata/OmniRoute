@@ -8,8 +8,8 @@ import {
   createNodeSqliteAdapterFromDatabase,
   type NodeSqliteDatabaseLike,
 } from "./nodeSqliteShared";
+import { createPostgresAdapter } from "./postgresAdapter";
 import type { SqliteAdapter } from "./types";
-
 
 type DriverLoader = (moduleName: string) => unknown;
 
@@ -303,6 +303,34 @@ export function tryOpenSync(
   filePath: string,
   options?: Record<string, unknown>
 ): SqliteAdapter | null {
+  // Try the database driver specified by env. This overrides all automatic selection.
+  const specifiedDriver = process.env.DATABASE_DRIVER;
+  if (specifiedDriver === "postgres" || specifiedDriver === "pg-native") {
+    // Attempt to create and connect to Postgres adapter
+    try {
+      const adapter = createPostgresAdapter({
+        connectionString: process.env.POSTGRES_CONNECTION_STRING,
+        host: process.env.POSTGRES_HOST,
+        port: parseInt(process.env.POSTGRES_PORT || "5432"),
+        database: process.env.POSTGRES_DATABASE || "omniroute",
+        user: process.env.POSTGRES_USER,
+        password: process.env.POSTGRES_PASSWORD,
+      });
+      if (adapter.open) {
+        console.log(`[DB] Driver: postgres | file: ${filePath}`);
+        return adapter;
+      }
+    } catch (e) {
+      console.warn("[DB] Failed to initialize PostgreSQL adapter.", e);
+      // Falls through to other drivers
+    }
+  } else if (specifiedDriver && specifiedDriver !== "better-sqlite3") {
+    // Any other DATABASE_DRIVER is ignored unless it's better-sqlite3
+    console.warn(
+      `[DB] DATABASE_DRIVER="${specifiedDriver}" is not supported (ignored, falling back to driver auto-selection)`
+    );
+  }
+
   if (isPackBootForcedSqlJsSmoke(process.env)) return null;
   return openSyncDriver(filePath, options);
 }

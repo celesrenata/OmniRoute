@@ -60,10 +60,15 @@ export async function deleteFromTableBeforeInBatches(
 ): Promise<number> {
   if (!tableExists(target.table)) return 0;
 
+  // rowid is SQLite's implicit row identity; PostgreSQL's ctid is the physical
+  // equivalent for this bounded "DELETE WHERE <rid> IN (SELECT <rid> ... LIMIT
+  // ?)" batch pattern. Applies to every table purged through this helper
+  // (conversation_turn_nodes, usage_history, call_logs, …).
+  const rid = getDbInstance().driver === "pg-native" ? "ctid" : "rowid";
   const statement = getDbInstance().prepare(
     `DELETE FROM ${target.table}
-     WHERE rowid IN (
-       SELECT rowid FROM ${target.table}
+     WHERE ${rid} IN (
+       SELECT ${rid} FROM ${target.table}
        WHERE ${target.column} < ?
        LIMIT ?
      )`

@@ -450,14 +450,20 @@ function repairInvalidJsonRows(
 ): number {
   if (!hasRows(db, table)) return 0;
 
-  const rows = db.prepare(`SELECT rowid, ${column} FROM ${table}`).all() as Array<{
+  // SQLite rowid identity -> PostgreSQL ctid. Select it aliased as `rowid` so
+  // the loop below is unchanged; bind it back with a ::tid cast on PG (ctid is
+  // the `tid` type, surfaced as a string like "(0,1)").
+  const isPg = db.driver === "pg-native";
+  const ridSel = isPg ? "ctid AS rowid" : "rowid";
+  const ridPred = isPg ? "ctid = ?::tid" : "rowid = ?";
+  const rows = db.prepare(`SELECT ${ridSel}, ${column} FROM ${table}`).all() as Array<{
     rowid: number;
     [key: string]: unknown;
   }>;
 
-  const deleteByRowId = db.prepare(`DELETE FROM ${table} WHERE rowid = ?`);
+  const deleteByRowId = db.prepare(`DELETE FROM ${table} WHERE ${ridPred}`);
   const clearOptionsByRowId = db.prepare(
-    "UPDATE domain_circuit_breakers SET options = NULL WHERE rowid = ?"
+    `UPDATE domain_circuit_breakers SET options = NULL WHERE ${ridPred}`
   );
   let repaired = 0;
 

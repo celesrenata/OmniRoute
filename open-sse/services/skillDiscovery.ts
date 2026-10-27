@@ -28,7 +28,12 @@ import { parseSkillMarkdown } from "@/lib/agentSkills/importer.ts";
 // WP6 durable skill tables. Imported statically — skillHub only calls
 // getDbInstance() inside function bodies, so this module still loads in
 // DB-free test contexts (the functions are simply no-ops when not called).
-import { discoverDomainsForAgent, collectionMembers } from "@/lib/db/skillHub.ts";
+import {
+  discoverDomainsForAgent,
+  collectionMembers,
+  disabledCatalogSkillIds,
+} from "@/lib/db/skillHub.ts";
+import { snapshotFromCatalog } from "@/lib/db/skillSnapshots.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,15 +88,22 @@ export interface SearchResult {
   revision: string;
   tags: string[];
   source: CatalogSkill["source"];
-  /** Total composite score (0–1). */
+  /**
+   * Whether this skill can be run via the executor bridge. Curated built-in
+   * agent skills and instruction-only imported skills are `false` (they have no
+   * registered handler); only skills resolvable in the executor registry are
+   * `true`. Exposed so consumers can read the claim instead of guessing.
+   */
+  executable: boolean;
+  /** Total composite score (0–1). 0 for browse-all results (no ranking). */
   score: number;
-  /** Explainable component scores. */
+  /** Explainable component scores. `null` for browse-all (no query) results. */
   reason: {
     nameMatch: number;
     descriptionMatch: number;
     tagMatch: number;
     domainAffinity: number;
-  };
+  } | null;
 }
 
 export interface SearchOptions {
@@ -164,6 +176,18 @@ function lexScore(query: string, haystack: string, fieldWeight: number): number 
 const DEFAULT_SKILL_ROOT = path.join(os.homedir(), ".opencode", "skills");
 
 /**
+ * Resolve the imported-skill root. Honors `OMNIROUTE_SKILL_ROOT` so a
+ * deployment can point the discovery reader at a durable volume (e.g.
+ * `/app/data/skills` on the data PVC) instead of the ephemeral container home
+ * (`~/.opencode/skills`). Read lazily (at cache-build time, not module load)
+ * so the value is picked up per process and tests can override it.
+ */
+function resolveImportedSkillRoot(): string {
+  const override = process.env.OMNIROUTE_SKILL_ROOT?.trim();
+  return override ? path.resolve(override) : DEFAULT_SKILL_ROOT;
+}
+
+/**
  * Load the full unified catalog (built-in + imported).
  * Results are cached per-process; call `refreshCatalogIndex()` after imports.
  */
@@ -179,7 +203,15 @@ function loadBuiltInSkills(): CatalogSkill[] {
     tags: [s.category, s.area],
     source: "builtin" as const,
     revision: "1.0.0",
-    executable: true, // built-in skills map to registered handler skills
+    // The 46 curated agent skills (omni-*/cli-*) are reference/instruction
+    // skills — their catalog id does NOT resolve to a registered executor
+    // handler on a fresh deploy, so they are not executable until an
+    // operator installs a matching skill via /api/skills/install. Marking
+    // them executable would make the bridge return a 500 ("Skill not
+    // found") instead of the honest "not executable" reason. The 7
+    // genuinely executable handler skills (file_read/file_write/…) live in
+    // the skill-execution system, not in this discovery catalog.
+    executable: false,
     skillMdPath: "", // loaded from URL or generated
     quarantined: false,
     license: null,
@@ -253,13 +285,111 @@ function loadImportedSkills(root: string): CatalogSkill[] {
 function ensureCache(): CatalogSkill[] {
   if (_cache) return _cache;
   const builtIn = loadBuiltInSkills();
-  const imported = loadImportedSkills(DEFAULT_SKILL_ROOT);
+  const imported = loadImportedSkills(resolveImportedSkillRoot());
   _cache = [...builtIn, ...imported];
   return _cache;
 }
 
 export function refreshCatalogIndex(): void {
   _cache = null;
+}
+
+/**
+ * Snapshot the current skill universe into the durable `skill_snapshots`
+ * table (30-day retention). Composition = discovery catalog (built-in +
+ * imported, quarantined excluded) PLUS the registered executable skills
+ * (a separate store, so install/update/delete also change composition).
+ * Per-skill enable/disable is a visibility concern, not composition, so
+ * toggles deliberately do NOT re-snapshot.
+ *
+ * `origin` records provenance ("skill-added", "skill-updated", "skill-deleted",
+ * "manual-refresh", …). Returns the new snapshot id.
+ */
+export function snapshotCatalog(
+  origin: string,
+  options: {
+    rescan?: boolean;
+    registered?: Array<{ name: string; version?: string }>;
+  } = {}
+): string {
+  if (options.rescan) refreshCatalogIndex();
+  const skills = ensureCache()
+    .filter((s) => !s.quarantined)
+    .map((s) => ({ id: s.id, source: s.source, domain: s.domain }));
+  const registeredIds = (options.registered ?? [])
+    .map((r) => (r.version ? `${r.name}@${r.version}` : r.name))
+    .sort();
+  return snapshotFromCatalog(skills, origin, {
+    registeredCount: registeredIds.length,
+    registeredIds,
+  });
+}
+
+/**
+ * Operator-disabled catalog ids (Skill Hub per-skill toggle). Cached per-process
+ * for 60s so a busy dashboard doesn't hit SQLite per request; toggles call
+ * `invalidateCatalog()` for immediate effect. Fail-open on DB errors: a
+ * transient DB fault must never take the whole catalog down with it.
+ */
+let _disabledCache: Set<string> | null = null;
+let _disabledCacheAt = 0;
+const DISABLED_TTL_MS = 60_000;
+
+function disabledSkillIds(): Set<string> {
+  if (_disabledCache && Date.now() - _disabledCacheAt < DISABLED_TTL_MS) return _disabledCache;
+  try {
+    _disabledCache = new Set(disabledCatalogSkillIds());
+    _disabledCacheAt = Date.now();
+  } catch {
+    return new Set(); // fail-open
+  }
+  return _disabledCache;
+}
+
+/** Drop the in-process catalog cache and the disabled-id cache after a mutation. */
+export function invalidateCatalog(): void {
+  refreshCatalogIndex();
+  _disabledCache = null;
+  _disabledCacheAt = 0;
+}
+
+/**
+ * The visible catalog: quarantined and operator-disabled skills removed. This
+ * is the single visibility rule shared by search/browse/domains/load — a
+ * disabled skill behaves as if it were not in the catalog.
+ */
+function visibleCatalog(): CatalogSkill[] {
+  const disabled = disabledSkillIds();
+  return ensureCache().filter((s) => !s.quarantined && !disabled.has(s.id));
+}
+
+export interface CatalogSummary {
+  total: number;
+  builtinCount: number;
+  importedCount: number;
+  domains: string[];
+}
+
+/**
+ * Compact summary of the full catalog composition (built-in + imported,
+ * quarantined excluded — matches `snapshotCatalog` semantics; per-skill
+ * enable/disable is a visibility concern and does not change composition).
+ * Cheap enough to compute per snapshot without exposing the raw skill array.
+ * `rescan` controls whether the in-process cache is rebuilt from disk first
+ * (true on explicit refresh / after a mutation).
+ */
+export function catalogSummary(options: { rescan?: boolean } = {}): CatalogSummary {
+  if (options.rescan) refreshCatalogIndex();
+  const skills = ensureCache().filter((s) => !s.quarantined);
+  const domains = new Set<string>();
+  let builtinCount = 0;
+  let importedCount = 0;
+  for (const s of skills) {
+    if (s.source === "builtin") builtinCount += 1;
+    else if (s.source === "imported") importedCount += 1;
+    if (s.domain) domains.add(s.domain);
+  }
+  return { total: skills.length, builtinCount, importedCount, domains: [...domains].sort() };
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -269,11 +399,17 @@ export function refreshCatalogIndex(): void {
  * Returns ranked, bounded results (5–10 by default).
  */
 export function searchCatalog(query: string, options: SearchOptions = {}): SearchResult[] {
-  if (!query.trim()) return [];
-  const { limit = 10, domain, skillset, tag, executableOnly, minScore = 0.1, agentId } = options;
-  const effectiveLimit = Math.min(limit, 20);
+  const trimmed = query.trim();
+  const { domain, skillset, tag, executableOnly, minScore = 0.1, agentId } = options;
+  // Empty query = "browse all" (dashboard catalog view). Instead of scoring,
+  // return the filtered catalog (agent policy + domain/skillset/tag/executable
+  // still apply) in a stable name order, with no lexical min-score gate. A
+  // higher default cap applies since there is no relevance ranking to prune by.
+  const browsing = trimmed.length === 0;
+  const limit = options.limit ?? (browsing ? 200 : 10);
+  const effectiveLimit = Math.min(limit, browsing ? 200 : 20);
 
-  const catalog = ensureCache().filter((s) => !s.quarantined);
+  const catalog = visibleCatalog();
 
   // Per-agent policy (WP6) — applied FIRST, fail-closed. An agent that has
   // grants sees only the skillsets it was granted; an agent with no grants gets
@@ -305,6 +441,26 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
     candidates = candidates.filter((s) => s.executable);
   }
 
+  if (browsing) {
+    // No relevance ranking — stable name order, full (capped) set. Agent
+    // policy + domain/skillset/tag/executable filters still applied above.
+    return [...candidates]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, effectiveLimit)
+      .map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description.slice(0, 300),
+        domain: skill.domain,
+        revision: skill.revision,
+        tags: skill.tags,
+        source: skill.source,
+        executable: skill.executable,
+        score: 0,
+        reason: null,
+      }));
+  }
+
   const scored: SearchResult[] = [];
   for (const skill of candidates) {
     const nameMatch = lexScore(query, skill.name, 0.4);
@@ -323,6 +479,7 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
       revision: skill.revision,
       tags: skill.tags,
       source: skill.source,
+      executable: skill.executable,
       score: Math.min(1, total),
       reason: {
         nameMatch: Math.round(nameMatch * 100) / 100,
@@ -342,7 +499,7 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
  * metadata. Bounded to ~50KB to avoid context bloat.
  */
 export function loadSkill(id: string): { content: string; skill: CatalogSkill } | null {
-  const catalog = ensureCache();
+  const catalog = visibleCatalog();
   const skill = catalog.find((s) => s.id === id);
   if (!skill) return null;
 
@@ -370,8 +527,21 @@ export function loadSkill(id: string): { content: string; skill: CatalogSkill } 
 /**
  * Get a skill by ID (metadata only, no full content).
  */
+/**
+ * Get a skill by ID (metadata only, no full content).
+ *
+ * This is a RAW catalog lookup (quarantine-respecting, but NOT disabled-filtering)
+ * by design: it is the existence check behind the execute bridge, so a skill
+ * that an operator has hidden from discovery can still be executed by a caller
+ * who knows its exact ID. Discovery paths (search/browse/load) use
+ * `visibleCatalog()` and DO exclude disabled skills.
+ */
 export function getCatalogSkill(id: string): CatalogSkill | null {
-  return ensureCache().find((s) => s.id === id) ?? null;
+  return (
+    ensureCache()
+      .filter((s) => !s.quarantined)
+      .find((s) => s.id === id) ?? null
+  );
 }
 
 /**
@@ -395,7 +565,7 @@ export function resolveContainedResource(skillMdPath: string, requestPath: strin
  * List available domains / skillsets in the catalog.
  */
 export function listDomains(): { domain: string; count: number }[] {
-  const catalog = ensureCache().filter((s) => !s.quarantined);
+  const catalog = visibleCatalog();
   const map = new Map<string, number>();
   for (const s of catalog) {
     map.set(s.domain, (map.get(s.domain) ?? 0) + 1);

@@ -468,7 +468,7 @@ export function getAccountUsageRows(
       )
       SELECT
         account_events.resolved_account_key as accountKey,
-        COALESCE(NULLIF(TRIM(selected_labels.account_label), ''), NULLIF(TRIM(account_events.connection_id), ''), 'unknown') as account,
+        COALESCE(NULLIF(TRIM(MAX(selected_labels.account_label)), ''), NULLIF(TRIM(MAX(account_events.connection_id)), ''), 'unknown') as account,
         COUNT(account_events.id) as requests,
         COALESCE(SUM(account_events.tokens_input), 0) as promptTokens,
         COALESCE(SUM(account_events.tokens_output), 0) as completionTokens,

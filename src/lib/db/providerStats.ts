@@ -32,7 +32,7 @@ export function getProviderCallStats(): ProviderCallStat[] {
     .prepare(
       `SELECT
          c.provider,
-         pn.name AS nodeName,
+         MAX(pn.name) AS nodeName,
          COUNT(*) AS totalRequests,
          SUM(CASE WHEN c.status >= 200 AND c.status < 400 THEN 1 ELSE 0 END) AS successfulRequests,
          ROUND(AVG(c.duration)) AS avgLatencyMs,
@@ -53,7 +53,7 @@ export function getModelCallStats(): ModelCallStat[] {
     .prepare(
       `SELECT
          c.provider,
-         pn.name AS nodeName,
+         MAX(pn.name) AS nodeName,
          c.model,
          COUNT(*) AS requests,
          ROUND(AVG(c.duration)) AS avgLatencyMs,

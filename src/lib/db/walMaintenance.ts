@@ -109,7 +109,7 @@ export function flushBusyTotal(db: SqliteAdapter | null): boolean {
   try {
     db.prepare(
       "INSERT INTO key_value(namespace, key, value) VALUES(?, ?, ?) " +
-        "ON CONFLICT(namespace, key) DO UPDATE SET value = CAST(value AS INTEGER) + excluded.value"
+        "ON CONFLICT(namespace, key) DO UPDATE SET value = CAST(key_value.value AS INTEGER) + excluded.value"
     ).run(WAL_BUSY_NAMESPACE, WAL_BUSY_KEY, pendingBusyDelta);
     pendingBusyDelta = 0;
     return true;

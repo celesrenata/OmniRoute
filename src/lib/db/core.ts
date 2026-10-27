@@ -1275,16 +1275,31 @@ export function getDbInstance(): SqliteDatabase {
     // database can already own call_logs/usage_history/provider_connections with an older
     // column set, where the CREATE TABLE is a no-op but the indexes still reference columns
     // the healers below are the ones adding.
-    db.exec(SCHEMA_TABLES_SQL);
-    ensureProviderConnectionsColumns(db);
-    ensureUsageHistoryColumns(db);
-    ensureCallLogsColumns(db);
-    db.exec(SCHEMA_INDEXES_SQL);
+    //
+    // PostgreSQL bootstraps from db/postgres/schema-pg.sql (applied out-of-band at
+    // provisioning time); the inline SCHEMA_SQL + SQLite column healers below emit
+    // raw SQLite DDL (INTEGER PRIMARY KEY AUTOINCREMENT, …) that PostgreSQL rejects,
+    // so skip them for the pg-native driver. The pragmas above are handled by the
+    // adapter's pragma shim and are safe to leave unconditional.
+    const isPostgresDriver = db.driver === "pg-native";
+    if (!isPostgresDriver) {
+      db.exec(SCHEMA_TABLES_SQL);
+      ensureProviderConnectionsColumns(db);
+      ensureUsageHistoryColumns(db);
+      ensureCallLogsColumns(db);
+      db.exec(SCHEMA_INDEXES_SQL);
+    }
 
     // ── Versioned Migrations ──
-    // Auto-seed 001 as applied (the inline SCHEMA_SQL already created these tables)
-    // then run any new migrations (002+)
-    db.exec(`
+    // PostgreSQL bootstraps from the pre-generated db/postgres/schema-pg.sql
+    // (applied out-of-band at provisioning time), so the SQLite migration runner
+    // and the SQLite-only pragma/optimization tuning below are skipped entirely
+    // for the pg-native driver — that DDL (AUTOINCREMENT, PRAGMA, mmap_size…) is
+    // not valid PostgreSQL and the adapter does not translate raw exec() DDL.
+    if (!isPostgresDriver) {
+      // Auto-seed 001 as applied (the inline SCHEMA_SQL already created these tables)
+      // then run any new migrations (002+)
+      db.exec(`
     CREATE TABLE IF NOT EXISTS _omniroute_migrations (
       version TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1294,27 +1309,28 @@ export function getDbInstance(): SqliteDatabase {
     VALUES ('001', 'initial_schema');
   `);
 
-    runMigrations(db, { isNewDb, databaseExistedBeforeInitialization });
-    // Fresh installs need the same post-migration index guarantee as upgraded
-    // databases, including recovery from an interrupted migration 127 attempt.
-    ensureUsageHistoryAccountIndex(db);
+      runMigrations(db, { isNewDb, databaseExistedBeforeInitialization });
+      // Fresh installs need the same post-migration index guarantee as upgraded
+      // databases, including recovery from an interrupted migration 127 attempt.
+      ensureUsageHistoryAccountIndex(db);
 
-    applyStoredDatabaseOptimizationSettings(db);
+      applyStoredDatabaseOptimizationSettings(db);
 
-    // Apply mmap_size from stored settings (migration 046), fallback to 256MiB
-    try {
-      const mmapRow = db
-        .prepare("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
-        .get("databaseSettings", "mmapSize") as { value: string } | undefined;
-      const mmapSize = mmapRow ? Math.max(0, parseInt(mmapRow.value, 10) || 0) : 268435456;
-      if (mmapSize > 0) {
-        db.pragma(`mmap_size = ${mmapSize}`);
+      // Apply mmap_size from stored settings (migration 046), fallback to 256MiB
+      try {
+        const mmapRow = db
+          .prepare("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
+          .get("databaseSettings", "mmapSize") as { value: string } | undefined;
+        const mmapSize = mmapRow ? Math.max(0, parseInt(mmapRow.value, 10) || 0) : 268435456;
+        if (mmapSize > 0) {
+          db.pragma(`mmap_size = ${mmapSize}`);
+        }
+      } catch {
+        // mmap_size is best-effort; not available in all runtimes (e.g. web)
       }
-    } catch {
-      // mmap_size is best-effort; not available in all runtimes (e.g. web)
-    }
 
-    offloadLegacyCallLogDetails(db);
+      offloadLegacyCallLogDetails(db);
+    }
 
     // Auto-migrate from db.json if exists
     if (jsonDbFile && fs.existsSync(jsonDbFile)) {
@@ -1609,8 +1625,7 @@ function migrateFromJson(db: SqliteDatabase, jsonPath: string) {
         let rateLimitOverridesJson = serializeJsonField(conn.rateLimitOverrides);
         if (!hasOverrides && typeof conn.id === "string") {
           const existing = selectExistingOverrides.get(conn.id) as
-            | { rate_limit_overrides_json: string | null }
-            | undefined;
+            { rate_limit_overrides_json: string | null } | undefined;
           if (existing) rateLimitOverridesJson = existing.rate_limit_overrides_json;
         }
         insertConn.run({

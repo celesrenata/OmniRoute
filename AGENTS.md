@@ -472,6 +472,8 @@ For any non-trivial change, read the matching deep-dive first:
 
 **Both test runners must pass**: `npm run test:unit` (Node native — most tests) AND `npm run test:vitest` (MCP server, autoCombo, cache) cover **non-overlapping files**. Both are wired in CI (jobs `test-unit` and `test-vitest`) and must be green before merging. A PR where only one suite passes may silently ship broken MCP tools or routing regressions.
 
+**Demo-grade verification (operator directive, 2026-10-22)**: When the operator asks to "test it" / "show me it working", the deliverable is a live demonstration of the ACTUAL feature running end-to-end — real server/container started, real code path exercised, real output (commands + observed results) reported back. Schema-only checks, unit tests against stubs/mocks, or "it doesn't crash" verification do NOT satisfy this request. Never stop at a lower fidelity than what "it works" means, and never present a partial check as completion. This directive MUST be included verbatim in the prompt of every subagent that may verify work on the operator's behalf.
+
 **Bug fix / issue triage protocol (Hard Rule #18)**: Every fix for a reported issue must be validated by one of the following — no exceptions:
 
 1. **TDD (preferred)** — write a failing test reproducing the bug → fix it → confirm the test passes. The test becomes the permanent regression guard. Touch only the files the test proves need changing; nothing more.
@@ -744,6 +746,20 @@ the stale-enforcement added in Fase 6A.3.
     VERBATIM no prompt de todo subagente que toque git; (e) se `_tasks` aparecer como symlink
     quebrado, NÃO commitar nada — restaurar do remote e avisar o operador. O gate
     `check:tracked-artifacts` (pre-commit + CI) bloqueia `_tasks` rastreado em qualquer forma.
+24. **PR targets are restricted: NEVER open a pull request against any repository except
+    `FTA-developers` or `celesrenata` — unless the human explicitly directs a specific
+    target.** The only permitted PR target repos are `FTA-developers/…` and
+    `celesrenata/…` (e.g. `celesrenata/OmniRoute`). Do NOT open a PR against upstream
+    `diegosouzapw/OmniRoute` (or any other third-party repo/fork) on your own initiative:
+    the operator's fork `celesrenata/OmniRoute` is the build source for the k8s deploy, and
+    cross-repo PRs against the upstream default branch (which has diverged from the fork)
+    produce `CONFLICTING`/`DIRTY` PRs that serve no purpose and spam the tracker. Before
+    opening ANY PR, confirm the target repo is `FTA-developers` or `celesrenata`; if the
+    work is meant for upstream, STOP and ask the operator first — only proceed on explicit
+    direction naming the target repo + branch. When in doubt, ask. (Incident 2026-10-26:
+    PR #18215 opened cross-repo against `diegosouzapw/OmniRoute:release/v3.8.52`; fork and
+    upstream had diverged → `CONFLICTING`/`DIRTY`; operator ordered it closed and the
+    branch deleted.)
 
 ---
 
