@@ -1696,6 +1696,30 @@ CREATE TABLE IF NOT EXISTS skill_import_jobs (
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
 
+--TABLE:skill_snapshots
+CREATE TABLE IF NOT EXISTS skill_snapshots (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
+  type TEXT NOT NULL DEFAULT 'full',
+  metadata TEXT NOT NULL,
+  data TEXT,
+  retention_until TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC' + INTERVAL '30 days', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
+  import_job_id BIGINT REFERENCES skill_import_jobs(id) ON DELETE SET NULL
+);
+
+--TABLE:skill_catalog_state
+CREATE TABLE IF NOT EXISTS skill_catalog_state (
+  skill_id TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+);
+
+--INDEX:skill_snapshots:idx_skill_snapshots_retention
+CREATE INDEX IF NOT EXISTS idx_skill_snapshots_retention ON skill_snapshots(retention_until);
+
+--INDEX:skill_snapshots:idx_skill_snapshots_created
+CREATE INDEX IF NOT EXISTS idx_skill_snapshots_created ON skill_snapshots(created_at DESC);
+
 --TABLE:skill_sources
 CREATE TABLE IF NOT EXISTS skill_sources (
   id TEXT PRIMARY KEY,
@@ -3778,4 +3802,5 @@ WHEN (lower(btrim(NEW.provider, ' ' || chr(9) || chr(10) || chr(11) || chr(12) |
   ))
 
 EXECUTE FUNCTION trg_retire_microsoft_designer_web_provider_update_fn();
+
 

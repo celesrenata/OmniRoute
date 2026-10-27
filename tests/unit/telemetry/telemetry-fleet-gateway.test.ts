@@ -177,8 +177,9 @@ test("provenance: NaN values and future-sampled rows are rejected by the gateway
     resources: [providerRow("openai", { activeJobs: observed(Number.NaN) })],
   });
   const futureProvider = fakeProvider("future", {
-    // sampled AFTER capturedAt → merge drops the future snapshot.
-    resources: [providerRow("anthropic", { activeJobs: observed(1, NOW + 5_000) })],
+    // sampled AFTER capturedAt + the bounded clock-skew tolerance → merge
+    // drops the future snapshot. 6s exceeds the default 5s tolerance.
+    resources: [providerRow("anthropic", { activeJobs: observed(1, NOW + 6_000) })],
     capturedAtOverride: NOW,
   });
   const { gateway } = makeGateway([nanProvider, futureProvider]);

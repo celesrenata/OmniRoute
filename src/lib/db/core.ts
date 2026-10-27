@@ -11,6 +11,7 @@ import {
   preInitSqlJs,
   getSqlJsPreInitError,
   openDatabaseAsync,
+  isSocketDatabaseDriver,
 } from "./adapters/driverFactory";
 import path from "path";
 import { retryProbeIfTransient } from "./probeUtils";
@@ -1542,11 +1543,30 @@ export function getDriverInfo(): DbDriverInfo | null {
  *
  * Idempotent — safe to call multiple times.
  */
+/**
+ * Whether ensureDbInitialized() should probe a synchronous driver before opening
+ * the singleton.
+ *
+ * False for socket-backed drivers (PostgreSQL): there is no SQLite driver to
+ * discover, and the probe is not free — it opens a real pg-native connection and
+ * closes it immediately, which is the libpq teardown path that aborts the process
+ * (see releasePgClient() in adapters/postgresAdapter.ts).
+ */
+export function shouldProbeSyncDriverForBoot(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !isSocketDatabaseDriver(env);
+}
 export async function ensureDbInitialized(): Promise<void> {
   if (getDb()) return;
 
   // Cloud/build: getDbInstance() cria in-memory, sem necessidade de pré-init
   if (isCloud || isBuildPhase || !SQLITE_FILE) {
+    getDbInstance();
+    return;
+  }
+
+  // Socket-backed (PostgreSQL): open the single real connection directly instead
+  // of probing — getDbInstance() runs the full setup itself.
+  if (!shouldProbeSyncDriverForBoot()) {
     getDbInstance();
     return;
   }

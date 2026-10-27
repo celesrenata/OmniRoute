@@ -13,6 +13,7 @@ import {
   mergeSnapshots,
   neutralizeStale,
 } from "../../../src/shared/topology/telemetry/mergeSnapshots";
+import { FUTURE_TOLERANCE_MS_DEFAULT } from "../../../src/shared/topology/telemetry/provenance";
 import {
   fixtureSnapshot,
   gpuResource,
@@ -216,6 +217,58 @@ describe("merge: out-of-order rejection (future samples)", () => {
     assert.equal(snapshot.resources.length, 1);
     assert.ok(byId(snapshot.resources).has("provider:p"));
     assert.ok(!byId(snapshot.resources).has("provider:q"));
+  });
+});
+
+describe("merge: bounded clock-skew tolerance (OR-ATOM-005 T5.6c)", () => {
+  it("merges a sample 20ms ahead of capturedAt with the default tolerance (real wire ts kept)", () => {
+    const skewed = fixtureSnapshot(
+      [
+        providerResource("prom", {
+          activeJobs: observedValue(3, { sampledAt: NOW + 20, source: "prometheus" }),
+        }),
+      ],
+      NOW
+    );
+    const { snapshot, droppedFuture } = mergeSnapshots([skewed], NOW, {
+      futureToleranceMs: FUTURE_TOLERANCE_MS_DEFAULT,
+    });
+    assert.equal(droppedFuture, 0);
+    const row = byId(snapshot.resources).get("provider:prom");
+    assert.ok(row, "the skewed snapshot must be merged");
+    // The real wire timestamp is KEPT — never re-stamped with capturedAt.
+    assert.equal(row.activeJobs?.sampledAt, NOW + 20);
+    assert.equal(row.activeJobs?.value, 3);
+    // The merged snapshot keeps the gateway now as capturedAt.
+    assert.equal(snapshot.capturedAt, NOW);
+  });
+
+  it("still drops a sample 6000ms ahead of capturedAt even with the 5s default tolerance", () => {
+    const farFuture = fixtureSnapshot(
+      [
+        providerResource("prom", {
+          activeJobs: observedValue(3, { sampledAt: NOW + 6000, source: "prometheus" }),
+        }),
+      ],
+      NOW
+    );
+    const { snapshot, droppedFuture } = mergeSnapshots([farFuture], NOW, {
+      futureToleranceMs: FUTURE_TOLERANCE_MS_DEFAULT,
+    });
+    assert.equal(droppedFuture, 1);
+    assert.equal(snapshot.resources.length, 0);
+  });
+
+  it("stays strict when no tolerance option is passed (backward compatible)", () => {
+    const skewed = fixtureSnapshot(
+      [
+        providerResource("prom", {
+          activeJobs: observedValue(3, { sampledAt: NOW + 20, source: "prometheus" }),
+        }),
+      ],
+      NOW
+    );
+    assert.equal(mergeSnapshots([skewed], NOW).droppedFuture, 1);
   });
 });
 

@@ -30,6 +30,7 @@ function makeGateway(
     providerTimeoutMs?: number;
     cacheTtlMs?: number;
     cacheMaxEntries?: number;
+    futureToleranceMs?: number;
     onWarning?: (w: string) => void;
   } = {}
 ): FleetTelemetryGateway {
@@ -38,6 +39,7 @@ function makeGateway(
     providerTimeoutMs: opts.providerTimeoutMs,
     cacheTtlMs: opts.cacheTtlMs,
     cacheMaxEntries: opts.cacheMaxEntries,
+    futureToleranceMs: opts.futureToleranceMs,
     onWarning: opts.onWarning,
   });
 }
@@ -315,6 +317,57 @@ describe("gateway: registration bounds + probe", () => {
       snap.resources.map((r) => r.resourceId),
       ["gpu:h2:u2"]
     );
+  });
+});
+
+describe("gateway: bounded clock-skew tolerance (OR-ATOM-005 T5.6c)", () => {
+  it("keeps a provider snapshot sampled 20ms ahead of the host clock (NTP skew)", async () => {
+    const gw = makeGateway({});
+    const promLike = makeFakeProvider({
+      id: "prometheus",
+      resources: () => [
+        gpuResource("h1", "u", {
+          utilizationPercent: observedValue(72, { sampledAt: NOW + 20, source: "prometheus" }),
+        }),
+      ],
+    });
+    gw.register(promLike.provider);
+    const snap = await gw.snapshot({ windowMs: 60_000 });
+    assert.equal(gw.lastDiagnostics?.droppedFutureSnapshots, 0);
+    assert.equal(snap.resources.length, 1);
+    const row = snap.resources[0];
+    // The real wire timestamp is KEPT — never re-stamped with the gateway now.
+    assert.equal(row.utilizationPercent?.sampledAt, NOW + 20);
+    assert.equal(row.utilizationPercent?.value, 72);
+    assert.equal(snap.capturedAt, NOW);
+  });
+
+  it("still drops a provider snapshot 6s ahead of the host clock (real clock fault)", async () => {
+    const gw = makeGateway({});
+    const clockFault = makeFakeProvider({
+      id: "clock-fault",
+      resources: () => [
+        providerResource("bad", { activeJobs: observedValue(9, { sampledAt: NOW + 6000 }) }),
+      ],
+    });
+    gw.register(clockFault.provider);
+    const snap = await gw.snapshot({ windowMs: 60_000 });
+    assert.equal(gw.lastDiagnostics?.droppedFutureSnapshots, 1);
+    assert.equal(snap.resources.length, 0);
+  });
+
+  it("honors an injected futureToleranceMs (20ms skew with a 10ms tolerance drops)", async () => {
+    const gw = makeGateway({ futureToleranceMs: 10 });
+    const tight = makeFakeProvider({
+      id: "tight",
+      resources: () => [
+        providerResource("p", { activeJobs: observedValue(1, { sampledAt: NOW + 20 }) }),
+      ],
+    });
+    gw.register(tight.provider);
+    const snap = await gw.snapshot({ windowMs: 60_000 });
+    assert.equal(gw.lastDiagnostics?.droppedFutureSnapshots, 1);
+    assert.equal(snap.resources.length, 0);
   });
 });
 
