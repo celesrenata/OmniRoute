@@ -40,19 +40,62 @@ export function detectTopologyCapabilities(): TopologyCapabilities {
 }
 
 /**
- * Probe for a WebGL2 context on a detached canvas. A `null` context result (or
- * a probe that throws) means "unavailable". The canvas is never attached to the
- * document, so there is nothing to dispose.
+ * Cache for the WebGL2 probe. `null` = not probed yet; `true`/`false` = the
+ * cached result for this page load. A real WebGL2 context is expensive and
+ * scarce (the browser caps ~16 live contexts), so the probe allocates at most
+ * ONCE and releases it immediately via `WEBGL_lose_context` — the probe never
+ * counts against the limit, and every caller (mount gate + render gate) shares
+ * this single cached result.
  */
-function detectWebgl2(): boolean {
-  if (typeof document === "undefined") return false;
-  try {
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("webgl2");
-    return context != null;
-  } catch {
+let webgl2Result: boolean | null = null;
+
+/**
+ * Probe whether the page can create a real WebGL2 context, caching the result
+ * for the lifetime of the page.
+ *
+ * SSR-safe: returns `false` when `document` is absent (node, SSR). A probe that
+ * *throws* is treated as "not available", never a crash (permissive semantics).
+ * On success the freshly-created context is released immediately so it is
+ * released before the function returns.
+ */
+export function webgl2Available(): boolean {
+  if (webgl2Result !== null) return webgl2Result;
+  if (typeof document === "undefined" || typeof document.createElement !== "function") {
+    webgl2Result = false;
     return false;
   }
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("webgl2");
+    webgl2Result = ctx != null;
+    if (ctx) {
+      const lose = (
+        ctx as unknown as { getExtension?: (n: string) => { loseContext(): void } | null }
+      ).getExtension?.("WEBGL_lose_context");
+      lose?.loseContext();
+    }
+  } catch {
+    webgl2Result = false;
+  }
+  return webgl2Result;
+}
+
+/**
+ * Reset the cached WebGL2 probe result. **Test-only** — lets unit tests reset
+ * the module-level cache between cases.
+ */
+export function __resetWebgl2CacheForTests(): void {
+  webgl2Result = null;
+}
+
+/**
+ * Detect WebGL2 for the capability report. Routes through
+ * {@link webgl2Available} (the single cached, context-releasing probe) so the
+ * mount gate and any render gate share one allocation instead of each leaking
+ * a live context.
+ */
+function detectWebgl2(): boolean {
+  return webgl2Available();
 }
 
 /**
