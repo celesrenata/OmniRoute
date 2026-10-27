@@ -35,13 +35,14 @@
  * - **Curve arc height**: a fixed proportion of the chord length (bounded
  *   aesthetic choice, not an auto-fit).
  */
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
 import type { AtomVisualDescriptor, LinkVisualDescriptor } from "../AtomicTopologyRenderer";
 import { QUALITY_BUDGETS } from "../quality";
 import { useAtomicSceneContext } from "./sceneContext";
+import { disposeSceneObject } from "./dispose";
 import { linkTubeRadius } from "../visualEncoding";
 
 /**
@@ -93,6 +94,18 @@ export function EnergyLink({
     const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 0, 0), control, end);
     return new THREE.TubeGeometry(curve, tubeSegments, tubeRadius, 8, false);
   }, [target, tubeRadius, tubeSegments]);
+
+  // The tube geometry is built imperatively (three.js), so it must be released
+  // on both dependency change and unmount — otherwise the scene leaks WebGL
+  // buffers across the host's frequent telemetry re-renders (P0 context leak).
+  // The materials are R3F JSX (`<meshStandardMaterial>`) and disposed by R3F.
+  useEffect(() => {
+    return () => {
+      // `geometry` is a bare TubeGeometry (not a mesh), so hand the helper a
+      // container whose `geometry` field is the one to release.
+      disposeSceneObject({ geometry });
+    };
+  }, [geometry]);
 
   const materialRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const glowRef = useRef<THREE.MeshStandardMaterial | null>(null);
