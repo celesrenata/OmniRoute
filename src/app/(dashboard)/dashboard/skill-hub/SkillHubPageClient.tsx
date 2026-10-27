@@ -56,6 +56,46 @@ export function SkillHubPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<LoadedSkill | null>(null);
   const [loadingContent, setLoadingContent] = useState(false);
+  // Whole-skill-service master switch (settings.skillsEnabled). null = unknown
+  // until the first GET resolves; the switch renders disabled until then.
+  const [serviceEnabled, setServiceEnabled] = useState<boolean | null>(null);
+  const [togglingService, setTogglingService] = useState(false);
+
+  // Master switch — load the current skillsEnabled value on mount.
+  useEffect(() => {
+    fetch("/api/skills/service/toggle")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { enabled?: boolean } | null) => {
+        if (data && typeof data.enabled === "boolean") setServiceEnabled(data.enabled);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const toggleService = (next: boolean) => {
+    if (togglingService) return;
+    setTogglingService(true);
+    const previous = serviceEnabled;
+    setServiceEnabled(next); // optimistic
+    fetch("/api/skills/service/toggle", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    })
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          setServiceEnabled(previous);
+          setError(
+            body?.error?.message || `Failed to ${next ? "enable" : "disable"} skill service`
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        setServiceEnabled(previous);
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setTogglingService(false));
+  };
 
   // Browse / search — fetch on change. `loading` starts true (initial skeleton)
   // and is only flipped off in the promise callback; no synchronous setState in
@@ -132,9 +172,55 @@ export function SkillHubPageClient() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold text-foreground">Skill Hub</h1>
-        <p className="text-sm text-muted-foreground">Discover, inspect and run the skill catalog</p>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-xl font-semibold text-foreground">Skill Hub</h1>
+            <p className="text-sm text-muted-foreground">
+              Discover, inspect and run the skill catalog
+            </p>
+          </div>
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-bg-subtle px-3 py-2">
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-foreground">Skill service</span>
+              <span className="text-xs text-muted-foreground">
+                {serviceEnabled === null
+                  ? "Loading…"
+                  : serviceEnabled
+                    ? "Enabled"
+                    : "Disabled — skills are unavailable"}
+              </span>
+            </div>
+            <button
+              data-testid="skill-service-switch"
+              type="button"
+              role="switch"
+              aria-checked={serviceEnabled === true}
+              aria-label="Toggle skill service"
+              disabled={togglingService || serviceEnabled === null}
+              onClick={() => toggleService(serviceEnabled !== true)}
+              className={`relative h-6 w-11 rounded-full transition-colors disabled:cursor-wait disabled:opacity-60 ${
+                serviceEnabled ? "bg-amber-500" : "bg-border"
+              }`}
+            >
+              <span
+                className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+                  serviceEnabled ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        {serviceEnabled === false && (
+          <div
+            role="status"
+            className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
+          >
+            Skill service is off: skill execution is blocked, and catalog refresh and per-skill
+            toggling return 503. Browsing and inspecting skills keeps working. Flip the switch back
+            on to restore the full service.
+          </div>
+        )}
       </div>
 
       {/* Search bar */}
