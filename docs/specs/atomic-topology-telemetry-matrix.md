@@ -5,7 +5,9 @@ title: Atomic Topology Telemetry Matrix (OR-ATOM-001 / M0 + M2)
 # Atomic Topology Telemetry Matrix (OR-ATOM-001 / M0 + M2)
 
 Status: M0 gate — evidence-only audit artifact; M2 — fleet telemetry endpoint
-shipped (T005).
+shipped (T005); OR-ATOM-005 / Step 5 — optional external metrics adapters
+(Prometheus / InfluxDB2 / Grafana) + reconciliation block in the fleet
+response (§7.2).
 Scope owner: T003. This document records what the repository ships, what it can
 derive, and what is unavailable. It makes no runtime measurements and fabricates
 no telemetry values.
@@ -207,14 +209,167 @@ These choices are pinned by the pure geometry/encoding tests in
 `tests/unit/atomic-topology/` (including `geometry.test.ts` for the nucleus
 cluster and shell configuration math).
 
+## 7.2 OR-ATOM-005 / Step 5 — optional external adapters + reconciliation
+
+Supersedes the "no external backend" invariant in §8 for the **server-side**
+path only. The M0 audit (this document) found no telemetry backend **shipped in
+the repository**; Step 5 adds **operator-configured** external adapters as
+opt-in backends alongside the mandatory native adapter.
+
+### 7.2.1 Optional external metrics adapters
+
+Three HTTP-based adapters are available, each registered **only** when the
+operator configures it via env (opt-in; the native adapter always stays
+registered, so a misconfigured or down external source never 503s the
+endpoint):
+
+| Adapter                               | Env                                                                                                                 | Identity join key                                                 | SSRF defense                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------- |
+| Prometheus                            | `OMNIROUTE_FLEET_METRICS_SOURCE=prometheus` + `OMNIROUTE_FLEET_METRICS_URL`                                         | `host` label + `gpu_uuid` / `runtime_id` label                    | `fleetMetricsFetch` (host/port allowlist) |
+| InfluxDB 2                            | `OMNIROUTE_FLEET_METRICS_SOURCE=influxdb2` + `OMNIROUTE_FLEET_METRICS_URL`                                          | `host_id` tag + `gpu_uuid` / `runtime_id` tag (row-based parsing) | `fleetMetricsFetch` (host/port allowlist) |
+| Grafana (Prometheus datasources only) | `OMNIROUTE_FLEET_METRICS_SOURCE=grafana` + `OMNIROUTE_FLEET_METRICS_URL` + `OMNIROUTE_FLEET_METRICS_DATASOURCE_UID` | Same label keys as Prometheus (datasource-query API)              | `fleetMetricsFetch` (host/port allowlist) |
+
+Registration lives in `registerExternalAdapter()` in
+[src/shared/topology/telemetry/gatewayServer.ts](../../src/shared/topology/telemetry/gatewayServer.ts);
+construction failures are caught and logged — the gateway keeps serving on the
+native adapter. At most two providers register simultaneously (native + one
+external). Per-provider **snapshot** failures remain graceful (timeout →
+warning + drop, never 503): see `FleetTelemetryGateway.snapshot()` in
+[src/shared/topology/telemetry/gateway.ts](../../src/shared/topology/telemetry/gateway.ts).
+
+### 7.2.2 Reconciliation block in the fleet response
+
+The `GET /api/telemetry/fleet` response now carries an additive
+`reconciliation` block (OR-ATOM-005 / Step 5) alongside the raw `snapshot`.
+The raw snapshot shape is unchanged, so existing consumers are unaffected.
+
+```jsonc
+{
+  "snapshot": {/* FleetTelemetrySnapshot — unchanged */},
+  "reconciliation": {
+    "schemaVersion": 1,
+    "capturedAt": 0,
+    "gpuNodes": [/* ReconciledGpuNode[] */],
+    "runtimeNodes": [/* ReconciledRuntimeNode[] */],
+    "providerNodes": [/* ReconciledProviderNode[] */],
+    "edges": [/* ReconciliationEdge[] */],
+    "providerCentricFallback": false,
+  },
+}
+```
+
+The reconciliation is produced by `reconcileSnapshot()` (pure, deterministic) in
+[src/shared/topology/telemetry/reconcile.ts](../../src/shared/topology/telemetry/reconcile.ts).
+GPU / runtime nodes are emitted **only** for devices with a proven canonical ID
+(`gpu:<host_id>:<device_uuid>`, `runtime:<host_id>:<runtime_id>`); cloud-only
+providers stay provider atoms. Edges carry explicit provenance (basis +
+sampledAt); a missing relationship is an **absent** edge, never a guessed one.
+
+### 7.2.3 Renderer-neutral domain snapshot
+
+`TopologySceneSnapshot` (src/shared/topology/domain/types.ts) gained an optional
+`fleetTelemetry?: ReconciliationResult | null` field, carried additively by
+`normalizeTopology()` when the caller passes a `reconciliation` input. The 2D
+ReactFlow renderer reads only `nodes` / `links` and ignores the block; the 3D
+atomic renderer consumes it to place GPU / runtime atoms alongside providers.
+`null` / `undefined` → no device telemetry in this snapshot (absent, never an
+empty claim).
+
+### 7.2.4 InfluxDB 2 row-based identity parsing
+
+The InfluxDB 2 adapter reads identity tags (`host_id`, `gpu_uuid`, `runtime_id`)
+from column values in the JSON `rows` response (InfluxDB HTTP API v2 shape),
+not from measurement names. Rows without a stable identity tag are dropped
+(honest unknown). Metric fields are read from separate columns. The adapter
+builds canonical `gpu:<host_id>:<uuid>` / `runtime:<host_id>:<id>` resource
+IDs via `buildCanonicalResourceId()` — never display labels, never a bare
+PCI index.
+
+### 7.2.5 Staleness semantics
+
+Staleness is computed upstream by `mergeSnapshots.mergeSnapshots()` (age >
+3 × windowMs → `stale: true`, value decayed to `null`). `reconcileSnapshot()`
+trusts the pre-computed `stale` flag rather than re-deriving age. A sample
+without a known `windowMs` can only be judged stale by the explicit flag —
+its sampling interval is unknown.
+
+### 7.2.6 OR-ATOM-005 / T5.4 — renderer seam: measured motion + device band
+
+The 3D atomic renderer (`src/plugins/atomic-topology/`) consumes
+`snapshot.fleetTelemetry` (added in §7.2.3) at a single pure seam —
+`resolveAtomDescriptors()` in
+[src/plugins/atomic-topology/AtomicTopologyRenderer.tsx](../../src/plugins/atomic-topology/AtomicTopologyRenderer.tsx).
+Everything downstream of the seam (scene, camera, labels, overlays) is
+untouched; everything upstream (snapshot normalization) is unchanged.
+
+**Device band — GPU/runtime atoms in outer rings.** Proven device nodes are
+**not** fed into `snapshot.nodes` / `computeAtomicLayout` (provider atoms,
+their rings, and the hub are byte-identical to the pre-telemetry baseline).
+Instead a new pure
+[`computeDeviceBandLayout()`](../../src/plugins/atomic-topology/layout.ts)
+places each `gpu:`/`runtime:` atom in rings starting at
+`maxProviderRing + 1` (device rings can never overlap a provider ring),
+reusing the same `capacityAt` / `radiusAt` / `ringPhaseOffset` / `fnv1a`
+helpers as the provider layout, so device rings share the provider ring
+geometry and are deterministic under input reordering. Device atoms are
+appended to the descriptor list after the provider map.
+
+**Measured motion — spin/vibration binding.**
+
+- Provider atoms: spin ← `reconciliation.providerNodes[providerId]
+.outputTokensPerSecond.value`, vibration ← `.queuedJobs.value`.
+- GPU device atoms: spin ← `gpu.outputTokensPerSecond ??
+runtime.outputTokensPerSecond` (runtime wins when both exist — the
+  runtime is the measured inference workload); vibration ←
+  `runtime.queuedJobs` (GPU atoms have no own queue → "unavailable").
+- Stale nodes, absent Observed values, or a missing/`null`
+  `fleetTelemetry` → `mode: "unavailable"` (never a fabricated 0); a real
+  observed 0 → `"measured-zero"` / `"zero"`.
+- **Intentional behavior change (T5.4):** provider atoms that rendered
+  `"unavailable"` spin before T5.4 now animate as `"measured"` when a real
+  measured TPS exists in the fleet reconciliation. Without a
+  `fleetTelemetry` block, every descriptor stays byte-identical to the M1
+  baseline (pinned by `atomicSceneBridge.test.ts` "spin is unavailable
+  regardless of request count").
+- A device atom's color is driven by `deviceFacts.modelId` (a single
+  observed model), or neutral when no model is observed — no hash guess.
+
+**Fit radius.** `computeFitRadiusFromPositions()` gained an optional
+`maxRadius` cap
+([src/plugins/atomic-topology/cameraFit.ts](../../src/plugins/atomic-topology/cameraFit.ts));
+the renderer passes `deviceBandCap = maxDeviceRingNorm + ATOM_FIT_MARGIN`
+so outer device rings are not clipped by the provider-only default cap.
+Without a device band the cap is `undefined` and fit math is unchanged.
+
+**Badge freshness.** The "captured" badge prefers
+`snapshot.fleetTelemetry?.capturedAt ?? snapshot.capturedAt` — the feed the
+rendered numbers came from.
+
+**Queue labeling (limiter ≠ scheduler).** The OmniRoute request
+**rate-limiter** queue (basis `rateLimitManager:counts.QUEUED`, §7.2.2) and
+the inference-**scheduler** queue are different systems and are labeled
+separately in the tooltip: `queueRowLabel()`
+([AtomicTooltip.tsx](../../src/plugins/atomic-topology/overlays/AtomicTooltip.tsx))
+renders "Rate-limit queue" for provider/gpu atoms and "Sched. queue" for
+runtime device atoms; the runtime facts block shows the raw "Queue depth"
+row. Pinned by `tooltipQueueLabel.test.ts`.
+
+**No-data policy (unchanged).** An unobserved value stays "unavailable" /
+"no data" — never 0, never a decal; stale values are dropped upstream
+(§7.2.5) and surface as "no data".
+
 ## 8. Centralized collection decision (M0)
 
-- M2 shipped (T005): the endpoint itself now exists — `GET /api/telemetry/fleet`
-  is the management-gated, server-side bounded snapshot with EXACTLY ONE
-  registered backend, the OmniRoute-native adapter (`src/shared/topology/telemetry/providers/omniroute.ts`);
-  no browser fan-out, no per-atom queries, no external backend. It is the
+- M2 shipped (T005): the endpoint itself exists — `GET /api/telemetry/fleet`
+  is the management-gated, server-side bounded snapshot with the
+  OmniRoute-native adapter (`src/shared/topology/telemetry/providers/omniroute.ts`)
+  as the MANDATORY backend; no browser fan-out, no per-atom queries. It is the
   read-side of the "direct backend" decision below; device metrics stay `null`
-  with documented unavailable provenance (§7).
+  with documented unavailable provenance (§7). OR-ATOM-005 / Step 5 (§7.2)
+  supersedes the "no external backend" finding: an opt-in operator-configured
+  external adapter (Prometheus / InfluxDB2 / Grafana) may register alongside
+  the native one; a misconfigured or down external source never 503s the
+  endpoint — the native adapter keeps serving.
 - Direct backend is the only option supported by repository evidence: the
   gateway already exposes authenticated, server-side JSON snapshots
   (`/api/monitoring/health`, `/api/providers/health-matrix`,

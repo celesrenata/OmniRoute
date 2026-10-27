@@ -56,7 +56,8 @@ export const MIN_FIT_RADIUS = 120;
  */
 export function computeFitRadiusFromPositions(
   positions: ReadonlyArray<{ x: number; y: number; z: number }>,
-  atomRadius = 22
+  atomRadius = 22,
+  maxRadius?: number
 ): number {
   let maxNorm = 0;
   for (const p of positions) {
@@ -66,7 +67,11 @@ export function computeFitRadiusFromPositions(
   // No ring atoms (a hub-only fleet): frame the minimum so the nucleus is the
   // subject of the view instead of the camera zooming into a single point.
   const radius = maxNorm === 0 ? MIN_FIT_RADIUS : maxNorm + atomRadius;
-  return Math.min(Math.max(radius, MIN_FIT_RADIUS), DEFAULT_FIT_RADIUS * 1.35);
+  // Upper clamp: default `DEFAULT_FIT_RADIUS * 1.35`; when the caller passes
+  // `maxRadius` (e.g. the outer device band exceeds the provider-only layout),
+  // the *larger* of the two caps wins so outer atoms are not clipped.
+  const upper = Math.max(DEFAULT_FIT_RADIUS * 1.35, maxRadius ?? 0);
+  return Math.min(Math.max(radius, MIN_FIT_RADIUS), upper);
 }
 
 /**

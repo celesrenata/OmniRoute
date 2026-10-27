@@ -41,6 +41,18 @@ export function createManagedDbBackup(
   reason: string,
   backupDir: string
 ): boolean {
+  if (db.driver === "pg-native") {
+    // `VACUUM INTO` is SQLite-only syntax; against PostgreSQL it fails with
+    // `syntax error at or near "INTO"`, which then surfaces as a misleading
+    // "Database health repair aborted: backup creation failed" during boot.
+    // A pg_dump snapshot is the real equivalent and is not available in the
+    // standalone image, so report the unsupported path instead of emitting an
+    // invalid statement.
+    console.warn(
+      `[DB] Skipping ${reason} backup: VACUUM INTO is SQLite-only (driver=${db.driver})`
+    );
+    return false;
+  }
   try {
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
