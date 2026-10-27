@@ -58,9 +58,10 @@ import type {
   TopologyRendererOptions,
 } from "@/shared/topology/renderer/types";
 import type { TopologySceneSnapshot } from "@/shared/topology/domain/types";
+import type { ReconciledProviderNode } from "@/shared/topology/telemetry/reconcile";
 
 import { detectTopologyCapabilities } from "./capabilities";
-import { computeAtomicLayout, type AtomicLayoutNode } from "./layout";
+import { computeAtomicLayout, computeDeviceBandLayout, type AtomicLayoutNode } from "./layout";
 import { computeFitRadiusFromPositions } from "./cameraFit";
 import {
   asJobLane,
@@ -153,7 +154,7 @@ export interface AtomVisualDescriptor {
   /** Canonical atom id (`hub`, `provider:<id>`, `gpu:<id>`). */
   id: string;
   /** Atom kind. */
-  kind: "hub" | "provider" | "gpu";
+  kind: "hub" | "provider" | "gpu" | "runtime";
   /** Human label (from the snapshot node). */
   label: string;
   /** Provider id the atom represents (absent for the hub / gpu atoms). */
@@ -190,6 +191,32 @@ export interface AtomVisualDescriptor {
   activeRequests: number | null;
   /** 0-based ring index; the hub is `-1` (the nucleus, not on a ring). */
   ringIndex: number;
+  /**
+   * Proven device facts (OR-ATOM-005 — T5.4), present ONLY on device atoms
+   * (`kind: "gpu" | "runtime"`). Every field is a real measured value; `null`
+   * means "not observed" (the overlay says "no data", it never shows `0`).
+   */
+  deviceFacts?: {
+    /** `"gpu"` or `"runtime"` — the device atom kind. */
+    kind: "gpu" | "runtime";
+    utilizationPercent?: number | null;
+    vramUsedBytes?: number | null;
+    vramTotalBytes?: number | null;
+    temperatureC?: number | null;
+    powerWatts?: number | null;
+    /** Scheduler pending queue depth (NOT the OmniRoute rate-limit queue). */
+    queuedJobs?: number | null;
+    activeJobs?: number | null;
+    /** Served model id (runtime atoms only, when attributed). */
+    modelId?: string | null;
+  };
+  /**
+   * Fleet-telemetry sample anchor (OR-ATOM-005 — T5.4): the reconciliation's
+   * `capturedAt`, shown by the tooltip's "Fleet sample" row. Present on every
+   * descriptor when a reconciliation is in the snapshot (device + provider
+   * atoms); absent without one.
+   */
+  fleetSampledAt?: number | null;
 }
 
 /**
@@ -225,8 +252,15 @@ export const SPIN_REFERENCE_TPS = 24;
  * to its deterministic layout position.
  *
  * Pure: same snapshot + same options → same descriptors; no clock, no DOM, no
- * WebGL. The hub is always present (nucleus at the origin); provider/gpu atoms
- * are placed by {@link computeAtomicLayout}.
+ * WebGL. The hub is always present (nucleus at the origin); provider atoms are
+ * placed by {@link computeAtomicLayout}, and — when the snapshot carries a
+ * fleet-telemetry reconciliation (OR-ATOM-005, T5.4) — proven GPU /
+ * inference-runtime device atoms are placed in the OUTER device band by
+ * {@link computeDeviceBandLayout} (rings beyond the provider rings, so no
+ * provider atom moves). Provider spin/vibration are then bound to the
+ * *measured* fleet values (`ReconciliationResult.providerNodes`) instead of
+ * the honest M1 "unavailable" baseline; without a reconciliation the
+ * descriptors are byte-identical to the pre-telemetry behavior.
  */
 export function resolveAtomDescriptors(
   snapshot: TopologySceneSnapshot,
@@ -243,7 +277,18 @@ export function resolveAtomDescriptors(
     placementById.set(p.id, { position: p.position, ringIndex: p.ringIndex });
   }
 
-  return snapshot.nodes.map((node) => {
+  // Fleet-telemetry reconciliation join (OR-ATOM-005 — T5.4). When the
+  // snapshot carries one, provider atoms bind their spin/vibration to the
+  // *measured* fleet values and proven device atoms are appended in the outer
+  // band. Without a reconciliation every descriptor is byte-identical to the
+  // pre-telemetry M1 baseline (honest "unavailable" spin/vibration).
+  const reconciliation = snapshot.fleetTelemetry ?? null;
+  const providerJoin = new Map<string, ReconciledProviderNode>();
+  if (reconciliation) {
+    for (const pn of reconciliation.providerNodes) providerJoin.set(pn.providerId, pn);
+  }
+
+  const descriptors: AtomVisualDescriptor[] = snapshot.nodes.map((node) => {
     const isHub = node.id === "hub";
     const placement = placementById.get(node.id);
     const position = isHub
@@ -274,13 +319,26 @@ export function resolveAtomDescriptors(
         : [];
     const color = modelColors.length > 0 ? modelColors[0] : UNKNOWN_ATOM_COLOR;
 
-    // Honest spin (OR-ATOM-002 item 2): the snapshot carries a request
-    // *count*, not a tokens-per-second measurement. Feeding a count into
-    // `spinRadiansPerSecond` would fabricate a TPS value. The domain has no
-    // observed TPS in the snapshot → the honest encoding is `unavailable`.
-    const spin = spinRadiansPerSecond(null, SPIN_REFERENCE_TPS);
-    // M1 carries no queue telemetry; `null` → "unavailable" (never fabricated).
-    const vibration = queueVibration(null);
+    // Spin + queue vibration (OR-ATOM-002 item 2 baseline, OR-ATOM-005 T5.4
+    // binding): WITHOUT a reconciliation the snapshot carries only a request
+    // *count*, not a tokens-per-second measurement — feeding a count into
+    // `spinRadiansPerSecond` would fabricate TPS, so the honest encoding is
+    // `unavailable`. WITH a reconciliation, the *measured* provider values
+    // (and the measured scheduler pending-queue depth) are bound instead.
+    // A stale `Observed` (upstream decayed it to `null`) or an absent fact
+    // stays "unavailable" — never fabricated as 0.
+    const joinedProvider =
+      !isHub && node.providerId ? providerJoin.get(node.providerId) : undefined;
+    const joinedTps =
+      joinedProvider && !joinedProvider.stale && joinedProvider.outputTokensPerSecond?.value != null
+        ? joinedProvider.outputTokensPerSecond.value
+        : null;
+    const joinedQueued =
+      joinedProvider && !joinedProvider.stale && joinedProvider.queuedJobs?.value != null
+        ? joinedProvider.queuedJobs.value
+        : null;
+    const spin = spinRadiansPerSecond(reconciliation ? joinedTps : null, SPIN_REFERENCE_TPS);
+    const vibration = queueVibration(reconciliation ? joinedQueued : null);
     const visualState = resolveVisualState({
       health: node.health,
       traffic: node.traffic,
@@ -302,8 +360,75 @@ export function resolveAtomDescriptors(
       activeRequests: node.activeRequests?.value ?? null,
       ringIndex,
       modelColors,
-    };
+      fleetSampledAt: reconciliation ? reconciliation.capturedAt : null,
+    } satisfies AtomVisualDescriptor;
   });
+
+  // Proven device atoms (OR-ATOM-005 — T5.4). Placed ONLY in the outer device
+  // band (rings beyond the provider rings) by `computeDeviceBandLayout`, so
+  // no provider atom moves. Deterministic: keyed to the canonical id set,
+  // de-duplicated, hash-sorted — never to array order.
+  if (reconciliation) {
+    const maxProviderRing = layout.placements.reduce((max, p) => Math.max(max, p.ringIndex), 0);
+    const bandNodes: Array<{ id: string; kind: "gpu" | "runtime" }> = [
+      ...reconciliation.gpuNodes.map((g) => ({ id: g.resourceId, kind: "gpu" as const })),
+      ...reconciliation.runtimeNodes.map((r) => ({
+        id: r.resourceId,
+        kind: "runtime" as const,
+      })),
+    ];
+    const band = computeDeviceBandLayout(bandNodes, { startRingIndex: maxProviderRing + 1 });
+    const gpuById = new Map(reconciliation.gpuNodes.map((g) => [g.resourceId, g]));
+    const runtimeById = new Map(reconciliation.runtimeNodes.map((r) => [r.resourceId, r]));
+    for (const placement of band.placements) {
+      const gpu = placement.kind === "gpu" ? gpuById.get(placement.id) : undefined;
+      const runtime = placement.kind === "runtime" ? runtimeById.get(placement.id) : undefined;
+      // A stale reconciliation node (upstream decayed its values) must read as
+      // "unavailable", never animate from decayed/absent facts (T5.4 honesty).
+      const deviceStale = Boolean(gpu?.stale ?? runtime?.stale);
+      const obsValue = (o: { value: number | null } | null | undefined): number | null =>
+        !deviceStale && o && o.value != null ? o.value : null;
+      const spin = spinRadiansPerSecond(
+        deviceStale
+          ? null
+          : (gpu?.outputTokensPerSecond?.value ?? runtime?.outputTokensPerSecond?.value ?? null),
+        SPIN_REFERENCE_TPS
+      );
+      const vibration = queueVibration(deviceStale ? null : (runtime?.queuedJobs?.value ?? null));
+      const modelColors = runtime?.modelId ? [modelColor(runtime.modelId)] : [];
+      descriptors.push({
+        id: placement.id,
+        kind: placement.kind,
+        label: placement.id,
+        position: placement.position,
+        color: modelColors.length > 0 ? modelColors[0] : UNKNOWN_ATOM_COLOR,
+        modelColors,
+        lane: "unknown",
+        laneHue: laneHue("unknown"),
+        spin,
+        vibration,
+        // Device atoms are telemetry evidence, not route traffic: no route
+        // link connects them, so they render as idle/unknown (neutral).
+        visualState: resolveVisualState({ health: "unknown", traffic: "idle" }),
+        activeRequests: null,
+        ringIndex: placement.ringIndex,
+        deviceFacts: {
+          kind: placement.kind,
+          utilizationPercent: obsValue(gpu?.utilizationPercent),
+          vramUsedBytes: obsValue(gpu?.vramUsedBytes),
+          vramTotalBytes: obsValue(gpu?.vramTotalBytes),
+          temperatureC: obsValue(gpu?.temperatureC),
+          powerWatts: obsValue(gpu?.powerWatts),
+          queuedJobs: obsValue(runtime?.queuedJobs),
+          activeJobs: obsValue(runtime?.activeJobs),
+          modelId: runtime?.modelId ?? null,
+        },
+        fleetSampledAt: reconciliation.capturedAt,
+      });
+    }
+  }
+
+  return descriptors;
 }
 
 /**
@@ -491,10 +616,25 @@ export function AtomicTopologyRenderer({
   // Responsive framing (UX correction): fit the *actual* layout bounds, not
   // the constant `DEFAULT_FIT_RADIUS`. The hub is the origin, so only the ring
   // atoms contribute; the margin covers the atom radius + electron cloud.
+  // When device atoms are present (OR-ATOM-005 — T5.4), they live in the OUTER
+  // band, beyond the provider rings — the provider-only fit cap would clip
+  // them, so the upper clamp is raised to contain the farthest device atom.
+  // No device atoms → `undefined` cap → byte-identical to the M1 framing.
+  const deviceAtoms = descriptors.filter((d) => d.kind === "gpu" || d.kind === "runtime");
+  let deviceBandCap = undefined as number | undefined;
+  if (deviceAtoms.length > 0) {
+    let maxDeviceNorm = 0;
+    for (const d of deviceAtoms) {
+      const norm = Math.hypot(d.position.x, d.position.y, d.position.z);
+      if (norm > maxDeviceNorm) maxDeviceNorm = norm;
+    }
+    deviceBandCap = maxDeviceNorm + ATOM_FIT_MARGIN;
+  }
   const ringPositions = descriptors.filter((d) => d.kind !== "hub");
   const fitRadius = computeFitRadiusFromPositions(
     ringPositions.map((d) => d.position),
-    ATOM_FIT_MARGIN
+    ATOM_FIT_MARGIN,
+    deviceBandCap
   );
 
   // The live viewport aspect drives the fit: a wide, short canvas needs a
@@ -529,7 +669,10 @@ export function AtomicTopologyRenderer({
   // the measurement runs one tick after the snapshot lands. A snapshot does
   // not age in place, so the badge reflects the feed state at the moment it
   // became observable.
-  const capturedAt = snapshot.capturedAt;
+  // T5.4: prefer the fleet-telemetry sample's `capturedAt` over the snapshot's
+  // own — the badge should reflect the freshness of the *measured* feed that
+  // powers the spin/vibration binding, not the (possibly stale) snapshot feed.
+  const capturedAt = snapshot.fleetTelemetry?.capturedAt ?? snapshot.capturedAt;
   const [telemetryState, setTelemetryState] = useState<AtomicTelemetryState>("unavailable");
   useEffect(() => {
     const id = setTimeout(() => {

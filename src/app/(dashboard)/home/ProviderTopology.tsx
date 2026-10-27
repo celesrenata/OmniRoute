@@ -61,6 +61,7 @@ import {
   type TopologyLifecycleInput,
   type TopologyProviderEntry,
 } from "@/shared/topology/domain/normalizeTopology";
+import { useFleetTelemetry } from "@/shared/topology/telemetry/useFleetTelemetry";
 
 /** Shown (non-blocking) when a non-default renderer fails and we fall back to 2D. */
 const FALLBACK_NOTICE = "Topology renderer unavailable — showing the 2D view.";
@@ -76,6 +77,13 @@ type Props = {
   lifecycleEvents?: TopologyLifecycleInput[] | null;
   lastProvider?: string;
   errorProvider?: string;
+  /**
+   * Whether the panel is actually shown (OR-ATOM-005 / Step 5, T5.3). Gates the
+   * fleet-telemetry poller: hidden panel → no poller, no requests. The
+   * lifecycle feed is gated one level up (the section's `enabled` prop); this
+   * gate applies to the fleet polling path, which is Atomic-scene work.
+   */
+  enabled?: boolean;
 };
 
 /**
@@ -108,6 +116,7 @@ export default function ProviderTopology({
   lifecycleEvents = null,
   lastProvider = "",
   errorProvider = "",
+  enabled = true,
 }: Props) {
   const router = useRouter();
   const t = useTranslations("common");
@@ -131,10 +140,26 @@ export default function ProviderTopology({
     setRendererId(id);
   };
 
+  // Fleet telemetry (OR-ATOM-005 / Step 5, T5.3): one bounded,
+  // provenance-carrying snapshot from the management-authenticated
+  // `GET /api/telemetry/fleet`, polled on a modest cadence and ONLY while
+  // the Atomic renderer is the mounted renderer and the panel is visible —
+  // the 2D view never polls (its behaviour is byte-identical to before).
+  // One in-flight fetch at a time (coalesced in the poller core); aborts on
+  // hidden / unmount / mode switch. The carried reconciliation is threaded
+  // into the snapshot below; the existing topology consumers keep seeing
+  // `snapshot` alone (the block is additive on `snapshot.fleetTelemetry`).
+  const atomicActive = rendererId === atomicRendererId;
+  const fleetTelemetry = useFleetTelemetry({ enabled: enabled && atomicActive });
+  const fleetReconciliation =
+    fleetTelemetry.status === "available" ? fleetTelemetry.reconciliation : null;
+
   // Core-owned data: renderer-neutral snapshot of the panel's inputs. The
   // bounded lifecycle stream (M4) is folded in here — it rides the same
   // gated socket as `activeRequests`, so the snapshot carries exactly the
-  // live state the panel is observing (no second subscription).
+  // live state the panel is observing (no second subscription). The fleet
+  // reconciliation (when present) is carried verbatim on
+  // `snapshot.fleetTelemetry` (absent → field stays absent — 2D unchanged).
   const snapshot = useMemo(
     () =>
       normalizeTopology({
@@ -143,8 +168,9 @@ export default function ProviderTopology({
         lastProvider,
         errorProvider,
         lifecycleEvents,
+        reconciliation: fleetReconciliation,
       }),
-    [providers, activeRequests, lifecycleEvents, lastProvider, errorProvider]
+    [providers, activeRequests, lifecycleEvents, lastProvider, errorProvider, fleetReconciliation]
   );
 
   // Renderer options (localized empty state + delegated navigation).
