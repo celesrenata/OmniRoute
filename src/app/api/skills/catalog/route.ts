@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { extractApiKey } from "@/sse/services/auth";
 import {
+  catalogSummary,
   searchCatalog,
   loadSkill,
   getCatalogSkill,
@@ -62,7 +63,12 @@ export async function GET(request: NextRequest) {
       agentId: agentId || undefined,
       executableOnly: searchParams.get("executableOnly") === "true",
     });
-    return NextResponse.json({ query, count: results.length, results });
+    // The count should reflect the actual total in the catalog, not the truncated
+    // number of results returned (which is bounded by `limit`). This matches the
+    // dashboard's expectation that `count` is the full catalog size. Use
+    // `catalogSummary()` which already computes and returns `total`.
+    const total = catalogSummary().total;
+    return NextResponse.json({ query, count: total, results });
   } catch (err) {
     const message = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: message }, { status: 500 });
