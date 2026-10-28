@@ -54,21 +54,36 @@ export async function GET(request: NextRequest) {
     const skillset = searchParams.get("skillset");
     const tag = searchParams.get("tag");
     const agentId = searchParams.get("agentId");
+    const pageRaw = searchParams.get("page");
+    const page = pageRaw ? Math.max(parseInt(pageRaw, 10) || 1, 1) : 1;
+    const totalPages = Math.ceil((catalogSummary().total || 1) / limit) || 1;
+    // Safe page within range
+    const safePage = Math.min(Math.max(page, 1), totalPages);
 
-    const results = searchCatalog(query, {
-      limit,
+    // For browse-all, we need all results to paginate properly.
+    // Since browse-all caps at 2000, call searchCatalog with 2000 to get all.
+    // For search (query present), cap remains at MAX_LIMIT=20, so pagination
+    // within 20 items is mostly useless, but we support it.
+    const fetchLimit = query ? limit : 2000;
+    const allResults = searchCatalog(query, {
+      limit: fetchLimit,
       domain: domain || undefined,
       skillset: skillset || undefined,
       tag: tag || undefined,
       agentId: agentId || undefined,
       executableOnly: searchParams.get("executableOnly") === "true",
     });
-    // The count should reflect the actual total in the catalog, not the truncated
-    // number of results returned (which is bounded by `limit`). This matches the
-    // dashboard's expectation that `count` is the full catalog size. Use
-    // `catalogSummary()` which already computes and returns `total`.
-    const total = catalogSummary().total;
-    return NextResponse.json({ query, count: total, results });
+    const total = allResults.length;
+    const offset = (safePage - 1) * limit;
+    const pageResults = allResults.slice(offset, offset + limit);
+    return NextResponse.json({
+      query,
+      count: total,
+      page: safePage,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+      results: pageResults,
+    });
   } catch (err) {
     const message = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: message }, { status: 500 });
