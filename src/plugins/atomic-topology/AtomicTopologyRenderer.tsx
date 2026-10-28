@@ -159,6 +159,12 @@ export interface AtomVisualDescriptor {
   label: string;
   /** Provider id the atom represents (absent for the hub / gpu atoms). */
   providerId?: string;
+  /**
+   * Observed in-flight model ids (S8.3 nucleus model identity). Optional: the
+   * snapshot exposes no per-node model ids today, so the adapter leaves this
+   * absent → the nucleus renders the honest neutral two-tone.
+   */
+  observedModelIds?: string[];
   /** World-space position (from {@link computeAtomicLayout}; hub = origin). */
   position: { x: number; y: number; z: number };
   /**

@@ -1,0 +1,66 @@
+{
+  "at": "2026-10-27T22:23:22.029Z",
+  "base": "http://127.0.0.1:20141",
+  "results": [
+    {
+      "name": "desktop",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "atomic",
+      "file": "OR_ATOM_008_task/screenshots/before-panel-desktop.png",
+      "clip": {
+        "x": 285,
+        "y": 455,
+        "width": 702,
+        "height": 420
+      },
+      "canvases": {
+        "count": 1,
+        "dims": [[702, 420]]
+      },
+      "reactFlow": false
+    },
+    {
+      "name": "mobile",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "renderer": "atomic",
+      "file": "OR_ATOM_008_task/screenshots/before-panel-mobile.png",
+      "clip": {
+        "x": 41,
+        "y": 311.5,
+        "width": 308,
+        "height": 300
+      },
+      "canvases": {
+        "count": 1,
+        "dims": [[308, 300]]
+      },
+      "reactFlow": false
+    },
+    {
+      "name": "2d",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "reactflow-2d",
+      "file": "OR_ATOM_008_task/screenshots/before-panel-2d.png",
+      "clip": {
+        "x": 260,
+        "y": 378,
+        "width": 752,
+        "height": 522
+      },
+      "canvases": {
+        "count": 0,
+        "dims": []
+      },
+      "reactFlow": true
+    }
+  ]
+}
