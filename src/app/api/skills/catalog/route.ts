@@ -38,7 +38,9 @@ export async function GET(request: NextRequest) {
   // view). It returns the whole (filterable) catalog rather than a lexical
   // search, so a higher cap applies than for relevance-ranked search results.
   const query = searchParams.get("query")?.trim() ?? "";
-  const maxLimit = query ? MAX_LIMIT : 200;
+  // Browse-all must be able to return the whole catalog (operator imports
+  // can hold ~1k skills); relevance-ranked search stays at MAX_LIMIT.
+  const maxLimit = query ? MAX_LIMIT : 2000;
 
   try {
     const limitRaw = searchParams.get("limit");
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest) {
       ? Math.min(Math.max(parseInt(limitRaw, 10) || 10, 1), maxLimit)
       : query
         ? 10
-        : 100;
+        : 2000;
     const domain = searchParams.get("domain");
     const skillset = searchParams.get("skillset");
     const tag = searchParams.get("tag");
