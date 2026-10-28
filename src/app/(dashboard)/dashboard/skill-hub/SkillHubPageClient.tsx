@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface CatalogResult {
   id: string;
@@ -54,6 +54,13 @@ export function SkillHubPageClient() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Lazy loading: page 1 loads on filter change; further pages are appended
+  // automatically when the scroll sentinel nears the viewport.
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const requestRef = useRef(0); // bumped on filter change; in-flight requests guard on it
+  const nextPageRef = useRef(1); // next page to fetch for the current filter
   const [selected, setSelected] = useState<LoadedSkill | null>(null);
   const [loadingContent, setLoadingContent] = useState(false);
   // Whole-skill-service master switch (settings.skillsEnabled). null = unknown
@@ -97,43 +104,108 @@ export function SkillHubPageClient() {
       .finally(() => setTogglingService(false));
   };
 
-  // Browse / search — fetch on change. `loading` starts true (initial skeleton)
-  // and is only flipped off in the promise callback; no synchronous setState in
-  // the effect body (react-hooks/set-state-in-effect). Re-fetches replace the
-  // previous results in place — the catalog is local and fast.
+  // Browse / search — fetch page 1 on change (lazy loading). Subsequent pages
+  // are appended via the IntersectionObserver sentinel. `loading` starts true
+  // (initial skeleton) and is only flipped off in the promise callback; no
+  // synchronous setState in the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
+    const reqId = ++requestRef.current;
+    nextPageRef.current = 1;
     let cancelled = false;
     const params = new URLSearchParams();
     params.set("query", activeQuery);
     params.set("limit", activeQuery ? "20" : "100");
+    params.set("page", "1");
     if (skillset) params.set("skillset", skillset);
     fetch(`/api/skills/catalog?${params.toString()}`)
       .then((res) => res.json())
       .then((data: { count?: number; results?: CatalogResult[]; error?: string }) => {
-        if (cancelled) return;
+        if (cancelled || reqId !== requestRef.current) return;
         if (data.error && (!data.results || data.results.length === 0)) {
           setError(data.error);
           setResults([]);
           setTotal(0);
+          setHasMore(false);
         } else {
           setError(null);
           setResults(data.results || []);
-          setTotal(data.count ?? (data.results?.length || 0));
+          const count = data.count ?? (data.results?.length || 0);
+          setTotal(count);
+          nextPageRef.current = 2;
+          setHasMore((data.results?.length || 0) < count);
         }
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-          setResults([]);
-        }
+        if (cancelled || reqId !== requestRef.current) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setResults([]);
+        setHasMore(false);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && reqId === requestRef.current) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [activeQuery, skillset]);
+
+  // Keep a ref of results length so loadMore can compute hasMore without
+  // re-reading state that it would need in its dependency list.
+  const resultsRef = useRef(0);
+  useEffect(() => {
+    resultsRef.current = results.length;
+  }, [results]);
+
+  // Append the next page of results (lazy loading). Guarded by reqId so a filter
+  // change mid-flight invalidates the request, and by loading/hasMore/loadingMore.
+  const loadMore = useCallback(() => {
+    if (loading || loadingMore || !hasMore) return;
+    const reqId = requestRef.current;
+    const page = nextPageRef.current;
+    setLoadingMore(true);
+    const params = new URLSearchParams();
+    params.set("query", activeQuery);
+    params.set("limit", activeQuery ? "20" : "100");
+    params.set("page", String(page));
+    if (skillset) params.set("skillset", skillset);
+    fetch(`/api/skills/catalog?${params.toString()}`)
+      .then((res) => res.json())
+      .then((data: { count?: number; results?: CatalogResult[]; error?: string }) => {
+        if (reqId !== requestRef.current) return; // filter changed since
+        const pageResults = data.results || [];
+        if (pageResults.length > 0) {
+          setResults((prev) => [...prev, ...pageResults]);
+          const loaded = resultsRef.current + pageResults.length;
+          const count = data.count ?? loaded;
+          setHasMore(loaded < count);
+          nextPageRef.current = page + 1;
+        } else {
+          setHasMore(false);
+        }
+      })
+      .catch(() => {
+        if (reqId === requestRef.current) setHasMore(false); // stop retrying
+      })
+      .finally(() => {
+        if (reqId === requestRef.current) setLoadingMore(false);
+      });
+  }, [activeQuery, skillset, hasMore, loading, loadingMore]);
+
+  // Infinite scroll: append the next page when the sentinel nears the viewport.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) loadMore();
+        }
+      },
+      { rootMargin: "400px 0px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore]);
 
   // Skillsets — load once on mount.
   useEffect(() => {
@@ -356,6 +428,23 @@ export function SkillHubPageClient() {
               )}
             </div>
           ))}
+          {/* Lazy-load sentinel: loads the next page automatically when near. */}
+          {hasMore ? (
+            <div ref={sentinelRef} className="flex items-center justify-center py-4">
+              {loadingMore ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-primary" />
+                  Loading more skills…
+                </div>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {results.length} of {total} loaded — scroll for more
+                </span>
+              )}
+            </div>
+          ) : (
+            <div ref={sentinelRef} aria-hidden />
+          )}
         </div>
       )}
 

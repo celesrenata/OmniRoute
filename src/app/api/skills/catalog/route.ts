@@ -16,7 +16,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { extractApiKey } from "@/sse/services/auth";
 import {
-  catalogSummary,
   searchCatalog,
   loadSkill,
   getCatalogSkill,
@@ -56,14 +55,10 @@ export async function GET(request: NextRequest) {
     const agentId = searchParams.get("agentId");
     const pageRaw = searchParams.get("page");
     const page = pageRaw ? Math.max(parseInt(pageRaw, 10) || 1, 1) : 1;
-    const totalPages = Math.ceil((catalogSummary().total || 1) / limit) || 1;
-    // Safe page within range
-    const safePage = Math.min(Math.max(page, 1), totalPages);
 
-    // For browse-all, we need all results to paginate properly.
-    // Since browse-all caps at 2000, call searchCatalog with 2000 to get all.
-    // For search (query present), cap remains at MAX_LIMIT=20, so pagination
-    // within 20 items is mostly useless, but we support it.
+    // Fetch the full filtered result set, then paginate the slice here so
+    // `page` works for arbitrary page numbers. Browse-all is capped at 2000
+    // by searchCatalog; search (query present) at MAX_LIMIT relevance hits.
     const fetchLimit = query ? limit : 2000;
     const allResults = searchCatalog(query, {
       limit: fetchLimit,
@@ -74,6 +69,9 @@ export async function GET(request: NextRequest) {
       executableOnly: searchParams.get("executableOnly") === "true",
     });
     const total = allResults.length;
+    const totalPages = Math.ceil(total / limit) || 1;
+    // Clamp out-of-range pages (e.g. stale page after a filter change).
+    const safePage = Math.min(Math.max(page, 1), totalPages);
     const offset = (safePage - 1) * limit;
     const pageResults = allResults.slice(offset, offset + limit);
     return NextResponse.json({
@@ -81,7 +79,7 @@ export async function GET(request: NextRequest) {
       count: total,
       page: safePage,
       limit,
-      totalPages: Math.ceil(total / limit) || 1,
+      totalPages,
       results: pageResults,
     });
   } catch (err) {
