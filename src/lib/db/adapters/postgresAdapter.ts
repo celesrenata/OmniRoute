@@ -453,23 +453,80 @@ function detectUnsupportedSyntax(sql: string): string | null {
   return null;
 }
 
+// Splits a `VALUES (...)` tail on top-level commas. A comma nested inside a
+// function call (`to_char(NOW(), 'YYYY')`) or a single-quoted literal (`'a, b'`)
+// belongs to its value and must not start a new one. SQL escapes a quote by
+// doubling it (`'it''s'`), so consecutive quotes are consumed together.
+function splitTopLevelValues(values: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < values.length; i++) {
+    const ch = values[i];
+    if (inString) {
+      current += ch;
+      if (ch === "'") {
+        if (values[i + 1] === "'") {
+          current += values[i + 1];
+          i++;
+        } else {
+          inString = false;
+        }
+      }
+      continue;
+    }
+    if (ch === "'") {
+      inString = true;
+      current += ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+      current += ch;
+      continue;
+    }
+    if (ch === ")") {
+      depth--;
+      current += ch;
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      out.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim().length > 0) out.push(current.trim());
+  return out;
+}
+
+// Matches the outer `VALUES (...)` group of both upsert forms, tolerating
+// leading/trailing whitespace (multi-line statements) and `)` inside a value.
+// The previous pattern used `[^)]+` for the values group, so ANY function value
+// (`NOW()`, `datetime('now')`) failed the match and the upsert was never
+// translated — e.g. every `INSERT OR REPLACE … VALUES (…, datetime('now'))` on
+// the PostgreSQL backend threw "shape not supported" (model context/capability
+// override PATCH endpoints returned 500).
+const INSERT_OR_VALUES_RE =
+  /^\s*INSERT\s+OR\s+(\w+)\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([\s\S]*)\)\s*;?\s*$/i;
+
 // Translates a single-row `INSERT OR REPLACE ...` into a real Postgres upsert
 // (updates existing rows, matching SQLite semantics). The conflict target is
 // the table's primary key; non-key columns are updated from the new values.
-function translateInsertOrReplace(sql: string, conflictColumns: string[]): string {
-  const match = sql.match(
-    /^INSERT\s+OR\s+REPLACE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s+VALUES\s*\(([^)]+)\)$/i
-  );
-  if (!match) {
+export function translateInsertOrReplace(sql: string, conflictColumns: string[]): string {
+  const match = sql.match(INSERT_OR_VALUES_RE);
+  if (!match || match[1].toUpperCase() !== "REPLACE") {
     // Not a simple single-row form (aliases, multi-row VALUES, RETURNING, …):
     // fail loud rather than ship a wrong statement.
     throw new Error(
       `[postgresAdapter] INSERT OR REPLACE shape not supported: ${sql.slice(0, 120)}`
     );
   }
-  const table = match[1];
-  const columns = match[2].split(",").map((c) => c.trim());
-  const values = match[3].split(",");
+  const table = match[2];
+  const columns = match[3].split(",").map((c) => c.trim());
+  const values = splitTopLevelValues(match[4]);
   if (columns.length !== values.length) {
     throw new Error(
       `[postgresAdapter] column/value count mismatch in INSERT OR REPLACE: ${sql.slice(0, 120)}`
@@ -504,16 +561,14 @@ function translateInsertOrReplace(sql: string, conflictColumns: string[]): strin
 // Translates a single-row `INSERT OR IGNORE ...` into Postgres
 // `INSERT ... ON CONFLICT DO NOTHING` — the exact SQLite semantics (the
 // conflicting row is left untouched and nothing is inserted).
-function translateInsertOrIgnore(sql: string, conflictColumns: string[]): string {
-  const match = sql.match(
-    /^INSERT\s+OR\s+IGNORE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s+VALUES\s*\(([^)]+)\)$/i
-  );
-  if (!match) {
+export function translateInsertOrIgnore(sql: string, conflictColumns: string[]): string {
+  const match = sql.match(INSERT_OR_VALUES_RE);
+  if (!match || match[1].toUpperCase() !== "IGNORE") {
     throw new Error(`[postgresAdapter] INSERT OR IGNORE shape not supported: ${sql.slice(0, 120)}`);
   }
-  const table = match[1];
-  const columns = match[2].split(",").map((c) => c.trim());
-  const values = match[3].split(",");
+  const table = match[2];
+  const columns = match[3].split(",").map((c) => c.trim());
+  const values = splitTopLevelValues(match[4]);
   if (columns.length !== values.length) {
     throw new Error(
       `[postgresAdapter] column/value count mismatch in INSERT OR IGNORE: ${sql.slice(0, 120)}`
