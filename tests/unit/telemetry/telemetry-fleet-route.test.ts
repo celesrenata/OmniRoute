@@ -135,6 +135,11 @@ test("fleet telemetry server wiring: native adapter mandatory, external optional
     "external adapter registration must be isolated in a dedicated function"
   );
 
+  // ONE bounded counter engine per stateful external adapter (prometheus /
+  // grafana): without cross-snapshot state the vLLM counter rate is always
+  // null (the engine lives in the shared metricMapping.ts).
+  assert.match(wiring, /createCounterRateEngine/);
+
   // At most two providers may be registered (native + one external).
   const registerCalls = wiring.match(/\.register\(/g) ?? [];
   assert.ok(

@@ -118,13 +118,18 @@ export interface FleetTelemetrySnapshot {
   resources: FleetResourceObservation[];
 }
 
-/** Canonical id shape: `kind[:host]:id` with single-colon segments. */
+/** Canonical id shape: `kind[:host]:id` with single-colon separators. */
 export const CANONICAL_ID_KINDS = ["gpu", "runtime", "provider"] as const;
 
 export type CanonicalIdKind = (typeof CANONICAL_ID_KINDS)[number];
 
+/**
+ * The structural separators of a canonical id (`:` and `/`) are forbidden in
+ * id segments. Spaces are LEGAL — a macmon GPU's device id is the chip
+ * display name (e.g. "Apple M5 Max").
+ */
 function hasForbiddenChars(s: string): boolean {
-  return s.includes(":") || s.includes(" ") || s.includes("/");
+  return s.includes(":") || s.includes("/");
 }
 
 /**

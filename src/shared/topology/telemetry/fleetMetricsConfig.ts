@@ -199,10 +199,61 @@ export function readFleetMetricsConfig(
   return { enabled: true, kind: source, config };
 }
 
-/** True when the URL host is on the configured allowlist (or no allowlist set). */
+/**
+ * True when the URL host is on the configured allowlist (or no allowlist set).
+ *
+ * Match rule — EXACT, FQDN-SUFFIX, or SHORT-NAME leading-label; case-
+ * insensitive throughout:
+ *   - `host === entry` (exact: the full host or a full FQDN equals the entry)
+ *   - `host.endsWith("." + entry)` (FQDN-suffix: the entry is a trailing
+ *     label-group of the host; entry `prometheus` matches
+ *     `x.prometheus` because the host ends with `".prometheus"`)
+ *   - `host.startsWith(entry + ".")` for a single-label entry (short name:
+ *     the entry is the FIRST label of the host; see the production example
+ *     below)
+ *
+ * The dot boundary is what keeps the suffix match STRICT:
+ *   - `notapi.example.com` does NOT match entry `api.example.com`
+ *     (it ends with `".example.com"` only, not `".api.example.com"`)
+ *   - `api.example.com.evil.com` does NOT match entry `api.example.com`
+ *     (it does not end with `".api.example.com"`)
+ *   - short-name leading-label match (rule 3): entry
+ *     `prometheus-kube-prometheus-prometheus` (a single label, no dots) matches
+ *     the in-cluster FQDN
+ *     `prometheus-kube-prometheus-prometheus.prometheus-service.svc.cluster.local`
+ *     because the host STARTS with `<entry>.` — the short Service name is the
+ *     FIRST label of its FQDN expansion. This is the production case F1
+ *     exists to fix: the operator allowlists the short name while the in-cluster
+ *     `OMNIROUTE_FLEET_METRICS_URL` uses the full Service FQDN.
+ *
+ * Semantics that MUST be preserved (do not loosen):
+ *   - no wildcards, no CIDR
+ *   - no port bypass (port allowlist is a separate check in `isPortAllowed`)
+ *   - an empty entry is never a match
+ */
 export function isHostAllowed(u: URL, config: FleetMetricsConfig): boolean {
   if (!config.allowedHosts || config.allowedHosts.length === 0) return true;
-  return config.allowedHosts.includes(u.hostname.toLowerCase());
+  const host = u.hostname.toLowerCase();
+  if (host === "") return false;
+  return config.allowedHosts.some((raw) => {
+    const entry = raw.toLowerCase().trim();
+    if (entry === "") return false;
+    // Exact match (short name equals full host, or FQDN equals FQDN).
+    if (host === entry) return true;
+    // FQDN-suffix match: the entry is a trailing label-group of the host
+    // (host = `<leading>.<entry>` with at least one more label in front).
+    if (host.endsWith(`.${entry}`)) return true;
+    // Short-name / leading-label match: an operator allowlists the short
+    // Kubernetes Service name (`prometheus-kube-prometheus-prometheus`)
+    // while the in-cluster URL uses the FQDN
+    // (`prometheus-kube-prometheus-prometheus.<ns>.svc.cluster.local`).
+    // The short name is the FIRST label of the FQDN; accept it when the
+    // host starts with `<entry>.` AND the entry is the leading label-group
+    // (no dot inside the entry — it is a single label). This is the strict
+    // "short name → FQDN expansion" rule required by F1.
+    if (!entry.includes(".") && host.startsWith(`${entry}.`)) return true;
+    return false;
+  });
 }
 
 /** True when the URL port is on the allowlist (default backend ports when unset). */

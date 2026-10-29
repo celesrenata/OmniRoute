@@ -64,7 +64,7 @@ import type {
 } from "@/shared/topology/telemetry/reconcile";
 import { deriveLaneForProvider } from "@/shared/topology/domain/lane";
 
-import { detectTopologyCapabilities } from "./capabilities";
+import { detectTopologyCapabilities, webgl2Available } from "./capabilities";
 import { computeAtomicLayout, computeDeviceBandLayout, type AtomicLayoutNode } from "./layout";
 import { computeFitRadiusFromPositions } from "./cameraFit";
 import {
@@ -720,24 +720,6 @@ export interface AtomicTopologyRendererProps {
 }
 
 /**
- * A minimal WebGL2 probe for the *render* path: attempts to create a real
- * context on a detached canvas. The `mount` gate (via `detectTopologyCapabilities`)
- * is the primary line of defense; this render-time probe is a second one, so
- * that if the context turns out to be unusable we render the empty state
- * rather than throwing out of an R3F `<Canvas>`.
- */
-function canCreateWebGL2AtRender(): boolean {
-  if (typeof document === "undefined") return false;
-  try {
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("webgl2");
-    return context != null;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * The client-only scene host. It:
  * - dynamically imports the 3D scene module (client-only) and renders it when
  *   a real WebGL2 context is available, otherwise renders the empty state; and
@@ -788,6 +770,15 @@ export function AtomicTopologyRenderer({
   // Environment signals are stable for the lifetime of this host, so probe
   // them once (the WebGL2 probe creates a real context — not free to repeat on
   // every render).
+  //
+  // OR-ATOM-009.1 (F5): the render gate used its own per-render WebGL2 probe
+  // (`canCreateWebGL2AtRender`), allocating + abandoning a real context on
+  // every telemetry re-render (~3.5 s cadence) — the context-exhaustion risk
+  // the plugin branch fixed by memoizing the probe. `webgl2Available()`
+  // allocates at most ONCE per page load (cached module state) and releases the
+  // probe context via `WEBGL_lose_context`; the mount gate has already
+  // populated that cache, so this `useMemo` is a cached read.
+  const webgl2Ok = useMemo(() => webgl2Available(), []);
   const { reducedMotion, quality } = useMemo(() => {
     const caps = detectTopologyCapabilities();
     const probe: QualityProbe = {
@@ -902,7 +893,7 @@ export function AtomicTopologyRenderer({
     >
       {/* 3D canvas layer (client-only, WebGL-gated) */}
       <div className="atomic-scene-canvas" style={{ position: "absolute", inset: 0 }}>
-        {sceneModule && descriptors.length > 1 && canCreateWebGL2AtRender() ? (
+        {sceneModule && descriptors.length > 1 && webgl2Ok ? (
           <sceneModule.AtomicScene
             descriptors={descriptors}
             linkDescriptors={linkDescriptors}

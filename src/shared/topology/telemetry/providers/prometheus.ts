@@ -34,11 +34,10 @@ import {
   allowlistedMetricNames,
   gpuIdentityFromLabels,
   isAcceptableSampleTime,
-  isVramMetric,
   mappingForMetric,
   observationFieldFor,
   runtimeIdentityFromLabels,
-  vramScaleFor,
+  scaleFieldValue,
   type CounterRateEngine,
   type MetricSample,
 } from "./metricMapping";
@@ -223,20 +222,20 @@ function applyPrometheusSample(args: SampleApplyArgs): void {
     args;
   if (mapping === null) return;
   const { field, unit } = observationFieldFor(mapping);
-  // T5.6b1: DCGM VRAM gauges are MiB on the stock dcgm-exporter; scale to
-  // bytes ONLY when the operator configured vramUnit="mib". The decision
-  // lives in the shared helper (metricMapping.ts) so all three adapters agree;
-  // non-VRAM gauges (util/temp/power) and the counter are never scaled.
-  const value = isVramMetric(sample.metric)
-    ? sample.value * vramScaleFor(config.vramUnit)
-    : sample.value;
+  // The single scaling decision point (metricMapping.ts) all three adapters
+  // route through: DCGM VRAM gauges are MiB on the stock exporter → bytes
+  // ONLY when vramUnit="mib"; the macmon scaled ratio (0..1) → 0..100
+  // (out-of-range → null, never clamped). Everything else passes through.
+  // A null scaling (out-of-range macmon ratio) is reported as UNKNOWN with
+  // provenance by normalizeSample — never a fabricated/clamped gauge.
+  const scaled = scaleFieldValue(sample.value, config.vramUnit, sample.metric);
 
   if (mapping.kind === "gpu") {
     const id = gpuIdentityFromLabels(sample.labels, labelKeys);
     if (!id) return; // no proven device identity → drop, never fabricate
     const key = buildCanonicalResourceId("gpu", id.deviceUuid, id.hostId);
     const obs = normalizeSample({
-      value,
+      value: scaled,
       source,
       sampledAt: isAcceptableSampleTime(sample.sampledAt, capturedAt)
         ? sample.sampledAt
@@ -279,13 +278,17 @@ function applyPrometheusSample(args: SampleApplyArgs): void {
         });
       }
     } else {
+      // Scheduler gauges are never VRAM-scaled, so `scaled === sample.value`;
+      // routed through the same decision point so no adapter rescales on its own.
       obs = normalizeSample({
-        value: sample.value,
+        value: scaled,
         source,
         sampledAt: capturedAt,
         capturedAt,
         windowMs: queryWindowMs,
-        basis: runtimeBasis(),
+        // Provenance: raw gauge sample → basis is the upstream metric name
+        // (runtimeBasis() is reserved for the derived counter rate).
+        basis: basisForMetric(sample.metric),
         freshnessMs,
         unit,
       });

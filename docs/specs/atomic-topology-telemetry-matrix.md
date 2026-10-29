@@ -216,7 +216,58 @@ path only. The M0 audit (this document) found no telemetry backend **shipped in
 the repository**; Step 5 adds **operator-configured** external adapters as
 opt-in backends alongside the mandatory native adapter.
 
-### 7.2.1 Optional external metrics adapters
+### 7.2.1 Shared metric mapping + allowlist (OR-ATOM-005 / Step 5)
+
+`src/shared/topology/telemetry/providers/metricMapping.ts` is the single source
+of truth for the allowlist; the three adapters only ever query names from this
+set (the SSRF chokepoint). The allowlist is **keyed by upstream metric NAME,
+not by normalized field**: DCGM and macmon feed the same normalized fields
+(`gpu_util` / `gpu_temperature_c` / `gpu_power_w`), and a field-keyed map
+silently dropped the DCGM names (a load-time duplicate-name guard throws on
+collision).
+
+The 14 allowlisted names (5 DCGM + 3 `vllm:*` + 3 `q27:*` aliases +
+3 macmon):
+
+| Upstream name                  | Normalized field              | Kind    | Unit        |
+| ------------------------------ | ----------------------------- | ------- | ----------- |
+| `DCGM_FI_DEV_GPU_UTIL`         | `gpu_util`                    | gpu     | percent     |
+| `DCGM_FI_DEV_FB_USED`          | `gpu_vram_used_bytes`         | gpu     | bytes       |
+| `DCGM_FI_DEV_FB_TOTAL`         | `gpu_vram_total_bytes`        | gpu     | bytes       |
+| `DCGM_FI_DEV_GPU_TEMP`         | `gpu_temperature_c`           | gpu     | celsius     |
+| `DCGM_FI_DEV_POWER_USAGE`      | `gpu_power_w`                 | gpu     | watts       |
+| `vllm:generation_tokens_total` | `runtime_output_tokens_total` | runtime | tps (rate)  |
+| `vllm:num_requests_waiting`    | `runtime_scheduler_waiting`   | runtime | nonNegative |
+| `vllm:num_requests_running`    | `runtime_scheduler_running`   | runtime | nonNegative |
+| `q27:generation_tokens_total`  | `runtime_output_tokens_total` | runtime | tps (rate)  |
+| `q27:num_requests_waiting`     | `runtime_scheduler_waiting`   | runtime | nonNegative |
+| `q27:num_requests_running`     | `runtime_scheduler_running`   | runtime | nonNegative |
+| `macmon_gpu_scaled_ratio`      | `gpu_util`                    | gpu     | percent     |
+| `macmon_gpu_temp_celsius`      | `gpu_temperature_c`           | gpu     | celsius     |
+| `macmon_gpu_power_watts`       | `gpu_power_w`                 | gpu     | watts       |
+
+The `q27:*` rows are aliases of the three `vllm:*` names — the live esnixi
+vLLM (dflash2 spec-decoding build) emits a `q27:` prefix in place of
+`vllm:`; both forms resolve to the SAME normalized field. Any unlisted
+name (other `q27:*` names, unknown metrics) is dropped, never mapped.
+
+Semantic invariants pinned by the adapter tests:
+
+- **Scaling** routes through `scaleFieldValue()` in one place: DCGM VRAM
+  MiB→bytes only when `vramUnit="mib"`; `macmon_gpu_scaled_ratio` 0..1 → 0..100
+  with out-of-range values reported as **unknown (null)**, never clamped;
+  everything else passes through.
+- **Counter rate** (`vllm:generation_tokens_total` → `runtime_output_tokens_total`)
+  is a windowed rate from the shared `createCounterRateEngine()` — a counter
+  reset (`value < previous`) returns **null** (never negative) and re-baselines
+  state for the next read; bounded by `maxSeries` with LRU eviction. The
+  gateway passes one engine per stateful adapter (`registerExternalAdapter`),
+  so the production vLLM rate is no longer always-null.
+- **Runtime-level facts only on runtime rows**: the vLLM counter and the
+  scheduler gauges map onto a `kind:"runtime"` row only when a stable
+  `runtime_id` identity is present — never split across GPUs, never fabricated.
+
+### 7.2.2 Optional external metrics adapters
 
 Three HTTP-based adapters are available, each registered **only** when the
 operator configures it via env (opt-in; the native adapter always stays
@@ -237,7 +288,7 @@ external). Per-provider **snapshot** failures remain graceful (timeout →
 warning + drop, never 503): see `FleetTelemetryGateway.snapshot()` in
 [src/shared/topology/telemetry/gateway.ts](../../src/shared/topology/telemetry/gateway.ts).
 
-### 7.2.2 Reconciliation block in the fleet response
+### 7.2.3 Reconciliation block in the fleet response
 
 The `GET /api/telemetry/fleet` response now carries an additive
 `reconciliation` block (OR-ATOM-005 / Step 5) alongside the raw `snapshot`.
@@ -265,7 +316,7 @@ GPU / runtime nodes are emitted **only** for devices with a proven canonical ID
 providers stay provider atoms. Edges carry explicit provenance (basis +
 sampledAt); a missing relationship is an **absent** edge, never a guessed one.
 
-### 7.2.3 Renderer-neutral domain snapshot
+### 7.2.4 Renderer-neutral domain snapshot
 
 `TopologySceneSnapshot` (src/shared/topology/domain/types.ts) gained an optional
 `fleetTelemetry?: ReconciliationResult | null` field, carried additively by
@@ -275,7 +326,7 @@ atomic renderer consumes it to place GPU / runtime atoms alongside providers.
 `null` / `undefined` → no device telemetry in this snapshot (absent, never an
 empty claim).
 
-### 7.2.4 InfluxDB 2 row-based identity parsing
+### 7.2.5 InfluxDB 2 row-based identity parsing
 
 The InfluxDB 2 adapter reads identity tags (`host_id`, `gpu_uuid`, `runtime_id`)
 from column values in the JSON `rows` response (InfluxDB HTTP API v2 shape),
@@ -285,7 +336,7 @@ builds canonical `gpu:<host_id>:<uuid>` / `runtime:<host_id>:<id>` resource
 IDs via `buildCanonicalResourceId()` — never display labels, never a bare
 PCI index.
 
-### 7.2.5 Staleness semantics
+### 7.2.6 Staleness semantics
 
 Staleness is computed upstream by `mergeSnapshots.mergeSnapshots()` (age >
 3 × windowMs → `stale: true`, value decayed to `null`). `reconcileSnapshot()`
@@ -293,10 +344,10 @@ trusts the pre-computed `stale` flag rather than re-deriving age. A sample
 without a known `windowMs` can only be judged stale by the explicit flag —
 its sampling interval is unknown.
 
-### 7.2.6 OR-ATOM-005 / T5.4 — renderer seam: measured motion + device band
+### 7.2.7 OR-ATOM-005 / T5.4 — renderer seam: measured motion + device band
 
 The 3D atomic renderer (`src/plugins/atomic-topology/`) consumes
-`snapshot.fleetTelemetry` (added in §7.2.3) at a single pure seam —
+`snapshot.fleetTelemetry` (added in §7.2.4) at a single pure seam —
 `resolveAtomDescriptors()` in
 [src/plugins/atomic-topology/AtomicTopologyRenderer.tsx](../../src/plugins/atomic-topology/AtomicTopologyRenderer.tsx).
 Everything downstream of the seam (scene, camera, labels, overlays) is
@@ -346,7 +397,7 @@ Without a device band the cap is `undefined` and fit math is unchanged.
 rendered numbers came from.
 
 **Queue labeling (limiter ≠ scheduler).** The OmniRoute request
-**rate-limiter** queue (basis `rateLimitManager:counts.QUEUED`, §7.2.2) and
+**rate-limiter** queue (basis `rateLimitManager:counts.QUEUED`, §7.2.3) and
 the inference-**scheduler** queue are different systems and are labeled
 separately in the tooltip: `queueRowLabel()`
 ([AtomicTooltip.tsx](../../src/plugins/atomic-topology/overlays/AtomicTooltip.tsx))
@@ -356,7 +407,50 @@ row. Pinned by `tooltipQueueLabel.test.ts`.
 
 **No-data policy (unchanged).** An unobserved value stays "unavailable" /
 "no data" — never 0, never a decal; stale values are dropped upstream
-(§7.2.5) and surface as "no data".
+(§7.2.6) and surface as "no data".
+
+### 7.2.8 OR-ATOM-005 / T5.14b-2 — macmon (Apple SMC) GPU source
+
+The shared allowlist
+([metricMapping.ts](../../src/shared/topology/telemetry/providers/metricMapping.ts)
+→ `ALLOWLISTED_METRIC_NAMES`, name→field) maps the macmon exporter's Apple
+GPU gauges (Prometheus job `macmon_apple_gpu`) onto `kind:"gpu"` rows.
+**Live-verified** against `127.0.0.1:9090` (2026-10-27): the source rows
+carry the labels `hostname` (host key) and `uuid` (device key, e.g.
+`Apple M5 Max`) plus a redundant `chip` label. The join keys are the
+operator-configured `OMNIROUTE_FLEET_METRICS_LABEL_HOST` /
+`OMNIROUTE_FLEET_METRICS_LABEL_GPU_DEVICE` (defaults `host` / `gpu_uuid`;
+the deployed macmon source uses `hostname` / `uuid`).
+
+| Upstream metric           | Field               | Scale                       | Notes                                              |
+| ------------------------- | ------------------- | --------------------------- | -------------------------------------------------- |
+| `macmon_gpu_scaled_ratio` | `gpu_util`          | ratio × 100 (0..1 → 0..100) | out-of-range values are **dropped**, never clamped |
+| `macmon_gpu_temp_celsius` | `gpu_temperature_c` | pass-through (°C)           | same GPU row as util (shared join)                 |
+| `macmon_gpu_power_watts`  | `gpu_power_w`       | pass-through (W)            | same GPU row as util (shared join)                 |
+
+- **VRAM absent by design.** macmon (SMC) exposes **no** discrete GPU memory
+  metric — Apple GPUs use shared system RAM — so macmon GPU rows carry no
+  `gpu_vram_*` fields. The fields are _absent_, never a fabricated 0.
+- **Four adjacent macmon families are deliberately OFF the allowlist** —
+  unknown names are dropped silently, never fabricated: the deprecated
+  `macmon_gpu_usage_ratio` alias, `macmon_gpu_active_ratio`,
+  `macmon_gpu_freq_mhz`, and `macmon_gpu_ram_power_watts`.
+- Scale is applied per source name in `scaleFieldValue()` /
+  `ratioScaleFor()` (metricMapping.ts); the observation `basis` records the
+  **raw upstream name** (e.g. `macmon_gpu_scaled_ratio`) so provenance shows
+  the true source, not the normalized field.
+- **Identity contract:** the canonical id `kind:host:id` splits only on `:`
+  and `/`; spaces inside the device id are **legal** (`isUsableIdentity` /
+  `hasForbiddenChars` reject only `:` and `/` — the live
+  `uuid: "Apple M5 Max"` value is preserved in the id, e.g.
+  `gpu:stabulous:Apple M5 Max`). A sample missing the device label is
+  dropped, never guessed.
+
+Pinned by `tests/unit/telemetry/telemetry-provider-prometheus-macmon.test.ts`
+(12 cases — allowlist, mapping + scale, VRAM absence, excluded-family silent
+drop, missing-uuid drop, out-of-range drop, DCGM/vLLM regression, space
+identity contract); the prometheus + grafana provider suites carry the
+14-name allowlist cardinality.
 
 ## 8. Centralized collection decision (M0)
 

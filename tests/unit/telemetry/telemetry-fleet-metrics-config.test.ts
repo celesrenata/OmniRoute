@@ -21,7 +21,9 @@ import { describe, it } from "node:test";
 import {
   FLEET_METRICS_ENV,
   fleetMetricsConfigSchema,
+  isHostAllowed,
   readFleetMetricsConfig,
+  type FleetMetricsConfig,
 } from "../../../src/shared/topology/telemetry/fleetMetricsConfig";
 import {
   isVramMetric,
@@ -83,5 +85,69 @@ describe("metricMapping: shared VRAM scale helper (single decision point)", () =
     assert.equal(isVramMetric("DCGM_FI_DEV_GPU_TEMP"), false);
     assert.equal(isVramMetric("DCGM_FI_DEV_POWER_USAGE"), false);
     assert.equal(isVramMetric("vllm:generation_tokens_total"), false);
+  });
+});
+
+describe("fleetMetricsConfig: isHostAllowed — strict host matcher (OR-ATOM-009.1 F1)", () => {
+  const cfg = (allowedHosts?: string[]): FleetMetricsConfig =>
+    fleetMetricsConfigSchema.parse({
+      source: "prometheus",
+      url: "http://127.0.0.1:9090",
+      allowedHosts: allowedHosts ? allowedHosts.join(",") : undefined,
+    });
+
+  const allow = (host: string, ...entries: string[]) =>
+    isHostAllowed(new URL(`http://${host}`), cfg(entries));
+
+  it("no allowlist configured → any host allowed", () => {
+    assert.equal(isHostAllowed(new URL("http://anything.at.all"), cfg([])), true);
+  });
+
+  it("exact match (full host equals the entry)", () => {
+    assert.equal(allow("prometheus.local", "prometheus.local"), true);
+  });
+
+  it("FQDN-suffix match: entry is a trailing label-group of the host", () => {
+    assert.equal(allow("x.prometheus", "prometheus"), true);
+    assert.equal(allow("a.b.example.com", "b.example.com"), true);
+  });
+
+  it("short-name leading-label match (F1 production case): single-label entry is the FIRST label of the in-cluster FQDN", () => {
+    assert.equal(
+      allow(
+        "prometheus-kube-prometheus-prometheus.prometheus-service.svc.cluster.local",
+        "prometheus-kube-prometheus-prometheus"
+      ),
+      true
+    );
+  });
+
+  it("is case-insensitive on host AND entry", () => {
+    assert.equal(allow("X.Prometheus", "prometheus"), true);
+    assert.equal(allow("x.prometheus", "PROMETHEUS"), true);
+  });
+
+  it("strict dot boundary — a host with the entry as a prefix+suffix decoy does NOT match", () => {
+    // entry `api.example.com` is a dotted multi-label entry, so rule 3 is off;
+    // the host does not exact-match and does not end with `.api.example.com`.
+    assert.equal(allow("api.example.com.evil.com", "api.example.com"), false);
+  });
+
+  it("strict dot boundary — label-prefix confusion does NOT match", () => {
+    // `notapi.example.com` ends with `.example.com` only, not `.api.example.com`.
+    assert.equal(allow("notapi.example.com", "api.example.com"), false);
+  });
+
+  it("multi-label entry matches by exact/suffix only, never as a short name", () => {
+    assert.equal(allow("svc.example.com", "example.com.svc"), false);
+    assert.equal(allow("prod.svc.cluster.local", "svc.cluster.local"), true);
+  });
+
+  it("whitespace-only entries never match (filtered out by the schema)", () => {
+    // The schema trims + drops empty entries → allowlist becomes empty →
+    // `allowedHosts.length === 0` → any host allowed (documented semantics).
+    assert.equal(allow("prometheus.local", "   ", "  "), true);
+    // A real entry still gates when mixed with garbage.
+    assert.equal(allow("other.host", "prometheus.local", "  "), false);
   });
 });
