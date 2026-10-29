@@ -67,6 +67,7 @@ import {
   type NucleusCluster,
   type NucleusParticle,
 } from "./nucleusCluster";
+import { createRotationSmoothing, tpsToRadiansPerSecond } from "./nucleusMotion";
 import { getSharedGlowTexture, makeFresnelCoreMaterial } from "./sceneResources";
 import { sceneClock, sceneState } from "./sceneState";
 import { ElectronCloud } from "./ElectronCloud";
@@ -268,6 +269,12 @@ export function AtomNode({
   // paused and resumes contiguously).
   const clusterRotation = useMemo(() => new THREE.Quaternion(), []);
   const spinAngle = useRef(0);
+  // S9.2 — the per-atom measured-TPS smoothing (EMA) is a *stable* ref, created
+  // once per atom instance and stepped every live frame inside `useFrame`.
+  // Stepping it in-frame (not at render) keeps the snapshot pure; freezing it
+  // on pause / reduced-motion / context-loss holds the last smoothed rate and
+  // orientation with no adoption jump on resume.
+  const spinSmoother = useMemo(() => createRotationSmoothing(), []);
 
   // Per-frame: breathing scale (anchor + cluster) + cluster spin + queue
   // vibration (positional tremor). No React state; reuses only refs, the
@@ -285,8 +292,18 @@ export function AtomNode({
         : breathingScale(sceneClock.now, motion.breathPeriod, BREATH_AMPLITUDE, true);
     if (core) core.scale.setScalar(ANCHOR_WORLD_RADIUS * scale * breath);
     if (cl) {
-      if (!frozen && motion.spinActive) {
-        spinAngle.current += Math.min(delta, MAX_FRAME_DELTA) * descriptor.spin.value;
+      // S9.2 — nucleus rotation binding. The cluster spins at the *measured*
+      // TPS, smoothed per live frame (`spinSmoother`): a fresh sample adopts
+      // instantly, subsequent samples ease in, and a `null` sample (stale /
+      // missing / unattached) decays the smoothed rate toward 0 — so the
+      // nucleus spins down smoothly instead of holding a fake speed, and
+      // never spins when nothing is measured. Stepping + accumulating only
+      // while unfrozen keeps the freeze contract (paused / reduced-motion /
+      // context-loss hold the orientation, then resume contiguously).
+      if (!frozen) {
+        const dt = Math.min(delta, MAX_FRAME_DELTA);
+        const smoothedTps = spinSmoother.step(descriptor.measuredTps, dt);
+        spinAngle.current += tpsToRadiansPerSecond(smoothedTps) * dt;
       }
       clusterRotation.setFromAxisAngle(clusterAxis, spinAngle.current);
       cl.quaternion.copy(clusterRotation);

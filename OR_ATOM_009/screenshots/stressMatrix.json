@@ -1,0 +1,109 @@
+{
+  "at": "2026-10-29T07:30:18.131Z",
+  "base": "http://127.0.0.1:21011",
+  "rows": [
+    {
+      "atoms": 8,
+      "at": "2026-10-29T07:29:29.388Z",
+      "base": "http://127.0.0.1:21011",
+      "served": 4,
+      "perf": {
+        "at": 1793258981728,
+        "fps": 15,
+        "dtMs": 66.5,
+        "dtMaxMs": 733,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": null,
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "pageErrors": [],
+      "checks": {
+        "S-1 canvas_mounted": true,
+        "S-2 body_served_to_poller": true,
+        "S-3 sustained_fps": true,
+        "S-4 no_canvas_growth": true,
+        "S-5 zero_page_errors": true
+      },
+      "verdict": true
+    },
+    {
+      "atoms": 16,
+      "at": "2026-10-29T07:29:43.619Z",
+      "base": "http://127.0.0.1:21011",
+      "served": 4,
+      "perf": {
+        "at": 1793258995171,
+        "fps": 11,
+        "dtMs": 93.8,
+        "dtMaxMs": 500,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": null,
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "pageErrors": [],
+      "checks": {
+        "S-1 canvas_mounted": true,
+        "S-2 body_served_to_poller": true,
+        "S-3 sustained_fps": true,
+        "S-4 no_canvas_growth": true,
+        "S-5 zero_page_errors": true
+      },
+      "verdict": true
+    },
+    {
+      "atoms": 32,
+      "at": "2026-10-29T07:29:58.815Z",
+      "base": "http://127.0.0.1:21011",
+      "served": 4,
+      "perf": {
+        "at": 1793259011048,
+        "fps": 8,
+        "dtMs": 129.3,
+        "dtMaxMs": 700,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": null,
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "pageErrors": [],
+      "checks": {
+        "S-1 canvas_mounted": true,
+        "S-2 body_served_to_poller": true,
+        "S-3 sustained_fps": true,
+        "S-4 no_canvas_growth": true,
+        "S-5 zero_page_errors": true
+      },
+      "verdict": true
+    },
+    {
+      "atoms": null,
+      "at": "2026-10-29T07:30:18.131Z",
+      "base": "http://127.0.0.1:21011",
+      "checks": {
+        "S-6 fps_monotonic_non_increasing": true
+      },
+      "verdict": true
+    }
+  ],
+  "verdict": true
+}

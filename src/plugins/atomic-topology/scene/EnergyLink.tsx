@@ -416,7 +416,13 @@ export function EnergyLink({
 
     // (b) active packets — bounded pool, arc-length travel, ease-in-out.
     // (reduced motion → pool 0: accessibility.md static render.)
-    const poolSize = packetPoolSize(MAX_PACKET_POOL, isActive, reduced);
+    // Proven gate (OR-ATOM-009 S9.4): packets ride only a PROVEN link — the
+    // thin filament, the completion impulse and the failure bolt below are
+    // event-level and unaffected (an unproven link still shows its filament
+    // and flashes on a real transition; it simply carries no traffic
+    // packets). `descriptor.proven` is derived from the snapshot's own
+    // evidence (`scene/provenPulse.ts`), never a guess.
+    const poolSize = packetPoolSize(MAX_PACKET_POOL, isActive && descriptor.proven, reduced);
     const pool = pulsePoolRef.current;
     for (let i = 0; i < pool.length; i += 1) {
       const sprite = pool[i];

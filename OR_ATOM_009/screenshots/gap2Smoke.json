@@ -1,0 +1,94 @@
+{
+  "base": "http://127.0.0.1:21011",
+  "results": [
+    {
+      "scenario": "tps-80",
+      "at": "2026-10-29T07:09:52.198Z",
+      "base": "http://127.0.0.1:21011",
+      "bodyCapturedAt": 1793257777801,
+      "perf": {
+        "at": 1793257790152,
+        "fps": 29,
+        "dtMs": 34.7,
+        "dtMaxMs": 617,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793257777801,
+          "ageMs": 12351
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "perfEnd": {
+        "at": 1793257792170,
+        "fps": 27,
+        "dtMs": 37.3,
+        "dtMaxMs": 617,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793257777801,
+          "ageMs": 14369
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 5,
+      "pageErrors": [],
+      "linkRows": [
+        {
+          "id": "route:demo-provider",
+          "proven": true,
+          "text": "route:demo-providerPROVEN · call-log route · sampled 0s ago"
+        }
+      ],
+      "triggerResults": {
+        "first": {
+          "ok": true,
+          "reason": "admitted",
+          "linkId": "route:demo-provider"
+        },
+        "deduped": {
+          "ok": false,
+          "reason": "deduped",
+          "linkId": "route:demo-provider"
+        },
+        "unknown": {
+          "ok": false,
+          "reason": "unproven",
+          "linkId": "route:definitely-not-a-provider"
+        },
+        "badInput": {
+          "ok": false,
+          "reason": "bad-input"
+        }
+      },
+      "checks": {
+        "G-1 canvas_mounted": true,
+        "G-2 panel_mounted": true,
+        "G-3 proven_row_basis": true,
+        "G-4 dev_trigger_present": true,
+        "G-5 trigger_admitted_and_deduped": true,
+        "G-6 unproven_rejected": true,
+        "G-7 zero_page_errors": true,
+        "G-8 canvas_nonblank": "inconclusive (WebGL read-back; see screenshot)"
+      },
+      "verdict": "PASS (G-8 inconclusive → visual)"
+    }
+  ]
+}

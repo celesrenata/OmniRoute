@@ -1,0 +1,26 @@
+[2026-10-28T11:03:40.980Z] scenario=mixed-lanes capturedAt=1793185420971 bodyHash=d87aeaeda81eda8e gpu=1 runtime=2 edges=4 fallback=false
+[2026-10-28T11:03:41.280Z] soak start base=http://127.0.0.1:20999 scenario=mixed-lanes duration=600s remountAt=300s url=http://127.0.0.1:20999/home?topology-demo=mixed-lanes&topology-dev=1
+[2026-10-28T11:03:42.564Z] dashboard password gate passed (LOGIN_PASSWORD provided)
+[2026-10-28T11:03:44.049Z] baseline {"at":1793185424048,"fps":42,"dtMs":23.7,"dtMaxMs":367,"liveCanvases":1,"peakCanvases":1,"ctxEvents":{"lost":0,"restored":0},"demo":{"id":"mixed-lanes","active":true,"capturedAt":1793185420971,"ageMs":3077},"panel":null}
+[2026-10-28T11:03:44.049Z] fleet served=2 after 0.0s
+[2026-10-28T11:03:44.514Z] min=0 fps=48 dtMax=367ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=3542ms served=2 pixelDiff=null pageErr=0 consoleErr=2
+[2026-10-28T11:04:44.990Z] min=1 fps=48 dtMax=367ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=64011ms served=19 pixelDiff=19.13 pageErr=0 consoleErr=6
+[2026-10-28T11:05:45.472Z] min=2 fps=48 dtMax=367ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=124491ms served=36 pixelDiff=0.14 pageErr=0 consoleErr=9
+[2026-10-28T11:06:45.945Z] min=3 fps=48 dtMax=367ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=184970ms served=52 pixelDiff=0.14 pageErr=0 consoleErr=11
+[2026-10-28T11:07:46.405Z] min=4 fps=47 dtMax=367ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=245428ms served=69 pixelDiff=0.15 pageErr=0 consoleErr=13
+[2026-10-28T11:08:46.892Z] min=5 fps=47 dtMax=367ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=305917ms served=86 pixelDiff=0.14 pageErr=0 consoleErr=15
+[2026-10-28T11:08:46.911Z] remount: reloading page (init scripts + fleet route re-install on the new document)
+[2026-10-28T11:08:48.482Z] remount: pre live=1 peak=1 | post live=1 peak=1 served=2
+[2026-10-28T11:09:49.413Z] min=6 fps=46 dtMax=233ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=368437ms served=105 pixelDiff=0.22 pageErr=0 consoleErr=21
+[2026-10-28T11:10:49.904Z] min=7 fps=46 dtMax=233ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=428929ms served=121 pixelDiff=0.14 pageErr=0 consoleErr=24
+[2026-10-28T11:11:50.394Z] min=8 fps=47 dtMax=233ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=489419ms served=138 pixelDiff=0.14 pageErr=0 consoleErr=26
+[2026-10-28T11:12:50.854Z] min=9 fps=47 dtMax=233ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=549879ms served=155 pixelDiff=0.15 pageErr=0 consoleErr=28
+[2026-10-28T11:13:50.885Z] AFTER {"at":1793186030864,"fps":47,"dtMs":21.3,"dtMaxMs":233,"liveCanvases":1,"peakCanvases":1,"ctxEvents":{"lost":1,"restored":1},"demo":{"id":"mixed-lanes","active":true,"capturedAt":1793185420971,"ageMs":609893},"panel":null,"rendererInfo":null,"fleetServed":172}
+[2026-10-28T11:13:51.476Z] VERDICT GATE-1 demo body served to the real poller: PASS
+[2026-10-28T11:13:51.476Z] VERDICT GATE-2 atomic canvas live at end: PASS
+[2026-10-28T11:13:51.476Z] VERDICT GATE-3 zero uncaught page errors: PASS
+[2026-10-28T11:13:51.476Z] VERDICT GATE-4 every context loss recovered (or none): PASS
+[2026-10-28T11:13:51.476Z] VERDICT GATE-5 no unbounded canvas growth (live ≤ peak, live > 0): PASS
+[2026-10-28T11:13:51.476Z] VERDICT GATE-6 remount restored scene without canvas growth: PASS
+[2026-10-28T11:13:51.476Z] evidence: OR_ATOM_009/screenshots/soak-mixed-lanes.json
+[2026-10-28T11:13:51.506Z] SOAK PASS

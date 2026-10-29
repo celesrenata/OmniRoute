@@ -1,0 +1,185 @@
+{
+  "snapshot": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709522,
+    "resources": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "kind": "gpu",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 0,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request — GPU measured zero after the dropped request (explicit 0)"
+        }
+      },
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "kind": "runtime",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "modelId": "demo/failed-chat",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: post-failure quiet — measured zero throughput (explicit 0)"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request dropped — queue back to measured 0 (explicit 0)"
+        },
+        "activeJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request dropped — 0 in-flight (explicit 0)"
+        }
+      },
+      {
+        "resourceId": "provider:demo-provider",
+        "kind": "provider",
+        "providerId": "demo-provider",
+        "outputTokensPerSecond": {
+          "value": 0,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request — provider quiet after the dropped request (explicit 0)"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request — provider queue measured 0 (explicit 0)"
+        },
+        "activeJobs": {
+          "value": 0,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request — 0 in-flight on the provider (explicit 0)"
+        }
+      }
+    ]
+  },
+  "reconciliation": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709522,
+    "gpuNodes": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "stale": false,
+        "outputTokensPerSecond": {
+          "value": 0,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request — GPU measured zero after the dropped request (explicit 0)"
+        }
+      }
+    ],
+    "runtimeNodes": [
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "attributedGpuIds": ["gpu:demo-host:dev-uuid-a"],
+        "stale": false,
+        "modelId": "demo/failed-chat",
+        "outputTokensPerSecond": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: post-failure quiet — measured zero throughput (explicit 0)"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request dropped — queue back to measured 0 (explicit 0)"
+        },
+        "activeJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request dropped — 0 in-flight (explicit 0)"
+        }
+      }
+    ],
+    "providerNodes": [
+      {
+        "resourceId": "provider:demo-provider",
+        "providerId": "demo-provider",
+        "stale": false,
+        "outputTokensPerSecond": {
+          "value": 0,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request — provider quiet after the dropped request (explicit 0)"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request — provider queue measured 0 (explicit 0)"
+        },
+        "activeJobs": {
+          "value": 0,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: failed request — 0 in-flight on the provider (explicit 0)"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "gpu:demo-host:dev-uuid-a",
+        "relation": "runtime_device",
+        "basis": "runtime per-device attribution",
+        "sampledAt": 1793180709522
+      },
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "model:demo/failed-chat",
+        "relation": "runtime_model",
+        "basis": "runtime observed model residency",
+        "sampledAt": 1793180709522
+      }
+    ],
+    "providerCentricFallback": false
+  }
+}

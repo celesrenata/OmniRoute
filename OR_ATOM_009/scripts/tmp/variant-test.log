@@ -1,0 +1,4 @@
+VARIANT A: plain (route+dev+demo+perf like smoke): {"canvases":0,"pressed":"2D","badge":null,"empty":null,"pref":null}
+  served=0
+VARIANT B: no route, dev+demo+perf: {"canvases":0,"pressed":"2D","badge":null,"empty":null,"pref":null}
+VARIANT C: no route, no dev param, demo+perf: {"canvases":0,"pressed":"2D","badge":null,"empty":null,"pref":null}

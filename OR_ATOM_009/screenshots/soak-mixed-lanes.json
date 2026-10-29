@@ -1,0 +1,607 @@
+{
+  "scenario": "mixed-lanes",
+  "capturedAt": 1793258509149,
+  "bodyHash": "cab53a7d2f75cc07512ba4b27aaddc529aba2d2d3c8b9b29a1f374887340105f",
+  "durationSec": 1200,
+  "remountAt": 600,
+  "base": "http://127.0.0.1:21011",
+  "startedAt": "2026-10-29T07:21:51.812Z",
+  "finishedAt": "2026-10-29T07:42:05.033Z",
+  "baseline": {
+    "at": 1793258511812,
+    "fps": 41,
+    "dtMs": 24.4,
+    "dtMaxMs": 350,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 0,
+      "restored": 0
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793258509149,
+      "ageMs": 2663
+    },
+    "panel": {
+      "demoScenario": "none"
+    }
+  },
+  "samples": [
+    {
+      "at": 1793258512298,
+      "fps": 46,
+      "dtMs": 21.7,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 3149
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": null,
+      "fleetServed": 2
+    },
+    {
+      "at": 1793258572777,
+      "fps": 46,
+      "dtMs": 21.9,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 63628
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 19.15,
+      "fleetServed": 19
+    },
+    {
+      "at": 1793258633270,
+      "fps": 45,
+      "dtMs": 22.4,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 124121
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.16,
+      "fleetServed": 36
+    },
+    {
+      "at": 1793258693745,
+      "fps": 44,
+      "dtMs": 22.5,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 184596
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 52
+    },
+    {
+      "at": 1793258754250,
+      "fps": 44,
+      "dtMs": 22.5,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 245101
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 69
+    },
+    {
+      "at": 1793258814763,
+      "fps": 45,
+      "dtMs": 22.4,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 305614
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.16,
+      "fleetServed": 86
+    },
+    {
+      "at": 1793258875334,
+      "fps": 41,
+      "dtMs": 24.2,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 366185
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 103
+    },
+    {
+      "at": 1793258935981,
+      "fps": 36,
+      "dtMs": 28,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 426832
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.16,
+      "fleetServed": 120
+    },
+    {
+      "at": 1793258996486,
+      "fps": 38,
+      "dtMs": 26.3,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 487337
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 136
+    },
+    {
+      "at": 1793259057190,
+      "fps": 39,
+      "dtMs": 25.7,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 548041
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.14,
+      "fleetServed": 153
+    },
+    {
+      "at": 1793259117808,
+      "fps": 39,
+      "dtMs": 25.8,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 2,
+        "restored": 2
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 608659
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.14,
+      "fleetServed": 170
+    },
+    {
+      "at": 1793259180637,
+      "fps": 47,
+      "dtMs": 21.4,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 671489
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.23,
+      "fleetServed": 189
+    },
+    {
+      "at": 1793259241082,
+      "fps": 52,
+      "dtMs": 19.3,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 731933
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 206
+    },
+    {
+      "at": 1793259301496,
+      "fps": 47,
+      "dtMs": 21.1,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 792347
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.16,
+      "fleetServed": 222
+    },
+    {
+      "at": 1793259362173,
+      "fps": 38,
+      "dtMs": 26.2,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 853024
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 239
+    },
+    {
+      "at": 1793259422603,
+      "fps": 44,
+      "dtMs": 22.6,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 913454
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 256
+    },
+    {
+      "at": 1793259483024,
+      "fps": 52,
+      "dtMs": 19.3,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 973875
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 273
+    },
+    {
+      "at": 1793259543505,
+      "fps": 51,
+      "dtMs": 19.5,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 1034356
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 290
+    },
+    {
+      "at": 1793259603976,
+      "fps": 47,
+      "dtMs": 21.1,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 1094827
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 307
+    },
+    {
+      "at": 1793259664426,
+      "fps": 50,
+      "dtMs": 20,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 1155277
+      },
+      "panel": {
+        "demoScenario": "none"
+      },
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 323
+    }
+  ],
+  "after": {
+    "at": 1793259724439,
+    "fps": 50,
+    "dtMs": 20,
+    "dtMaxMs": 317,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 1,
+      "restored": 1
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793258509149,
+      "ageMs": 1215290
+    },
+    "panel": {
+      "demoScenario": "none"
+    },
+    "rendererInfo": null,
+    "fleetServed": 340
+  },
+  "remount": {
+    "pre": {
+      "at": 1793259117839,
+      "fps": 20,
+      "dtMs": 50,
+      "dtMaxMs": 350,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 2,
+        "restored": 2
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 608690
+      },
+      "panel": {
+        "demoScenario": "none"
+      }
+    },
+    "post": {
+      "at": 1793259119498,
+      "fps": 42,
+      "dtMs": 23.8,
+      "dtMaxMs": 317,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793258509149,
+        "ageMs": 610349
+      },
+      "panel": {
+        "demoScenario": "none"
+      }
+    },
+    "servedAfterRemount": 2
+  },
+  "verdicts": {
+    "GATE-1 demo body served to the real poller": "PASS",
+    "GATE-2 atomic canvas live at end": "PASS",
+    "GATE-3 zero uncaught page errors": "PASS",
+    "GATE-4 every context loss recovered (or none)": "PASS",
+    "GATE-5 no unbounded canvas growth (live ≤ peak, live > 0)": "PASS",
+    "GATE-6 remount restored scene without canvas growth": "PASS"
+  },
+  "soft": {
+    "fps_p50": 45,
+    "fps_p95": 52,
+    "pixelDiffMin": 0.14,
+    "pixelDiffMax": 19.15,
+    "animated": true,
+    "rendererInfo": "UNAVAILABLE (this checkout does not expose window.__atomic.rendererInfo)",
+    "consoleErrors": [
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+    ],
+    "demoHandle": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793258509149,
+      "ageMs": 1215290
+    },
+    "panelScenario": "none"
+  },
+  "pageErrors": []
+}

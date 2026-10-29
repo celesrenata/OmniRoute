@@ -13,12 +13,20 @@
  *   - device atoms appended in the outer band (rings beyond the providers)
  *     with proven `deviceFacts`; absent facts stay `null`, never `0`.
  *
+ * OR-ATOM-009 W2 — proven attribution from `reconciliation.edges`:
+ *   - a GPU with EXACTLY ONE proven runtime on it (runtime_device edge)
+ *     inherits that runtime's model / queue / active-jobs / spin fallback;
+ *   - multi-runtime GPUs never inherit aggregate values (no even split);
+ *   - a runtime carries its providerId ONLY from a proven
+ *     provider_runtime edge — GPUs stay provider-unattached;
+ *   - absent / stale / unproven joins -> `null` / `"unknown"`, never invented.
+ *
  * Pure — no DOM, no WebGL, no clock.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveAtomDescriptors } from "@/plugins/atomic-topology";
+import { resolveAtomDescriptors, resolveLinkDescriptors } from "@/plugins/atomic-topology";
 import { SPIN_REFERENCE_TPS } from "@/plugins/atomic-topology/AtomicTopologyRenderer";
 import type { TopologySceneSnapshot } from "@/shared/topology/domain/types";
 import type {
@@ -291,7 +299,9 @@ test("device atoms appended in the outer band with proven facts", () => {
     "device ring is at least the max provider ring"
   );
 
-  // Proven GPU facts (measured — not fabricated).
+  // Proven GPU facts: own measured fields, plus the single-runtime
+  // attribution (W2 — one runtime_device edge proves unambiguous ownership,
+  // so the GPU inherits that runtime's queue/jobs/model; never a split).
   assert.deepEqual(gpu!.deviceFacts, {
     kind: "gpu",
     utilizationPercent: 66,
@@ -299,9 +309,9 @@ test("device atoms appended in the outer band with proven facts", () => {
     vramTotalBytes: 16e9,
     temperatureC: 55,
     powerWatts: 220,
-    queuedJobs: null,
-    activeJobs: null,
-    modelId: null,
+    queuedJobs: 3,
+    activeJobs: 2,
+    modelId: "llama-3-70b",
   });
   // Proven runtime facts + model color.
   assert.equal(runtime!.deviceFacts?.kind, "runtime");
@@ -309,6 +319,17 @@ test("device atoms appended in the outer band with proven facts", () => {
   assert.equal(runtime!.deviceFacts?.activeJobs, 2);
   assert.equal(runtime!.deviceFacts?.modelId, "llama-3-70b");
   assert.ok(runtime!.modelColors.length === 1, "runtime nucleus colored by its model");
+
+  // W2 / S9.1 proven linkage: the runtime carries its proven
+  // provider_runtime edge; the GPU stays provider-unattached (its provider
+  // connection is only transitive through its runtime — never drawn directly).
+  assert.equal(runtime!.providerId, "openai", "runtime proven to provider:openai");
+  assert.equal(gpu!.providerId, undefined, "gpu stays provider-unattached");
+  // W2 / S9.3: the gpu's model identity comes from the proven on-GPU
+  // runtime; an unclassifiable model id keeps the honest "unknown" lane.
+  assert.deepEqual(gpu!.observedModelIds, ["llama-3-70b"], "gpu models from proven residency");
+  assert.equal(gpu!.modelColors.length, 1, "gpu nucleus colored by the proven model");
+  assert.equal(gpu!.lane, "unknown", "unclassifiable model -> unknown lane (never fabricated)");
 
   // Device spin/vibration bound to their own measured facts.
   assert.equal(gpu!.spin.mode, "measured", "gpu spin from its measured TPS");
@@ -373,4 +394,233 @@ test("reorder of reconciliation arrays → identical device descriptors (determi
 
 test("spin reference constant is the module's documented value", () => {
   assert.equal(SPIN_REFERENCE_TPS, 24);
+});
+
+/* ------------------------------------------------------------------ */
+/* OR-ATOM-009 W2 — proven attribution from reconciliation edges       */
+/* ------------------------------------------------------------------ */
+
+test("W2: classifiable on-GPU model -> gpu + runtime carry the lane and the model color", () => {
+  const recon = makeReconciliation();
+  recon.runtimeNodes[0].modelId = "text-embedding-3-small";
+  const snapshot = makeSnapshot({ fleetTelemetry: recon });
+  const descriptors = resolveAtomDescriptors(snapshot);
+  const gpu = descriptors.find((d) => d.id === "gpu:h1:uuid-1")!;
+  const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0")!;
+
+  assert.deepEqual(gpu.observedModelIds, ["text-embedding-3-small"]);
+  assert.deepEqual(runtime.observedModelIds, ["text-embedding-3-small"]);
+  assert.equal(gpu.lane, "embedding", "lane derived from the proven on-GPU model");
+  assert.equal(gpu.laneHue, "#A78BFA", "embedding lane hue (pinned palette)");
+  assert.equal(runtime.lane, "embedding", "runtime lane from its own model");
+  assert.equal(gpu.deviceFacts?.modelId, "text-embedding-3-small");
+  // Both nuclei share the single proven model color.
+  assert.deepEqual(gpu.modelColors, runtime.modelColors);
+  assert.equal(gpu.modelColors.length, 1);
+});
+
+test("W2: multi-runtime gpu -> no even split (proven model union, own facts only)", () => {
+  const recon = makeReconciliation({ gpuTps: null });
+  const rt2: ReconciledRuntimeNode = {
+    resourceId: "runtime:h1:cuda-1",
+    hostId: "h1",
+    runtimeId: "cuda-1",
+    modelId: "gpt-4o-mini",
+    outputTokensPerSecond: obs(15),
+    queuedJobs: obs(4),
+    activeJobs: obs(1),
+    attributedGpuIds: ["gpu:h1:uuid-1"],
+    stale: false,
+  };
+  recon.runtimeNodes.push(rt2);
+  // Prove BOTH runtimes on the SAME gpu (attribution is ambiguous).
+  recon.edges.push({
+    source: "runtime:h1:cuda-1",
+    target: "gpu:h1:uuid-1",
+    relation: "runtime_device",
+    basis: "metrics-join",
+    sampledAt: T,
+  });
+  const gpu = resolveAtomDescriptors(makeSnapshot({ fleetTelemetry: recon })).find(
+    (d) => d.id === "gpu:h1:uuid-1"
+  )!;
+
+  // Models: the proven union of both runtimes (sorted; capped at 3 elsewhere).
+  assert.deepEqual(gpu.observedModelIds, ["gpt-4o-mini", "llama-3-70b"]);
+  assert.equal(gpu.modelColors.length, 2, "nucleus shows both proven models");
+  // Queue/jobs: NOT split across the two runtimes — the gpu has no own
+  // measurement, so it shows null (unavailable), never an averaged value.
+  assert.equal(gpu.deviceFacts?.queuedJobs, null, "multi-runtime -> no queue split");
+  assert.equal(gpu.deviceFacts?.activeJobs, null, "multi-runtime -> no active-job split");
+  // Spin/vibration: no own TPS + ambiguous attribution -> unavailable (never a split).
+  assert.equal(gpu.spin.mode, "unavailable", "multi-runtime -> no spin split");
+  assert.equal(gpu.vibration.mode, "unavailable", "multi-runtime -> no vibration split");
+});
+
+test("W2: unproven joins -> no attribution (absent edges are never invented)", () => {
+  const recon = makeReconciliation();
+  recon.edges = []; // strip EVERY proven edge
+  const snapshot = makeSnapshot({ fleetTelemetry: recon });
+  const descriptors = resolveAtomDescriptors(snapshot);
+  const gpu = descriptors.find((d) => d.id === "gpu:h1:uuid-1")!;
+  const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0")!;
+
+  // No runtime_device edge -> the runtime's model/queue is NOT attributed
+  // to the gpu, even though the runtime itself still shows its own facts.
+  assert.deepEqual(gpu.observedModelIds, [], "no proven residency -> no gpu models");
+  assert.equal(gpu.deviceFacts?.queuedJobs, null);
+  assert.equal(gpu.deviceFacts?.activeJobs, null);
+  assert.equal(gpu.deviceFacts?.modelId, null);
+  assert.equal(gpu.lane, "unknown");
+  // The runtime keeps its OWN measured facts (own facts are not attribution).
+  assert.equal(runtime.deviceFacts?.queuedJobs, 3);
+  assert.equal(runtime.deviceFacts?.modelId, "llama-3-70b");
+  assert.deepEqual(runtime.observedModelIds, ["llama-3-70b"]);
+  // No provider_runtime edge -> the runtime stays provider-unattached.
+  assert.equal(runtime.providerId, undefined, "no edge -> no provider attribution");
+});
+
+test("W2: stale runtime -> its attribution to the gpu is never shown (stale -> unavailable)", () => {
+  const snapshot = makeSnapshot({
+    fleetTelemetry: makeReconciliation({ runtimeStale: true }),
+  });
+  const descriptors = resolveAtomDescriptors(snapshot);
+  const gpu = descriptors.find((d) => d.id === "gpu:h1:uuid-1")!;
+
+  // The gpu is FRESH: it still spins from its own measured TPS.
+  assert.equal(gpu.spin.mode, "measured", "fresh gpu keeps its own spin");
+  // ...but the stale runtime contributes nothing to it.
+  assert.deepEqual(gpu.observedModelIds, [], "stale runtime -> no model attribution");
+  assert.equal(gpu.deviceFacts?.queuedJobs, null, "stale runtime queue is not shown on the gpu");
+  assert.equal(gpu.deviceFacts?.activeJobs, null);
+  assert.equal(gpu.deviceFacts?.modelId, null);
+  assert.equal(gpu.vibration.mode, "unavailable");
+  // The stale runtime itself also reads unavailable.
+  const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0")!;
+  assert.equal(runtime.spin.mode, "unavailable");
+  assert.equal(runtime.deviceFacts?.queuedJobs, null);
+  assert.equal(runtime.deviceFacts?.modelId, null);
+});
+
+/* ------------------------------------------------------------------ */
+/* OR-ATOM-009 S9.2 — measuredTps (the raw measured TPS the nucleus    */
+/* smoothing binds to)                                                 */
+/* ------------------------------------------------------------------ */
+
+test("S9.2: measuredTps carries the raw measured TPS — the value the scene smooths", () => {
+  const snapshot = makeSnapshot({ fleetTelemetry: makeReconciliation({ providerTps: 12 }) });
+  const descriptors = resolveAtomDescriptors(snapshot);
+
+  // Provider: the joined provider sample, verbatim.
+  const openai = descriptors.find((d) => d.id === "provider:openai")!;
+  assert.equal(openai.measuredTps, 12, "provider measuredTps = joined provider TPS");
+  // Idle provider with no sample: unknown (never a fabricated 0).
+  const anthropic = descriptors.find((d) => d.id === "provider:anthropic")!;
+  assert.equal(anthropic.measuredTps, null, "no sample → null, not 0");
+  // The hub carries no measured throughput.
+  const hub = descriptors.find((d) => d.id === "hub")!;
+  assert.equal(hub.measuredTps, null, "hub → null");
+
+  // GPU: its own per-device measured TPS (unambiguous own attribution).
+  const gpu = descriptors.find((d) => d.id === "gpu:h1:uuid-1")!;
+  assert.equal(gpu.measuredTps, 12, "gpu measuredTps = own measured TPS");
+  // Runtime: its own measured TPS.
+  const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0")!;
+  assert.equal(runtime.measuredTps, 9, "runtime measuredTps = own measured TPS");
+});
+
+test("S9.2: measuredTps is null when nothing fresh is attributable", () => {
+  // Provider sample observed as absent → unknown.
+  const snapshot = makeSnapshot({
+    fleetTelemetry: makeReconciliation({ providerTps: null }),
+  });
+  const openai = resolveAtomDescriptors(snapshot).find((d) => d.id === "provider:openai")!;
+  assert.equal(openai.measuredTps, null, "null Observed → null (never fabricated 0)");
+  assert.equal(openai.spin.mode, "unavailable");
+
+  // GPU with no own per-device TPS → the single proven runtime's TPS (no split).
+  const gpuSingle = resolveAtomDescriptors(
+    makeSnapshot({ fleetTelemetry: makeReconciliation({ gpuTps: null }) })
+  ).find((d) => d.id === "gpu:h1:uuid-1")!;
+  assert.equal(gpuSingle.measuredTps, 9, "single-runtime gpu inherits the runtime's TPS");
+  assert.equal(gpuSingle.spin.mode, "measured");
+
+  // Multi-runtime GPU: attribution is ambiguous → no measuredTps (no split).
+  const recon = makeReconciliation({ gpuTps: null });
+  recon.runtimeNodes.push({
+    resourceId: "runtime:h1:cuda-1",
+    hostId: "h1",
+    runtimeId: "cuda-1",
+    modelId: "gpt-4o-mini",
+    outputTokensPerSecond: obs(15),
+    queuedJobs: obs(4),
+    activeJobs: obs(1),
+    attributedGpuIds: ["gpu:h1:uuid-1"],
+    stale: false,
+  });
+  recon.edges.push({
+    source: "runtime:h1:cuda-1",
+    target: "gpu:h1:uuid-1",
+    relation: "runtime_device",
+    basis: "metrics-join",
+    sampledAt: T,
+  });
+  const gpuMulti = resolveAtomDescriptors(makeSnapshot({ fleetTelemetry: recon })).find(
+    (d) => d.id === "gpu:h1:uuid-1"
+  )!;
+  assert.equal(gpuMulti.measuredTps, null, "multi-runtime gpu → no measuredTps (no split)");
+  assert.equal(gpuMulti.spin.mode, "unavailable");
+});
+
+test("S9.2: a stale device sample decays to null (the nucleus spins down, never holds a fake speed)", () => {
+  const gpu = resolveAtomDescriptors(
+    makeSnapshot({ fleetTelemetry: makeReconciliation({ gpuStale: true }) })
+  ).find((d) => d.id === "gpu:h1:uuid-1")!;
+  assert.equal(gpu.measuredTps, null, "stale gpu sample → null");
+  assert.equal(gpu.spin.mode, "unavailable", "stale → the spin mode decays too");
+});
+
+/* ------------------------------------------------------------------ */
+/* OR-ATOM-009 S9.4 — proven pulse gate on the route links            */
+/* ------------------------------------------------------------------ */
+
+test("S9.4: every route link whose target provider atom exists is proven (call-log basis)", () => {
+  const links = resolveLinkDescriptors(makeSnapshot());
+  const openai = links.find((l) => l.id === "route:openai")!;
+  const anthropic = links.find((l) => l.id === "route:anthropic")!;
+  assert.equal(openai.proven, true, "openai route is proven (atom present)");
+  assert.equal(openai.provenBasis, "call-log route");
+  assert.equal(anthropic.proven, true, "anthropic route is proven (atom present)");
+  assert.equal(anthropic.provenBasis, "call-log route");
+});
+
+test("S9.4: a route link without its target provider atom is unproven (never a guess)", () => {
+  // Defensively: drop the anthropic atom from the node set — its route link
+  // must be unproven (no pulse may ride it), while openai stays proven.
+  const snapshot = makeSnapshot();
+  snapshot.nodes = snapshot.nodes.filter((n) => n.id !== "provider:anthropic");
+  const links = resolveLinkDescriptors(snapshot);
+  assert.equal(links.find((l) => l.id === "route:openai")!.proven, true);
+  const anthropic = links.find((l) => l.id === "route:anthropic")!;
+  assert.equal(anthropic.proven, false, "no target atom → unproven");
+  assert.equal(anthropic.provenBasis, "unproven (no target provider atom)");
+});
+
+test("S9.4: a fleet-telemetry provider sample strengthens the basis (corroboration, not the basis)", () => {
+  const links = resolveLinkDescriptors(makeSnapshot({ fleetTelemetry: makeReconciliation() }));
+  const openai = links.find((l) => l.id === "route:openai")!;
+  assert.equal(openai.proven, true);
+  assert.equal(openai.provenBasis, "call-log route + fleet-metrics");
+  // anthropic has a route atom but NO fleet provider sample → call-log basis.
+  const anthropic = links.find((l) => l.id === "route:anthropic")!;
+  assert.equal(anthropic.proven, true);
+  assert.equal(anthropic.provenBasis, "call-log route");
+});
+
+test("S9.4: a no-reconciliation snapshot still proves the call-log routes (primary proven segment)", () => {
+  const links = resolveLinkDescriptors(makeSnapshot());
+  for (const l of links) {
+    assert.equal(l.proven, true, `${l.id} is proven from the call-log route alone`);
+    assert.equal(l.provenBasis, "call-log route");
+  }
 });
