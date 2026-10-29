@@ -684,6 +684,27 @@ function purifyHistory(messages: Record<string, unknown>[], targetTokens: number
     }
   }
 
+  // A chat template always needs a user turn. The suffix window above is all
+  // assistant/tool pairs during a long agent loop, so the compressed transcript
+  // used to ship with zero user messages and vLLM/Qwen rejected it outright
+  // (live 2026-10-29): "[400]: chat template: No user query found in messages."
+  // The repeat 400s then model-locked vllm and pushed every request to the
+  // fallback provider. Put the most recent dropped user ask back directly below
+  // the leading system message so the transcript stays renderable — and so the
+  // model still sees the task it is working on.
+  if (!result.some((m) => m.role === "user")) {
+    const lastAsk = [...nonSystem].reverse().find((m) => m.role === "user");
+    if (lastAsk) {
+      const insertAt = result[0]?.role === "system" || result[0]?.role === "developer" ? 1 : 0;
+      result.splice(insertAt, 0, lastAsk);
+      // Re-run pair fixes: inserting the ask shifts nothing structurally, but the
+      // new head must still satisfy tool_use/tool_result adjacency invariants.
+      result = fixToolPairs(result);
+      result = fixToolAdjacency(result);
+      result = fixToolPairs(result);
+    }
+  }
+
   return result;
 }
 
