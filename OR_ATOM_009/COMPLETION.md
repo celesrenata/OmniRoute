@@ -141,3 +141,41 @@ npx tsc --noEmit -p tsconfig.json
 One-shot debug scripts under `OR_ATOM_009/scripts/tmp/` (the ad-hoc
 `debug-*`, `smoke.mjs`, `variant-test.mjs`, `brace-check.mjs`, `bisect-parse.mjs`,
 `token-walk.mjs`, `lint-probe.ts`, `probe-remount.mjs`) have been removed.
+
+## 8. Final Phase — post-integration browser truth (2026-10-29)
+
+After the harness was integrated into the source tree, the full browser evidence was
+re-captured on 2026-10-29 against `http://127.0.0.1:21011` (source-tree dev server,
+Playwright + SwiftShader software WebGL). This supersedes the W3-era captures:
+
+- **9/9 scenario rows** PASS — `screenshots/captureScenarios.json` (all DEMO bodies served to the
+  real `FleetTelemetryPoller` via `page.route`; 0 uncaught page errors; live canvas 1/1; per-row
+  fps 41–57 under SwiftShader).
+- **9/9 B7 injection rows** PASS — `screenshots/b7Injection.json`: each scenario re-served from
+  the **in-page `window.fetch` wrapper** (`B-1 in_page_wrapper_installed: true`, `servedNetwork:
+0`), proving the harness is transport-agnostic.
+- **Gap-2 smoke** PASS — `screenshots/gap2Smoke.json` (G-1..G-7 true): `linkRows[0].proven ===
+true` for `route:demo-provider`, unknown route → `unproven`, dev trigger present. G-8 canvas
+  non-blank is a screenshot-only confirmation (SwiftShader pixel read-back inconclusive).
+- **20-min soak** GATE-1..6 PASS — `screenshots/soak-mixed-lanes.json`: `durationSec: 1200`,
+  fps p50 45 / p95 52, per-minute pixel diffs (min 0.14 / max 19.15) prove continuous animation,
+  forced mid-soak context remount recovered (end `ctx lost/restored 1/1`, canvas 1/1,
+  `fleetServed` 340), 0 page errors.
+- **Forced context loss** 6/6 PASS — `screenshots/contextLoss-mixed-lanes.json`: settle → forced
+  loss (`lost:1`, `webgl2` API) → restore (`restored:1`), rAF frames advanced +135, no canvas growth.
+- **Stress matrix** verdict **true** — `screenshots/stressMatrix.json`: 8 / 16 / 32 atoms,
+  S-1..S-5 all true at every count (15 / 11 / 8 fps under SwiftShader — the software-rasterizer
+  floor; all above the sustained-fps gate).
+- **2D ↔ Atomic toggle** verdict **PASS** — `screenshots/toggleStability.json`: 12 toggles,
+  gates T-1..T-5 all true, end canvas 1/1, ctx 0/0, `servedTotal` 28, 0 page errors.
+- **Unit suite** (re-run 2026-10-29): `tests/unit/atomic-topology/` — 394 tests, 393 pass /
+  0 fail / 1 skipped.
+
+Full per-row detail: `OR_ATOM_009/VALIDATION_MATRIX.md` (post-integration rewrite). Known gaps
+are listed there honestly (renderer perf counters UNAVAILABLE, no live reduced-motion capture,
+all rows DEMO — the live catalog/hub is down; see `SKILL_AUDIT.md` §1).
+
+**Skill application (Step 9)**: `OR_ATOM_009/SKILL_APPLICATION_REPORT.md` (9 selected skills,
+per-substep instructions + implementation anchors + verification evidence) and
+`OR_ATOM_009/SKILL_AUDIT.md` (hub probe verdict, extraction verification — 47 files / 9 skill
+dirs / 0 leakage, execution audit — all 9 instruction-only, none executed).
