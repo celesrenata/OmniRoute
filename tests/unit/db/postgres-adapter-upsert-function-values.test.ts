@@ -86,6 +86,16 @@ test("uniqBy/db_meta inline literal upserts still keep their literals", () => {
   assert.doesNotMatch(finalSql, /\$1/);
 });
 
+test("multi-row VALUES still fails loud instead of being mangled into one row", () => {
+  // The paren-tolerant matcher must not turn `VALUES (a), (b)` into a single
+  // row: that would silently upsert one row with garbage values.
+  const sql = translateParamsLike("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?), (?, ?)");
+  assert.throws(
+    () => translateInsertOrReplace(sql, ["key"]),
+    /INSERT OR REPLACE shape not supported/
+  );
+});
+
 // `translateParams` rewrites `?` -> `$n`; the adapter runs it before the upsert
 // translation, so mirror that order here.
 function translateParamsLike(sql: string): string {

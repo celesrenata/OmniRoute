@@ -457,7 +457,10 @@ function detectUnsupportedSyntax(sql: string): string | null {
 // function call (`to_char(NOW(), 'YYYY')`) or a single-quoted literal (`'a, b'`)
 // belongs to its value and must not start a new one. SQL escapes a quote by
 // doubling it (`'it''s'`), so consecutive quotes are consumed together.
-function splitTopLevelValues(values: string): string[] {
+// Returns null when the tail is not a single balanced tuple — multi-row
+// `VALUES (…), (…)` closes the outer group early (depth < 0), and translating
+// that as a single-row upsert would silently produce wrong SQL.
+function splitTopLevelValues(values: string): string[] | null {
   const out: string[] = [];
   let current = "";
   let depth = 0;
@@ -488,6 +491,7 @@ function splitTopLevelValues(values: string): string[] {
     }
     if (ch === ")") {
       depth--;
+      if (depth < 0) return null;
       current += ch;
       continue;
     }
@@ -498,6 +502,7 @@ function splitTopLevelValues(values: string): string[] {
     }
     current += ch;
   }
+  if (inString || depth !== 0) return null;
   if (current.trim().length > 0) out.push(current.trim());
   return out;
 }
@@ -527,9 +532,9 @@ export function translateInsertOrReplace(sql: string, conflictColumns: string[])
   const table = match[2];
   const columns = match[3].split(",").map((c) => c.trim());
   const values = splitTopLevelValues(match[4]);
-  if (columns.length !== values.length) {
+  if (!values || columns.length !== values.length) {
     throw new Error(
-      `[postgresAdapter] column/value count mismatch in INSERT OR REPLACE: ${sql.slice(0, 120)}`
+      `[postgresAdapter] INSERT OR REPLACE shape not supported (multi-row or column/value count mismatch): ${sql.slice(0, 120)}`
     );
   }
   const conflictCols = conflictColumns.filter((c) => columns.includes(c));
@@ -569,9 +574,9 @@ export function translateInsertOrIgnore(sql: string, conflictColumns: string[]):
   const table = match[2];
   const columns = match[3].split(",").map((c) => c.trim());
   const values = splitTopLevelValues(match[4]);
-  if (columns.length !== values.length) {
+  if (!values || columns.length !== values.length) {
     throw new Error(
-      `[postgresAdapter] column/value count mismatch in INSERT OR IGNORE: ${sql.slice(0, 120)}`
+      `[postgresAdapter] INSERT OR IGNORE shape not supported (multi-row or column/value count mismatch): ${sql.slice(0, 120)}`
     );
   }
   const conflictCols = conflictColumns.filter((c) => columns.includes(c));
