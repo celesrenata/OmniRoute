@@ -227,6 +227,68 @@ describe("reconcile: relationship edges (provenance-carrying, never guessed)", (
     assert.deepEqual(runtimeById(result, RT_A).attributedGpuIds, []);
     assert.equal(result.edges.length, 0);
   });
+  it("synthetic DCGM + vLLM counter → gpu/runtime rows + runtime→GPU edge + non-empty reconciliation", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([
+        // DCGM sample set: one GPU row (util + VRAM + power).
+        gpuResource("h1", "uuid-0", {
+          utilizationPercent: observedValue(73.5, {
+            source: "prometheus",
+            basis: "DCGM_FI_DEV_GPU_UTIL",
+          }),
+          vramUsedBytes: observedValue(2_147_483_648, {
+            source: "prometheus",
+            basis: "DCGM_FI_DEV_FB_USED",
+          }),
+          powerWatts: observedValue(250, {
+            source: "prometheus",
+            basis: "DCGM_FI_DEV_POWER_USAGE",
+          }),
+        }),
+        // vLLM counter pair (two samples → windowed rate) + scheduler gauges:
+        // one runtime row, attributed to the GPU above.
+        runtimeResource("h1", "rt-0", {
+          deviceUuid: "uuid-0",
+          outputTokensPerSecond: observedValue(10, {
+            source: "prometheus",
+            basis: "vllm:generation_tokens_total",
+            windowMs: 60_000,
+          }),
+          queuedJobs: observedValue(2, {
+            source: "prometheus",
+            basis: "vllm:num_requests_waiting",
+          }),
+          activeJobs: observedValue(1, {
+            source: "prometheus",
+            basis: "vllm:num_requests_running",
+          }),
+        }),
+      ])
+    );
+
+    // Both rows reconciled → non-empty.
+    assert.equal(result.gpuNodes.length, 1);
+    assert.equal(result.runtimeNodes.length, 1);
+    assert.ok(!result.providerCentricFallback, "gpu present → not provider-centric");
+
+    const node = gpuById(result, GPU_A);
+    assert.equal(node.utilizationPercent?.value, 73.5);
+    assert.equal(node.vramUsedBytes?.value, 2_147_483_648);
+
+    const rt = runtimeById(result, RT_A);
+    assert.equal(rt.outputTokensPerSecond?.value, 10);
+
+    // runtime→GPU edge from explicit per-device attribution.
+    assert.deepEqual(result.edges, [
+      {
+        source: RT_A,
+        target: GPU_A,
+        relation: "runtime_device",
+        basis: "runtime per-device attribution",
+        sampledAt: NOW,
+      },
+    ]);
+  });
 });
 
 describe("reconcile: dedup, ordering, fallback flag", () => {

@@ -44,11 +44,10 @@ import {
   allowlistedMetricNames,
   gpuIdentityFromLabels,
   isAcceptableSampleTime,
-  isVramMetric,
   mappingForMetric,
   observationFieldFor,
   runtimeIdentityFromLabels,
-  vramScaleFor,
+  scaleFieldValue,
   type CounterRateEngine,
   type MetricSample,
 } from "./metricMapping";
@@ -288,20 +287,20 @@ function applyGrafanaSample(args: GrafanaSampleArgs): void {
   const mapping = mappingForMetric(metricName);
   if (!mapping) return;
   const { field, unit } = observationFieldFor(mapping);
-  // T5.6b1: DCGM VRAM gauges are MiB on the stock dcgm-exporter; scale to
-  // bytes ONLY when the operator configured vramUnit="mib". The decision
-  // lives in the shared helper (metricMapping.ts) so all three adapters agree;
-  // non-VRAM gauges (util/temp/power) and the vLLM counter are never scaled.
-  const value = isVramMetric(metricName)
-    ? sample.value * vramScaleFor(args.config.vramUnit)
-    : sample.value;
+  // The single scaling decision point (metricMapping.ts) all three adapters
+  // route through: DCGM VRAM gauges are MiB on the stock exporter → bytes
+  // ONLY when vramUnit="mib"; the macmon scaled ratio (0..1) → 0..100
+  // (out-of-range → null, never clamped). Everything else passes through.
+  // A null scaling (out-of-range macmon ratio) is reported as UNKNOWN with
+  // provenance by normalizeSample — never a fabricated/clamped gauge.
+  const scaled = scaleFieldValue(sample.value, args.config.vramUnit, metricName);
 
   if (mapping.kind === "gpu") {
     const id = gpuIdentityFromLabels(sample.labels, labelKeys);
     if (!id) return;
     const key = buildCanonicalResourceId("gpu", id.deviceUuid, id.hostId);
     const obs = normalizeSample({
-      value,
+      value: scaled,
       source,
       sampledAt: sample.sampledAt,
       capturedAt,
@@ -334,8 +333,10 @@ function applyGrafanaSample(args: GrafanaSampleArgs): void {
         freshnessMs,
       });
     } else {
+      // Scheduler gauges are never VRAM-scaled, so `scaled === sample.value`;
+      // routed through the same decision point so no adapter rescales on its own.
       obs = normalizeSample({
-        value: sample.value,
+        value: scaled,
         source,
         sampledAt: sample.sampledAt,
         capturedAt,

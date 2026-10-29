@@ -486,3 +486,42 @@ describe("influx provider: snapshot — DCGM VRAM MiB→bytes scale (T5.6b1)", (
     assert.equal(row.powerWatts?.value, 220.25);
   });
 });
+
+describe("influx provider: snapshot — runtime gauges (vLLM scheduler counts)", () => {
+  it("maps queued_jobs + active_jobs gauges onto the runtime row (activeJobs emitted)", async () => {
+    const { fetchImpl } = makeFakeFetch({
+      [INFLUX_QUERIES.gpu]: { body: { results: [] } },
+      [INFLUX_QUERIES.runtime]: {
+        body: {
+          results: [
+            {
+              statementId: "_0",
+              name: "runtime",
+              series: [
+                {
+                  columns: ["time", "host_id", "runtime_id", "queued_jobs", "active_jobs"],
+                  values: [[T0_ISO, "h1", "rt-0", 3, 9]],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    const provider = createInfluxProvider({ config: config(), fetchImpl, now: fixtureNow });
+
+    const snapshot = await provider.snapshot(QUERY);
+
+    assert.equal(snapshot.resources.length, 1);
+    const row = snapshot.resources[0];
+    assert.equal(row.resourceId, "runtime:h1:rt-0");
+    assert.equal(row.kind, "runtime");
+    assert.equal(row.runtimeId, "rt-0");
+    assert.equal(row.queuedJobs?.value, 3);
+    assert.equal(row.queuedJobs?.basis, "field:queued_jobs");
+    assert.equal(row.activeJobs?.value, 9);
+    assert.equal(row.activeJobs?.source, "influxdb2");
+    assert.equal(row.activeJobs?.basis, "field:active_jobs");
+    assert.equal(row.outputTokensPerSecond, undefined); // no counter column → no TPS
+  });
+});

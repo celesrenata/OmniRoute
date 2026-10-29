@@ -336,7 +336,24 @@ function rowToRuntimeResource(
     });
   }
 
-  return resource.outputTokensPerSecond || resource.queuedJobs ? resource : null;
+  // Gauge: active_jobs (vLLM scheduler running-request count).
+  const activeVal = rowValue(row, columns, "active_jobs");
+  if (activeVal !== null) {
+    resource.activeJobs = normalizeSample({
+      value: activeVal,
+      source: "influxdb2",
+      sampledAt,
+      capturedAt,
+      windowMs,
+      basis: "field:active_jobs",
+      freshnessMs,
+      unit: "nonNegative",
+    });
+  }
+
+  return resource.outputTokensPerSecond || resource.queuedJobs || resource.activeJobs
+    ? resource
+    : null;
 }
 
 function setResourceField(
