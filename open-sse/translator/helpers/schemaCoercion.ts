@@ -452,6 +452,20 @@ export function sanitizeToolId(id: string | undefined): string {
   return sanitized || `tool_${crypto.randomUUID().replace(/-/g, "_")}`;
 }
 
+/**
+ * Anthropic-shape upstreams (Anthropic itself and, strictly, Bedrock) enforce
+ * `^[a-zA-Z0-9_-]+$` on tool NAMES as well as on tool ids. Replayed history can
+ * carry a name with `.`/`:`/`/` (e.g. an MCP namespace produced by another
+ * provider); Bedrock rejects the whole request with
+ * `Value at 'messages.<n>.member.content.<n>.member.toolUse.name' failed to
+ * satisfy constraint: Member must satisfy regular expression pattern:
+ * [a-zA-Z0-9_-]+`. Only names that violate the contract change, so a valid
+ * client-declared name is never rewritten.
+ */
+export function sanitizeToolName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 export function injectEmptyReasoningContentForToolCalls(
   messages: unknown,
   provider: unknown,
