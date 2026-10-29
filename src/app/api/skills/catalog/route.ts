@@ -38,7 +38,9 @@ export async function GET(request: NextRequest) {
   // view). It returns the whole (filterable) catalog rather than a lexical
   // search, so a higher cap applies than for relevance-ranked search results.
   const query = searchParams.get("query")?.trim() ?? "";
-  const maxLimit = query ? MAX_LIMIT : 200;
+  // Browse-all must be able to return the whole catalog (operator imports
+  // can hold ~1k skills); relevance-ranked search stays at MAX_LIMIT.
+  const maxLimit = query ? MAX_LIMIT : 2000;
 
   try {
     const limitRaw = searchParams.get("limit");
@@ -46,21 +48,40 @@ export async function GET(request: NextRequest) {
       ? Math.min(Math.max(parseInt(limitRaw, 10) || 10, 1), maxLimit)
       : query
         ? 10
-        : 100;
+        : 2000;
     const domain = searchParams.get("domain");
     const skillset = searchParams.get("skillset");
     const tag = searchParams.get("tag");
     const agentId = searchParams.get("agentId");
+    const pageRaw = searchParams.get("page");
+    const page = pageRaw ? Math.max(parseInt(pageRaw, 10) || 1, 1) : 1;
 
-    const results = searchCatalog(query, {
-      limit,
+    // Fetch the full filtered result set, then paginate the slice here so
+    // `page` works for arbitrary page numbers. Browse-all is capped at 2000
+    // by searchCatalog; search (query present) at MAX_LIMIT relevance hits.
+    const fetchLimit = query ? limit : 2000;
+    const allResults = searchCatalog(query, {
+      limit: fetchLimit,
       domain: domain || undefined,
       skillset: skillset || undefined,
       tag: tag || undefined,
       agentId: agentId || undefined,
       executableOnly: searchParams.get("executableOnly") === "true",
     });
-    return NextResponse.json({ query, count: results.length, results });
+    const total = allResults.length;
+    const totalPages = Math.ceil(total / limit) || 1;
+    // Clamp out-of-range pages (e.g. stale page after a filter change).
+    const safePage = Math.min(Math.max(page, 1), totalPages);
+    const offset = (safePage - 1) * limit;
+    const pageResults = allResults.slice(offset, offset + limit);
+    return NextResponse.json({
+      query,
+      count: total,
+      page: safePage,
+      limit,
+      totalPages,
+      results: pageResults,
+    });
   } catch (err) {
     const message = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: message }, { status: 500 });

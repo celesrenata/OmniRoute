@@ -406,8 +406,11 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
   // still apply) in a stable name order, with no lexical min-score gate. A
   // higher default cap applies since there is no relevance ranking to prune by.
   const browsing = trimmed.length === 0;
-  const limit = options.limit ?? (browsing ? 200 : 10);
-  const effectiveLimit = Math.min(limit, browsing ? 200 : 20);
+  // Browse-all must cover the full catalog (operator imports can hold ~1k
+  // skills); the relevance-ranked search path stays capped at 10 requested /
+  // 20 effective.
+  const limit = options.limit ?? (browsing ? 2000 : 10);
+  const effectiveLimit = Math.min(limit, browsing ? 2000 : 20);
 
   const catalog = visibleCatalog();
 
