@@ -266,7 +266,7 @@ function SceneContent({
       ))}
 
       {linkDescriptors.map((link) => (
-        <EnergyLink key={link.id} descriptor={link} atoms={ringAtoms} />
+        <EnergyLink key={link.id} descriptor={link} atoms={ringAtoms} paused={paused} />
       ))}
     </>
   );

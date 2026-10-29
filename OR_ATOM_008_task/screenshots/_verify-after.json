@@ -1,0 +1,31 @@
+{
+  "base": "http://127.0.0.1:20140",
+  "tag": "after",
+  "at": "2026-10-27T22:10:02.411Z",
+  "pageErrors": [],
+  "consoleErrors": [
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+  ],
+  "canvases": [
+    {
+      "idx": 0,
+      "box": {
+        "x": 285,
+        "y": 836.5,
+        "width": 702,
+        "height": 420
+      },
+      "rawBufferVar": 0,
+      "png": "/Users/celes/Library/Application Support/Code/User/globalStorage/zoocodeorganization.zoo-code/parallel-tasks/2de83902-dabc-4985-85a6-c351b01c4751/worker-1/OR_ATOM_008_task/screenshots/_verify-after-canvas-0.png",
+      "size": [702, 421],
+      "channels": 3,
+      "meanLum": 752,
+      "pixelVar": 4887,
+      "diffFrac": 0.0696,
+      "nonBlank": true
+    }
+  ],
+  "verdict": "VISIBLE"
+}

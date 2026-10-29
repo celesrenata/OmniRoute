@@ -1,0 +1,126 @@
+{
+  "snapshot": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709522,
+    "resources": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "kind": "gpu",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: runtime per-device attribution → GPU A"
+        }
+      },
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "kind": "runtime",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "modelId": "demo/queue-chat",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 20 output TPS"
+        },
+        "queuedJobs": {
+          "value": 7,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 7 queued jobs (explicit count)"
+        },
+        "activeJobs": {
+          "value": 2,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 2 in-flight jobs"
+        }
+      }
+    ]
+  },
+  "reconciliation": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709522,
+    "gpuNodes": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "stale": false,
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: runtime per-device attribution → GPU A"
+        }
+      }
+    ],
+    "runtimeNodes": [
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "attributedGpuIds": ["gpu:demo-host:dev-uuid-a"],
+        "stale": false,
+        "modelId": "demo/queue-chat",
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 20 output TPS"
+        },
+        "queuedJobs": {
+          "value": 7,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 7 queued jobs (explicit count)"
+        },
+        "activeJobs": {
+          "value": 2,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 2 in-flight jobs"
+        }
+      }
+    ],
+    "providerNodes": [],
+    "edges": [
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "gpu:demo-host:dev-uuid-a",
+        "relation": "runtime_device",
+        "basis": "runtime per-device attribution",
+        "sampledAt": 1793180709522
+      },
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "model:demo/queue-chat",
+        "relation": "runtime_model",
+        "basis": "runtime observed model residency",
+        "sampledAt": 1793180709522
+      }
+    ],
+    "providerCentricFallback": false
+  }
+}

@@ -1,86 +1,83 @@
 "use client";
 
 /**
- * Atom node — one provider/gpu atom at its deterministic layout position
- * (OR-ATOM-001 v2, M3 Phase B + M4/M6).
+ * A provider/gpu atom at its deterministic layout position (OR-ATOM-007;
+ * OR-ATOM-008 S8.3 — proton/neutron nucleus cluster + model identity).
  *
- * An atom is a sphere colored by its deterministic lane hue / provider color,
- * wearing a slow-spinning {@link ElectronCloud} at the per-atom
- * `spinRadiansPerSecond` speed, and — when a queue is measured — a subtle
- * positional "vibration" (tremor) at the `queueVibration` amplitude/frequency.
+ * "Colored nuclei, luminous": the atom body is now a deterministic
+ * proton/neutron nucleus cluster ({@link buildNucleusCluster} — 8 instanced
+ * nucleons: protons larger, brighter, smooth; neutrons smaller, darker,
+ * matte — shape + material + luminance separation, NOT a color wash). Each
+ * nucleon is tinted per instance (three.js `instanceColor` multiplies the
+ * white role diffuse), so today's honest neutral two-tone reads warm-white
+ * protons / cool-slate neutrons (the snapshot carries no per-node model
+ * ids — see {@link AtomVisualDescriptor.observedModelIds}); once ids ARE
+ * observed, at most 3 model-color angular sectors (hashed by model id,
+ * stable under order changes) spatially cluster the nucleons.
  *
- * **M4/M6 — transient request discharge.** The atom reads the ambient
- * request-lifecycle {@link AtomicEventPool} (via {@link useAtomicSceneContext})
- * and applies a *transient* discharge for its provider: a started request
- * builds a brief energy discharge, a completed request emits a short
- * impulse/fade, and a failed request flashes red. The discharge decays back
- * to zero (see {@link computeDischarge}) and **never** reparents the atom's
- * persistent health/traffic state — a failed *request* is not a failed
- * *provider*, so `visualState` is untouched. The discharge clock is epoch
- * time: render-time (reduced-motion) reads are pinned to the snapshot's
- * capture clock (via `nowMs` in the scene context) so renders are pure, while
- * per-frame (animated) reads advance on the wall clock inside `useFrame`;
- * the pool + discharge math are three-free, and only the *material
- * application* here touches `three`.
+ * The core sphere is kept as the *small central anchor* with its truthful
+ * emissive mapping ({@link AtomVisualDescriptor.color} — NEVER recolored by
+ * state) and keeps:
+ *   (a) a **fresnel rim glow** (`makeFresnelCoreMaterial` — the nucleon
+ *       role materials use the identical `onBeforeCompile` injection, so
+ *       every core + nucleon shares ONE compiled program; roles differ
+ *       only in uniforms: roughness + emissive);
+ *   (b) an **outer additive glow sprite** (shared radial-gradient texture,
+ *       `AdditiveBlending`, `depthWrite: false`) — truthful identity color;
+ *   (c) subtle **breathing**: ±2 % scale pulsation tied to the spin mode
+ *       (`motionParams` — measured rate only; paused / reduced-motion →
+ *       still), applied to the anchor AND the whole cluster with one factor.
  *
- * **Reduced motion:** continuous animation (electron spin + the per-frame
- * discharge pulse) is suppressed; a live discharge is shown as a *static*
- * emphasis (no pulsing/flashing), which is the reduced-motion-safe expression
- * of the same fact.
+ * Per-state emissive stays (error brightest) and scales the nucleon role
+ * emissive (proton × {@link PROTON_EMISSIVE_MUL}, neutron ×
+ * {@link NEUTRON_EMISSIVE_MUL}). Cluster spin is a shared group rotation
+ * around the seeded cluster axis at the *measured* spin rate (same gate as
+ * the electron cloud — never fabricated); it accumulates only while
+ * unfrozen, so `paused` / reduced-motion freeze it mid-orientation and
+ * resume without a jump. Instance matrices/colors are written once per
+ * cluster rebuild → zero per-frame allocation.
  *
- * `three` / R3F are confined to this `scene/**` subtree.
+ * Focus behavior (`FOCUS_SCALE`) is unchanged and now emphasizes the whole
+ * body (anchor + cluster). The queue vibration (positional tremor) is
+ * unchanged and still gated on the *live* frame delta (it is positional,
+ * not orbital — a frozen clock still allows the tremor to be a static
+ * offset when frozen mid-frame; with `paused` it is fully still).
  *
- * Explicit unknowns:
- * - **Vibration**: driven by measured queue depth when present (`mode:
- *   "measured"`); "unavailable" (amplitude 0) otherwise — never fabricated.
- * - **GPU device atoms (`kind: "gpu"`)**: rendered forward-compatibly like a
- *   provider; a discharge is applied only when the event carries a matching
- *   `providerId`.
- * - **Nucleus (OR-ATOM-003, V4):** the atom is a dense instanced
- *   proton/neutron cluster (a single `InstancedMesh`, 1 draw call) on a
- *   Fibonacci sphere — the same layered nuclear body as the hub, scaled to
- *   the atom. When in-flight model colors are observed the cluster cycles
- *   through those *observed* colors; with no observation it falls back to
- *   the neutral proton/neutron palette (never a fabricated composition).
- *   The cluster geometry is the pure, unit-tested
- *   `atomNucleusParticleField` in `./geometry`.
+ * Geometry is shared: ONE unit-sphere geometry per atom is reused by both
+ * instanced role meshes; geometry + materials + meshes are disposed on
+ * unmount (web-quality-performance: per-atom geometry count stays O(1)).
  */
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
 import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
-import { QUALITY_BUDGETS } from "../quality";
-import { useAtomicSceneContext } from "./sceneContext";
-import { ElectronCloud } from "./ElectronCloud";
+import { breathingScale, MAX_FRAME_DELTA, motionParams } from "./motion";
+import { fnv1a } from "./cloudShells";
 import {
-  ATOM_NUCLEUS_CLUSTER_RADIUS_FACTOR,
-  ATOM_NUCLEUS_COUNT_HIGH,
-  ATOM_NUCLEUS_COUNT_LOW,
-  ATOM_NUCLEUS_PARTICLE_RADIUS,
-  atomNucleusParticleField,
-} from "./geometry";
-import { breathingScale } from "./motion";
+  ANCHOR_RADIUS_FRACTION,
+  buildNucleusCluster,
+  NUCLEUS_PARTICLE_BASE_RADIUS,
+  NUCLEUS_SHELL_RADIUS,
+  NEUTRON_EMISSIVE_MUL,
+  NEUTRON_ROUGHNESS,
+  PROTON_EMISSIVE_MUL,
+  PROTON_ROUGHNESS,
+  RING_NUCLEUS_PARTICLE_COUNT,
+  type NucleusCluster,
+  type NucleusParticle,
+} from "./nucleusCluster";
+import { createRotationSmoothing, tpsToRadiansPerSecond } from "./nucleusMotion";
+import { getSharedGlowTexture, makeFresnelCoreMaterial } from "./sceneResources";
 import { sceneClock, sceneState } from "./sceneState";
-import { getSharedGlowTexture } from "./sceneResources";
+import { ElectronCloud } from "./ElectronCloud";
 
-/** World-space radius of a ring atom's core sphere. */
+/** World-space radius of a ring atom's core sphere (unchanged). */
 const ATOM_RADIUS = 22;
-/** How much a focused atom grows (readable emphasis, not orbit). */
+/** How much a focused atom grows (readable emphasis, not orbit — unchanged). */
 const FOCUS_SCALE = 1.18;
-/** How much a live discharge grows the atom (transient emphasis). */
-const DISCHARGE_SCALE = 0.22;
-/** Peak emissive boost a live discharge adds on top of the state emissive. */
-const DISCHARGE_EMISSIVE_BOOST = 0.9;
-/** A live failed discharge tints the emissive toward this red. */
-const FAILED_DISCHARGE_COLOR = "#ef4444";
 
-/** Breathing amplitude: ±2 % on the core scale (OR-ATOM-007 luminous core). */
-const BREATH_AMPLITUDE = 0.02;
-/** Outer glow sprite diameter, atom-relative (OR-ATOM-007 light-source read). */
-const GLOW_SPRITE_SCALE = 2.4;
-
-/** Per-state emissive boost (a focused/error atom glows brighter). */
+/** Per-state emissive boost (a focused/error atom glows brighter — unchanged). */
 const STATE_EMISSIVE: Record<AtomVisualDescriptor["visualState"]["state"], number> = {
   error: 0.9,
   active: 0.75,
@@ -88,6 +85,88 @@ const STATE_EMISSIVE: Record<AtomVisualDescriptor["visualState"]["state"], numbe
   healthy: 0.35,
   idle: 0.25,
 };
+
+/** Breathing amplitude: ±2 % (design spec). */
+const BREATH_AMPLITUDE = 0.02;
+/** Outer glow sprite diameter, atom-relative. */
+const GLOW_SPRITE_SCALE = 2.4;
+
+/** World-space radius of the central anchor sphere (small dense core). */
+const ANCHOR_WORLD_RADIUS = ATOM_RADIUS * NUCLEUS_SHELL_RADIUS * ANCHOR_RADIUS_FRACTION;
+/** World-space radius of one base nucleon (before the per-particle scaleMul). */
+const NUCLEON_WORLD_RADIUS = ATOM_RADIUS * NUCLEUS_PARTICLE_BASE_RADIUS;
+/** Nucleon cluster offset scale — particle positions are core-radius units. */
+const NUCLEON_CLUSTER_SCALE = ATOM_RADIUS;
+
+/** Role diffuse/emissive tint: white (diffuse carries the instance tint). */
+const ROLE_BASE_TINT = "#ffffff";
+
+/**
+ * Build the two instanced role meshes (protons / neutrons) for one atom
+ * from the deterministic cluster. ONE unit-sphere geometry is shared by
+ * both meshes; per-instance color carries the nucleon tint, per-role
+ * material carries the roughness/emissive differentiation — the two
+ * materials use the same `makeFresnelCoreMaterial` injection, so the whole
+ * atom (anchor + protons + neutrons) compiles to ONE program
+ * (program-cache friendly; roles differ only in uniforms).
+ */
+function buildRoleMeshes(
+  cluster: NucleusCluster,
+  stateEmissive: number
+): { protonMesh: THREE.InstancedMesh; neutronMesh: THREE.InstancedMesh } {
+  const protonParticles = cluster.particles.filter((p) => p.isProton);
+  const neutronParticles = cluster.particles.filter((p) => !p.isProton);
+
+  const geometry = new THREE.SphereGeometry(1, 24, 24);
+  const protonMaterial = makeFresnelCoreMaterial(
+    ROLE_BASE_TINT,
+    ROLE_BASE_TINT,
+    stateEmissive * PROTON_EMISSIVE_MUL
+  );
+  protonMaterial.roughness = PROTON_ROUGHNESS;
+  const neutronMaterial = makeFresnelCoreMaterial(
+    ROLE_BASE_TINT,
+    ROLE_BASE_TINT,
+    stateEmissive * NEUTRON_EMISSIVE_MUL
+  );
+  neutronMaterial.roughness = NEUTRON_ROUGHNESS;
+
+  const matrix = new THREE.Matrix4();
+  const color = new THREE.Color();
+  const fill = (mesh: THREE.InstancedMesh, particles: NucleusParticle[]): void => {
+    for (let i = 0; i < particles.length; i += 1) {
+      const p = particles[i];
+      const s = NUCLEON_WORLD_RADIUS * p.scaleMul;
+      matrix.makeScale(s, s, s);
+      matrix.setPosition(
+        p.position[0] * NUCLEON_CLUSTER_SCALE,
+        p.position[1] * NUCLEON_CLUSTER_SCALE,
+        p.position[2] * NUCLEON_CLUSTER_SCALE
+      );
+      mesh.setMatrixAt(i, matrix);
+      color.set(p.tint);
+      mesh.setColorAt(i, color);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  };
+
+  const protonMesh = new THREE.InstancedMesh(
+    geometry,
+    protonMaterial,
+    Math.max(protonParticles.length, 1)
+  );
+  const neutronMesh = new THREE.InstancedMesh(
+    geometry,
+    neutronMaterial,
+    Math.max(neutronParticles.length, 1)
+  );
+  protonMesh.frustumCulled = false;
+  neutronMesh.frustumCulled = false;
+  fill(protonMesh, protonParticles);
+  fill(neutronMesh, neutronParticles);
+  return { protonMesh, neutronMesh };
+}
 
 export function AtomNode({
   descriptor,
@@ -99,13 +178,8 @@ export function AtomNode({
   focused: boolean;
 }) {
   const groupRef = useRef<THREE.Group | null>(null);
-  const materialRef = useRef<THREE.MeshStandardMaterial | null>(null);
-  // Breathing core: the sphere + instanced cluster live in this inner group so
-  // the ±2 % breathing scale composes with the outer group's discharge scale
-  // (and does not touch the electron cloud, which is a sibling).
-  const coreGroupRef = useRef<THREE.Group | null>(null);
-
-  const { pool, reducedMotion, quality, nowMs } = useAtomicSceneContext();
+  const coreRef = useRef<THREE.Mesh | null>(null);
+  const clusterRef = useRef<THREE.Group | null>(null);
 
   const { position } = descriptor;
   const basePosition = useMemo<[number, number, number]>(
@@ -113,124 +187,162 @@ export function AtomNode({
     [position]
   );
 
-  const { amplitude, frequencyHz, mode } = descriptor.vibration;
-  const vibrating = !paused && !reducedMotion && mode === "measured" && amplitude > 0;
+  // Deterministic seed for the layered electron shells + nucleus cluster
+  // (same FNV-1a pattern as `visualEncoding.ts`).
+  const seed = useMemo(() => fnv1a(descriptor.id), [descriptor.id]);
 
-  /**
-   * The provider id the event pool is keyed on for this atom (provider atoms
-   * carry one; the hub and gpu atoms do not, so they never get a discharge).
-   */
-  const dischargeProviderId = descriptor.kind === "provider" ? descriptor.providerId : null;
+  // Motion gate (accessibility + no-fabrication): breathing/spin run only
+  // for a measured positive rate; paused or reduced-motion → static.
+  const motion = useMemo(
+    () =>
+      motionParams({
+        reducedMotion: false,
+        spinValue: descriptor.spin.value,
+        spinMode: descriptor.spin.mode,
+      }),
+    [descriptor.spin.value, descriptor.spin.mode]
+  );
 
-  // Reduced motion: evaluate the discharge ONCE per render (a static
-  // emphasis, no per-frame pulse) — a pure read of the pool keyed on the
-  // snapshot's capture clock (`nowMs`), so renders stay deterministic (no
-  // wall clock during render). Normal mode: a per-frame animated pulse that
-  // advances on the wall clock inside the `useFrame` block below.
-  const discharge =
-    reducedMotion && pool && dischargeProviderId
-      ? pool.effectsFor(dischargeProviderId, nowMs)
-      : { intensity: 0, red: false };
+  const stateEmissive = STATE_EMISSIVE[descriptor.visualState.state] ?? STATE_EMISSIVE.healthy;
 
-  // OR-ATOM-007 — luminous core: an outer additive glow sprite (shared
-  // radial-gradient texture) so the atom reads as a light source on the dark
-  // background. Breathing (±2 %) is applied per-frame in `useFrame` from the
-  // shared pause-aware clock below.
+  // One shared fresnel-injected anchor material, tinted with the truthful
+  // per-model color (emissive carries the per-state boost + lane hue, as in
+  // the pre-existing contract).
+  const coreMaterial = useMemo(
+    () =>
+      makeFresnelCoreMaterial(
+        descriptor.color,
+        focused ? descriptor.color : descriptor.laneHue,
+        stateEmissive
+      ),
+    [descriptor.color, descriptor.laneHue, focused, stateEmissive]
+  );
+
+  //
+  // Deterministic nucleus cluster (S8.3). `observedModelIds` is absent today
+  // (the snapshot carries no per-node model ids) → neutral two-tone; the
+  // builder is general so model-color sectors activate automatically once
+  // a future snapshot/descriptor exposes them.
+  const cluster = useMemo(
+    () =>
+      buildNucleusCluster({
+        seed,
+        particleCount: RING_NUCLEUS_PARTICLE_COUNT,
+        observedModelIds: descriptor.observedModelIds,
+      }),
+    [seed, descriptor.observedModelIds]
+  );
+  const clusterAxis = useMemo(
+    () =>
+      new THREE.Vector3(cluster.spinAxis[0], cluster.spinAxis[1], cluster.spinAxis[2]).normalize(),
+    [cluster]
+  );
+
   const glowTexture = useMemo(() => getSharedGlowTexture(), []);
-  // Breathing cadence: only a *measured* spin breathes (idle / unmeasured →
-  // still); period is a slow fixed 3 s. `0` → `breathingScale` returns 1.
-  const breathPeriod = descriptor.spin.mode === "measured" ? 3 : 0;
 
-  // Per-frame update: apply the queue vibration (a small positional tremor)
-  // when a queue is measured, plus the transient request discharge on the
-  // emissive material + scale, plus the luminous-core breathing (OR-ATOM-007).
-  // No React state is allocated per frame — the material/scale are mutated
-  // imperatively (three.js refs), so there are no per-frame re-renders.
-  useFrame((state) => {
+  const { amplitude, frequencyHz, mode } = descriptor.vibration;
+  const vibrating = !paused && mode === "measured" && amplitude > 0;
+
+  const scale = focused ? FOCUS_SCALE : 1;
+
+  // The instanced role meshes are built imperatively: a shared unit-sphere
+  // geometry is reused by both role meshes and must be disposed with the
+  // meshes on unmount/rebuild (JSX geometry disposal is keyed to element
+  // identity, which would leak the shared buffer).
+  const roleMeshes = useMemo(
+    () => buildRoleMeshes(cluster, stateEmissive),
+    [cluster, stateEmissive]
+  );
+  useEffect(
+    () => () => {
+      roleMeshes.protonMesh.dispose();
+      roleMeshes.neutronMesh.dispose();
+      roleMeshes.protonMesh.geometry.dispose();
+      roleMeshes.protonMesh.material.dispose();
+      roleMeshes.neutronMesh.material.dispose();
+    },
+    [roleMeshes]
+  );
+
+  // Preallocated per-frame rotation quaternion + accumulated spin angle
+  // (zero per-frame allocation; the angle freezes mid-orientation when
+  // paused and resumes contiguously).
+  const clusterRotation = useMemo(() => new THREE.Quaternion(), []);
+  const spinAngle = useRef(0);
+  // S9.2 — the per-atom measured-TPS smoothing (EMA) is a *stable* ref, created
+  // once per atom instance and stepped every live frame inside `useFrame`.
+  // Stepping it in-frame (not at render) keeps the snapshot pure; freezing it
+  // on pause / reduced-motion / context-loss holds the last smoothed rate and
+  // orientation with no adoption jump on resume.
+  const spinSmoother = useMemo(() => createRotationSmoothing(), []);
+
+  // Per-frame: breathing scale (anchor + cluster) + cluster spin + queue
+  // vibration (positional tremor). No React state; reuses only refs, the
+  // preallocated quaternion and the accumulated angle.
+  useFrame((_state, delta) => {
     const group = groupRef.current;
+    const core = coreRef.current;
+    const cl = clusterRef.current;
     if (!group) return;
+    const frozen = paused || sceneState.contextLost || sceneState.reducedMotion;
 
-    // Luminous-core breathing (OR-ATOM-007): a ±2 % scale on the core group,
-    // driven by the shared pause-aware clock — `paused` / context-lost /
-    // reduced-motion freezes it exactly (static frame, no drift, no jump).
-    const coreGroup = coreGroupRef.current;
-    if (coreGroup) {
-      const frozen = paused || sceneState.contextLost || sceneState.reducedMotion;
-      coreGroup.scale.setScalar(
-        frozen ? 1 : breathingScale(sceneClock.now, breathPeriod, BREATH_AMPLITUDE, true)
-      );
+    const breath =
+      frozen || !motion.breathActive
+        ? 1
+        : breathingScale(sceneClock.now, motion.breathPeriod, BREATH_AMPLITUDE, true);
+    if (core) core.scale.setScalar(ANCHOR_WORLD_RADIUS * scale * breath);
+    if (cl) {
+      // S9.2 — nucleus rotation binding. The cluster spins at the *measured*
+      // TPS, smoothed per live frame (`spinSmoother`): a fresh sample adopts
+      // instantly, subsequent samples ease in, and a `null` sample (stale /
+      // missing / unattached) decays the smoothed rate toward 0 — so the
+      // nucleus spins down smoothly instead of holding a fake speed, and
+      // never spins when nothing is measured. Stepping + accumulating only
+      // while unfrozen keeps the freeze contract (paused / reduced-motion /
+      // context-loss hold the orientation, then resume contiguously).
+      if (!frozen) {
+        const dt = Math.min(delta, MAX_FRAME_DELTA);
+        const smoothedTps = spinSmoother.step(descriptor.measuredTps, dt);
+        spinAngle.current += tpsToRadiansPerSecond(smoothedTps) * dt;
+      }
+      clusterRotation.setFromAxisAngle(clusterAxis, spinAngle.current);
+      cl.quaternion.copy(clusterRotation);
+      cl.scale.setScalar(scale * breath);
     }
 
-    // Position: vibration tremor (or rest position).
-    if (vibrating) {
-      const t = state.clock.elapsedTime * frequencyHz * Math.PI * 2;
+    if (vibrating && !frozen) {
+      // Gentle 3-axis tremor at the encoded amplitude/frequency. The phase
+      // is derived from the shared clock so it is continuous across
+      // re-renders.
+      const t = sceneClock.now * frequencyHz * Math.PI * 2;
       group.position.set(
         position.x + Math.sin(t) * amplitude,
-        position.y + Math.cos(t * 0.9) * amplitude,
-        position.z + Math.sin(t * 1.1) * amplitude
+        position.y + Math.sin(t * 1.31 + 0.7) * amplitude,
+        position.z + Math.sin(t * 0.73 + 2.1) * amplitude
       );
     } else {
       group.position.set(position.x, position.y, position.z);
     }
-
-    // Transient discharge (normal motion only — reduced motion uses the static
-    // emphasis computed at render; a paused scene is frozen, so no per-frame
-    // discharge either). Read the current wall-clock discharge from the pool
-    // (transient; decays to zero; never a persistent state).
-    if (!paused && !reducedMotion && pool && dischargeProviderId) {
-      const d = pool.effectsFor(dischargeProviderId, Date.now());
-      applyDischarge(materialRef.current, group, d, descriptor, focused);
-    }
   });
-
-  const dischargeIntensity = Math.min(1, Math.max(0, discharge.intensity));
-
-  const emissiveBase = STATE_EMISSIVE[descriptor.visualState.state] ?? 0.35;
-  const emissiveIntensity =
-    (focused ? emissiveBase + 0.3 : emissiveBase) + dischargeIntensity * DISCHARGE_EMISSIVE_BOOST;
-  const scale = (focused ? FOCUS_SCALE : 1) + dischargeIntensity * DISCHARGE_SCALE;
-  const emissiveColor = discharge.red ? FAILED_DISCHARGE_COLOR : descriptor.laneHue;
-
-  // Dense nucleus cluster (OR-ATOM-003, V4): a single instanced mesh on a
-  // Fibonacci sphere — layered body, 1 draw call, deterministic layout.
-  // Palette: *observed* in-flight model colors when present, neutral
-  // proton/neutron alternation otherwise (no fabricated composition).
-  const nucleusCount = quality === "low" ? ATOM_NUCLEUS_COUNT_LOW : ATOM_NUCLEUS_COUNT_HIGH;
-  const nucleusRadius = ATOM_RADIUS * ATOM_NUCLEUS_CLUSTER_RADIUS_FACTOR;
-  const nucleusParticles = useMemo(
-    () => atomNucleusParticleField(nucleusCount, nucleusRadius, descriptor.modelColors),
-    [nucleusCount, nucleusRadius, descriptor.modelColors]
-  );
-
-  const clusterRef = useRef<THREE.InstancedMesh | null>(null);
-
-  // Set instance matrices + colors once (deterministic layout).
-  useEffect(() => {
-    const mesh = clusterRef.current;
-    if (!mesh) return;
-    const dummy = new THREE.Object3D();
-    for (let i = 0; i < nucleusCount; i += 1) {
-      const [x, y, z] = nucleusParticles[i].position;
-      dummy.position.set(x, y, z);
-      dummy.scale.setScalar(ATOM_NUCLEUS_PARTICLE_RADIUS);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      mesh.setColorAt(i, new THREE.Color(nucleusParticles[i].color));
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [nucleusParticles, nucleusCount]);
 
   return (
     <group ref={groupRef} position={basePosition}>
-      {/* OR-ATOM-007 — outer additive glow sprite: a shared radial-gradient
-          texture so the atom reads as a light source on the dark background.
-          Static (a light-source representation — it does not breathe). */}
+      {/* Central anchor sphere — small dense core; fresnel rim injected. */}
+      <mesh ref={coreRef} scale={ANCHOR_WORLD_RADIUS * scale}>
+        <sphereGeometry args={[1, 24, 24]} />
+        <primitive object={coreMaterial} attach="material" />
+      </mesh>
+      {/* Proton/neutron nucleon cluster (instanced, shared unit geometry). */}
+      <group ref={clusterRef}>
+        <primitive object={roleMeshes.protonMesh} dispose={null} />
+        <primitive object={roleMeshes.neutronMesh} dispose={null} />
+      </group>
+      {/* Outer additive glow — reads as a light source on the dark background. */}
       {glowTexture && (
         <sprite scale={[ATOM_RADIUS * GLOW_SPRITE_SCALE, ATOM_RADIUS * GLOW_SPRITE_SCALE, 1]}>
           <spriteMaterial
             map={glowTexture}
-            color={emissiveColor}
+            color={descriptor.color}
             transparent
             opacity={0.18}
             depthWrite={false}
@@ -238,73 +350,14 @@ export function AtomNode({
           />
         </sprite>
       )}
-      {/* Breathing core group (OR-ATOM-007 luminous breathing): wraps the core
-          sphere + instanced cluster so the per-frame ±2 % scale composes with
-          each element's `scale` and the outer group's transient discharge scale. */}
-      <group ref={coreGroupRef}>
-        {/* Core sphere — the neutral/lane base body under the cluster. */}
-        <mesh scale={scale}>
-          <sphereGeometry args={[ATOM_RADIUS * 0.62, 32, 32]} />
-          <meshStandardMaterial
-            ref={materialRef}
-            color={descriptor.color}
-            emissive={emissiveColor}
-            emissiveIntensity={emissiveIntensity}
-            roughness={0.4}
-            metalness={0.25}
-          />
-        </mesh>
-        {/* Dense instanced nucleus cluster (V4): observed model colors or the
-          neutral proton/neutron palette — 1 draw call per atom. */}
-        <instancedMesh
-          ref={clusterRef}
-          args={[undefined, undefined, nucleusCount]}
-          key={nucleusCount}
-          scale={scale}
-        >
-          <sphereGeometry args={[1, 10, 10]} />
-          <meshStandardMaterial
-            color="#ffffff"
-            emissive="#ffffff"
-            emissiveIntensity={0.35}
-            roughness={0.35}
-            metalness={0.15}
-          />
-        </instancedMesh>
-      </group>
-
-      {/* Electron cloud spinning at the per-atom speed (frozen when paused or
-          reduced-motion; the discharge pulse does not touch the cloud). */}
+      {/* Layered non-coplanar electron shells, tinted by lane hue. */}
       <ElectronCloud
         radius={ATOM_RADIUS + 16}
         speed={descriptor.spin.value}
-        paused={paused || reducedMotion}
+        paused={paused}
         color={descriptor.laneHue}
-        electronCount={QUALITY_BUDGETS[quality].cloudParticles}
+        seed={seed}
       />
     </group>
   );
-}
-
-/**
- * Apply a transient discharge to the atom's material + scale. Called from the
- * frame loop (normal motion). A zero-intensity discharge restores the steady
- * emissive so the atom never latches onto a spent event.
- */
-function applyDischarge(
-  material: THREE.MeshStandardMaterial | null,
-  group: THREE.Group,
-  d: { intensity: number; red: boolean },
-  descriptor: AtomVisualDescriptor,
-  focused: boolean
-): void {
-  const dischargeIntensity = Math.min(1, Math.max(0, d.intensity));
-  const emissiveBase = STATE_EMISSIVE[descriptor.visualState.state] ?? 0.35;
-  const base = focused ? emissiveBase + 0.3 : emissiveBase;
-  if (material) {
-    material.emissiveIntensity = base + dischargeIntensity * DISCHARGE_EMISSIVE_BOOST;
-    material.emissive.set(d.red ? FAILED_DISCHARGE_COLOR : descriptor.laneHue);
-  }
-  // Transient scale pulse (revert to the focused/rest scale at intensity 0).
-  group.scale.setScalar((focused ? FOCUS_SCALE : 1) + dischargeIntensity * DISCHARGE_SCALE);
 }

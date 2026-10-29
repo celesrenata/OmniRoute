@@ -1,0 +1,102 @@
+{
+  "scenario": "mixed-lanes",
+  "capturedAt": 1793183286519,
+  "bodyHash": "1617fe0ccb26e0dfc4e02692a85e845bc6e43a07676a37e3c6763c15abc3f75e",
+  "base": "http://127.0.0.1:20999",
+  "startedAt": "2026-10-28T10:29:05.580Z",
+  "settle": {
+    "at": 1793183309530,
+    "fps": 45,
+    "dtMs": 22,
+    "dtMaxMs": 383,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 0,
+      "restored": 0
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793183286519,
+      "ageMs": 23011
+    },
+    "panel": null,
+    "fleetServed": 7
+  },
+  "lost": {
+    "at": 1793183322019,
+    "fps": 59,
+    "dtMs": 16.8,
+    "dtMaxMs": 383,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 1,
+      "restored": 0
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793183286519,
+      "ageMs": 35500
+    },
+    "panel": null,
+    "fleetServed": 11
+  },
+  "restored": {
+    "at": 1793183342094,
+    "fps": 45,
+    "dtMs": 22.1,
+    "dtMaxMs": 383,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 1,
+      "restored": 1
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793183286519,
+      "ageMs": 55575
+    },
+    "panel": null,
+    "fleetServed": 16
+  },
+  "tick": {
+    "samplerFramesDelta": 138,
+    "after": {
+      "frames": 160,
+      "last": 57681.8
+    }
+  },
+  "forceLoss": {
+    "ok": true,
+    "api": "webgl2"
+  },
+  "verdicts": {
+    "GATE-1 demo body served to the real poller before loss": "PASS",
+    "GATE-2 forced context loss observed (lost ≥ 1)": "PASS",
+    "GATE-3 context restore observed (restored ≥ 1)": "PASS",
+    "GATE-4 scene re-animates after restore (rAF frames advanced)": "PASS",
+    "GATE-5 zero uncaught page errors": "PASS",
+    "GATE-6 no canvas growth after loss+restore (live ≤ peak)": "PASS"
+  },
+  "consoleErrors": [
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+  ],
+  "pageErrors": [],
+  "demoHandle": {
+    "id": "mixed-lanes",
+    "active": true,
+    "capturedAt": 1793183286519,
+    "ageMs": 55575
+  },
+  "panelScenario": "UNAVAILABLE (diagnostics panel not wired in this checkout — Phase 3 integrator)"
+}

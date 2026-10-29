@@ -26,7 +26,7 @@
  * The props interface is unchanged from the previous implementation, so
  * `HomeProviderTopologySection` / `HomePageClient` need no modifications.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
@@ -62,6 +62,16 @@ import {
   type TopologyProviderEntry,
 } from "@/shared/topology/domain/normalizeTopology";
 import { useFleetTelemetry } from "@/shared/topology/telemetry/useFleetTelemetry";
+import { buildAtomSignals, mergeDemoSignals } from "@/shared/topology/telemetry/atomSignals";
+import {
+  applyDemoFromQueryParam,
+  useDemoScenario,
+} from "@/plugins/atomic-topology/dev/demoController";
+import {
+  AtomicTelemetryDiagnostics,
+  buildDiagnosticsAtoms,
+  buildDiagnosticsRouteLinks,
+} from "@/plugins/atomic-topology/overlays/AtomicTelemetryDiagnostics";
 
 /** Shown (non-blocking) when a non-default renderer fails and we fall back to 2D. */
 const FALLBACK_NOTICE = "Topology renderer unavailable — showing the 2D view.";
@@ -133,6 +143,24 @@ export default function ProviderTopology({
   /** Registry id of the optional Atomic (3D) renderer — mirrors `atomicManifest.id`. */
   const atomicRendererId = "atomic";
 
+  // Developer-only demo telemetry (OR-ATOM-009): when the URL carries
+  // ?topology-demo=<scenarioId>, `applyDemoFromQueryParam()` (below) injects
+  // that scenario's deterministic body into the REAL fleet-telemetry data path
+  // — a window.fetch wrapper that answers ONLY /api/telemetry/fleet.
+  // `useDemoScenario()` yields the active scenario id so the diagnostics panel
+  // can surface the DEMO badge. The normal UI (no query param) is untouched:
+  // nothing is injected and the badge stays off.
+  const demoScenario = useDemoScenario();
+  const demoId = demoScenario?.id ?? null;
+
+  // Developer-only provenance diagnostics, toggled by ?topology-dev=1 (never by
+  // any normal UI control). Read once on mount (client-only component, stable
+  // per mount). SSR-safe: false on the server.
+  const showDevFlag = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("topology-dev") === "1";
+  })[0];
+
   /** Persist the user's renderer choice and remount into the new plugin. */
   const switchRenderer = (id: string) => {
     if (id === rendererId) return;
@@ -154,6 +182,32 @@ export default function ProviderTopology({
   const fleetReconciliation =
     fleetTelemetry.status === "available" ? fleetTelemetry.reconciliation : null;
 
+  // Install the demo fetch wrapper BEFORE the poller's first fetch. A
+  // useLayoutEffect runs before every useEffect, and the poller starts in a
+  // useEffect — so the wrapper is guaranteed in place for the poller's
+  // immediate first fetch. Idempotent + StrictMode-safe (the wrapper captures
+  // the original fetch exactly once and reuses it on re-injection). The wrapper
+  // persists for the page session (URL-driven demo); it is a no-op while the
+  // poller is off, so it never disturbs the normal UI.
+  useLayoutEffect(() => {
+    applyDemoFromQueryParam();
+  }, []);
+
+  // Per-atom provenance rows for the diagnostics panel. Built ONLY while the
+  // Atomic renderer is mounted and ?topology-dev=1 (no work otherwise). In demo
+  // mode the live feed IS the demo feed (one wrapped fetch), so every source is
+  // re-marked "demo" — exactly what mergeDemoSignals does.
+  const diagnosticsSignals = useMemo(() => {
+    if (!showDevFlag || !atomicActive || !fleetReconciliation) return null;
+    const live = buildAtomSignals(fleetReconciliation);
+    return demoId ? mergeDemoSignals(live, live) : live;
+  }, [showDevFlag, atomicActive, fleetReconciliation, demoId]);
+
+  const diagnosticsAtoms = useMemo(
+    () => (diagnosticsSignals ? buildDiagnosticsAtoms(diagnosticsSignals) : []),
+    [diagnosticsSignals]
+  );
+
   // Core-owned data: renderer-neutral snapshot of the panel's inputs. The
   // bounded lifecycle stream (M4) is folded in here — it rides the same
   // gated socket as `activeRequests`, so the snapshot carries exactly the
@@ -171,6 +225,16 @@ export default function ProviderTopology({
         reconciliation: fleetReconciliation,
       }),
     [providers, activeRequests, lifecycleEvents, lastProvider, errorProvider, fleetReconciliation]
+  );
+
+  // Per-route-link provenance rows for the diagnostics panel (OR-ATOM-009 S9.5):
+  // which visible links are proven and on what basis. Built ONLY while the
+  // Atomic renderer is mounted and ?topology-dev=1 (no work otherwise) — the
+  // call-log route is the primary proven segment, so this is meaningful even
+  // without a reconciliation.
+  const diagnosticsRouteLinks = useMemo(
+    () => (showDevFlag && atomicActive ? buildDiagnosticsRouteLinks(snapshot) : []),
+    [showDevFlag, atomicActive, snapshot]
   );
 
   // Renderer options (localized empty state + delegated navigation).
@@ -313,6 +377,17 @@ export default function ProviderTopology({
           {notice}
         </div>
       )}
+      {/* Developer-only telemetry provenance diagnostics (OR-ATOM-009). Hidden
+       * unless ?topology-dev=1 AND the Atomic renderer is mounted; renders
+       * nothing (no DOM) otherwise, so the normal UI is byte-identical. */}
+      <AtomicTelemetryDiagnostics
+        showDev={showDevFlag && atomicActive}
+        reconciliation={fleetReconciliation}
+        capturedAt={fleetTelemetry.capturedAt}
+        demoScenarioId={demoId}
+        atoms={diagnosticsAtoms}
+        routeLinks={diagnosticsRouteLinks}
+      />
     </div>
   );
 }

@@ -1,0 +1,190 @@
+{
+  "tag": "before",
+  "base": "http://127.0.0.1:20141",
+  "chromeMode": "headed",
+  "at": "2026-10-27T22:22:34.604Z",
+  "results": [
+    {
+      "base": "http://127.0.0.1:20141",
+      "tag": "before",
+      "state": "steady",
+      "shot": "OR_ATOM_008_task/screenshots/before-desktop-steady.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "atomic",
+      "baseTs": "2026-10-27T22:21:38.675Z",
+      "canvases": {
+        "canvasCount": 1,
+        "canvases": [
+          {
+            "w": 702,
+            "h": 420,
+            "cw": 702,
+            "ch": 420,
+            "webgl2": "yes"
+          }
+        ],
+        "pixelVar": 5862,
+        "nonBlank": true
+      },
+      "fps2s": 120,
+      "consoleErrors": [
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+      ],
+      "ok": true
+    },
+    {
+      "base": "http://127.0.0.1:20141",
+      "tag": "before",
+      "state": "traffic",
+      "shot": "OR_ATOM_008_task/screenshots/before-desktop-traffic.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "atomic",
+      "baseTs": "2026-10-27T22:21:50.841Z",
+      "traffic": [
+        {
+          "model": "kiro/claude-haiku-4.5",
+          "status": 200
+        },
+        {
+          "model": "kiro/claude-haiku-4.5",
+          "status": 200
+        },
+        {
+          "model": "bedrock/claude-haiku-4.5",
+          "status": 429
+        }
+      ],
+      "canvases": {
+        "canvasCount": 1,
+        "canvases": [
+          {
+            "w": 702,
+            "h": 420,
+            "cw": 702,
+            "ch": 420,
+            "webgl2": "yes"
+          }
+        ],
+        "pixelVar": 5829,
+        "nonBlank": true
+      },
+      "fps2s": 120,
+      "consoleErrors": [
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+      ],
+      "ok": true
+    },
+    {
+      "base": "http://127.0.0.1:20141",
+      "tag": "before",
+      "state": "2d",
+      "shot": "OR_ATOM_008_task/screenshots/before-desktop-2d.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "reactflow-2d",
+      "baseTs": null,
+      "canvases": {
+        "canvasCount": 0,
+        "canvases": [],
+        "pixelVar": null,
+        "nonBlank": null
+      },
+      "consoleErrors": [
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, which may lead to a race condition.",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+      ],
+      "ok": false
+    },
+    {
+      "base": "http://127.0.0.1:20141",
+      "tag": "before",
+      "state": "steady",
+      "shot": "OR_ATOM_008_task/screenshots/before-mobile-steady.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "renderer": "atomic",
+      "baseTs": "2026-10-27T22:22:02.234Z",
+      "canvases": {
+        "canvasCount": 1,
+        "canvases": [
+          {
+            "w": 308,
+            "h": 300,
+            "cw": 308,
+            "ch": 300,
+            "webgl2": "yes"
+          }
+        ],
+        "pixelVar": 15920,
+        "nonBlank": true
+      },
+      "fps2s": 120,
+      "consoleErrors": [
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "CONSOLE: [LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+      ],
+      "ok": true
+    },
+    {
+      "base": "http://127.0.0.1:20141",
+      "tag": "before",
+      "state": "motion",
+      "webm": "before-motion-desktop.webm",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "atomic",
+      "webmCopied": "OR_ATOM_008_task/screenshots/before-motion-desktop.webm",
+      "ok": true
+    },
+    {
+      "base": "http://127.0.0.1:20141",
+      "tag": "before",
+      "state": "zoom",
+      "shot": "OR_ATOM_008_task/screenshots/before-desktop-zoomed.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "atomic",
+      "camDistAfterZoom": null,
+      "canvases": {
+        "canvasCount": 1,
+        "canvases": [
+          {
+            "w": 702,
+            "h": 420,
+            "cw": 702,
+            "ch": 420,
+            "webgl2": "yes"
+          }
+        ],
+        "pixelVar": 5876,
+        "nonBlank": true
+      },
+      "fps2s": 120,
+      "consoleErrors": [],
+      "ok": true
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "snapshot": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709521,
+    "resources": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "kind": "gpu",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "utilizationPercent": {
+          "value": 55,
+          "source": "runtime",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: runtime utilization sample"
+        },
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: runtime per-device attribution → GPU A (not split)"
+        }
+      },
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "kind": "runtime",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "modelId": "demo/20tps-chat",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "runtime",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 20 output TPS"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured zero queue (explicit 0)"
+        },
+        "activeJobs": {
+          "value": 2,
+          "source": "runtime",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 2 in-flight jobs"
+        }
+      }
+    ]
+  },
+  "reconciliation": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709521,
+    "gpuNodes": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "stale": false,
+        "utilizationPercent": {
+          "value": 55,
+          "source": "runtime",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: runtime utilization sample"
+        },
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: runtime per-device attribution → GPU A (not split)"
+        }
+      }
+    ],
+    "runtimeNodes": [
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "attributedGpuIds": ["gpu:demo-host:dev-uuid-a"],
+        "stale": false,
+        "modelId": "demo/20tps-chat",
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "runtime",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 20 output TPS"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured zero queue (explicit 0)"
+        },
+        "activeJobs": {
+          "value": 2,
+          "source": "runtime",
+          "sampledAt": 1793180709521,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 2 in-flight jobs"
+        }
+      }
+    ],
+    "providerNodes": [],
+    "edges": [
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "gpu:demo-host:dev-uuid-a",
+        "relation": "runtime_device",
+        "basis": "runtime per-device attribution",
+        "sampledAt": 1793180709521
+      },
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "model:demo/20tps-chat",
+        "relation": "runtime_model",
+        "basis": "runtime observed model residency",
+        "sampledAt": 1793180709521
+      }
+    ],
+    "providerCentricFallback": false
+  }
+}

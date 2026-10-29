@@ -1,0 +1,3128 @@
+diff --git a/src/plugins/atomic-topology/AtomicTopologyRenderer.tsx b/src/plugins/atomic-topology/AtomicTopologyRenderer.tsx
+index 7f639be9e..8aa966901 100644
+--- a/src/plugins/atomic-topology/AtomicTopologyRenderer.tsx
++++ b/src/plugins/atomic-topology/AtomicTopologyRenderer.tsx
+@@ -129,6 +129,12 @@ export interface AtomVisualDescriptor {
+   label: string;
+   /** Provider id the atom represents (absent for the hub / gpu atoms). */
+   providerId?: string;
++  /**
++   * Observed in-flight model ids (S8.3 nucleus model identity). Optional: the
++   * snapshot exposes no per-node model ids today, so the adapter leaves this
++   * absent → the nucleus renders the honest neutral two-tone.
++   */
++  observedModelIds?: string[];
+   /** World-space position (from {@link computeAtomicLayout}; hub = origin). */
+   position: { x: number; y: number; z: number };
+   /** Deterministic atom color (provider → `modelColor(providerId)`, else slate). */
+diff --git a/src/plugins/atomic-topology/scene/AtomNode.tsx b/src/plugins/atomic-topology/scene/AtomNode.tsx
+index fbab2940f..46a7c5f9b 100644
+--- a/src/plugins/atomic-topology/scene/AtomNode.tsx
++++ b/src/plugins/atomic-topology/scene/AtomNode.tsx
+@@ -1,40 +1,72 @@
+ "use client";
+ 
+ /**
+- * A provider/gpu atom at its deterministic layout position (OR-ATOM-007).
++ * A provider/gpu atom at its deterministic layout position (OR-ATOM-007;
++ * OR-ATOM-008 S8.3 — proton/neutron nucleus cluster + model identity).
+  *
+- * "Colored nuclei, luminous" (design spec + visual-design-foundations):
+- * the core sphere keeps its existing truthful mapping —
+- * {@link AtomVisualDescriptor.color} per model (NEVER recolored by state) —
+- * and adds:
+- *   (a) a **fresnel rim glow** injected into the standard material
+- *       (`makeFresnelCoreMaterial` — rim = pow(1 - saturate(dot(N, V)), 3)
+- *       added to the outgoing light, tinted by the material's own emissive,
+- *       the per-state emissive channel);
++ * "Colored nuclei, luminous": the atom body is now a deterministic
++ * proton/neutron nucleus cluster ({@link buildNucleusCluster} — 8 instanced
++ * nucleons: protons larger, brighter, smooth; neutrons smaller, darker,
++ * matte — shape + material + luminance separation, NOT a color wash). Each
++ * nucleon is tinted per instance (three.js `instanceColor` multiplies the
++ * white role diffuse), so today's honest neutral two-tone reads warm-white
++ * protons / cool-slate neutrons (the snapshot carries no per-node model
++ * ids — see {@link AtomVisualDescriptor.observedModelIds}); once ids ARE
++ * observed, at most 3 model-color angular sectors (hashed by model id,
++ * stable under order changes) spatially cluster the nucleons.
++ *
++ * The core sphere is kept as the *small central anchor* with its truthful
++ * emissive mapping ({@link AtomVisualDescriptor.color} — NEVER recolored by
++ * state) and keeps:
++ *   (a) a **fresnel rim glow** (`makeFresnelCoreMaterial` — the nucleon
++ *       role materials use the identical `onBeforeCompile` injection, so
++ *       every core + nucleon shares ONE compiled program; roles differ
++ *       only in uniforms: roughness + emissive);
+  *   (b) an **outer additive glow sprite** (shared radial-gradient texture,
+- *       `AdditiveBlending`, `depthWrite: false`) so the core reads as a light
+- *       source on the dark background;
++ *       `AdditiveBlending`, `depthWrite: false`) — truthful identity color;
+  *   (c) subtle **breathing**: ±2 % scale pulsation tied to the spin mode
+  *       (`motionParams` — measured rate only; paused / reduced-motion →
+- *       still), at a slow fixed period.
++ *       still), applied to the anchor AND the whole cluster with one factor.
++ *
++ * Per-state emissive stays (error brightest) and scales the nucleon role
++ * emissive (proton × {@link PROTON_EMISSIVE_MUL}, neutron ×
++ * {@link NEUTRON_EMISSIVE_MUL}). Cluster spin is a shared group rotation
++ * around the seeded cluster axis at the *measured* spin rate (same gate as
++ * the electron cloud — never fabricated); it accumulates only while
++ * unfrozen, so `paused` / reduced-motion freeze it mid-orientation and
++ * resume without a jump. Instance matrices/colors are written once per
++ * cluster rebuild → zero per-frame allocation.
+  *
+- * Per-state emissive stays (error brightest). Focus behavior
+- * (`FOCUS_SCALE` on the focused atom) is unchanged. The queue vibration
+- * (positional tremor) is unchanged and still gated on the *live* frame delta
+- * (it is positional, not orbital — a frozen clock still allows the tremor to
+- * be a static offset when frozen mid-frame; with `paused` it is fully still).
++ * Focus behavior (`FOCUS_SCALE`) is unchanged and now emphasizes the whole
++ * body (anchor + cluster). The queue vibration (positional tremor) is
++ * unchanged and still gated on the *live* frame delta (it is positional,
++ * not orbital — a frozen clock still allows the tremor to be a static
++ * offset when frozen mid-frame; with `paused` it is fully still).
+  *
+- * Geometry is shared: the core reuses one sphere geometry (scaled via
+- * `mesh.scale`), so per-atom geometry count stays O(1) (web-quality-
+- * performance).
++ * Geometry is shared: ONE unit-sphere geometry per atom is reused by both
++ * instanced role meshes; geometry + materials + meshes are disposed on
++ * unmount (web-quality-performance: per-atom geometry count stays O(1)).
+  */
+-import { useMemo, useRef } from "react";
++import { useEffect, useMemo, useRef } from "react";
+ import * as THREE from "three";
+ import { useFrame } from "@react-three/fiber";
+ 
+ import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
+-import { breathingScale, motionParams } from "./motion";
++import { breathingScale, MAX_FRAME_DELTA, motionParams } from "./motion";
+ import { fnv1a } from "./cloudShells";
++import {
++  ANCHOR_RADIUS_FRACTION,
++  buildNucleusCluster,
++  NUCLEUS_PARTICLE_BASE_RADIUS,
++  NUCLEUS_SHELL_RADIUS,
++  NEUTRON_EMISSIVE_MUL,
++  NEUTRON_ROUGHNESS,
++  PROTON_EMISSIVE_MUL,
++  PROTON_ROUGHNESS,
++  RING_NUCLEUS_PARTICLE_COUNT,
++  type NucleusCluster,
++  type NucleusParticle,
++} from "./nucleusCluster";
+ import { getSharedGlowTexture, makeFresnelCoreMaterial } from "./sceneResources";
+ import { sceneClock, sceneState } from "./sceneState";
+ import { ElectronCloud } from "./ElectronCloud";
+@@ -58,6 +90,83 @@ const BREATH_AMPLITUDE = 0.02;
+ /** Outer glow sprite diameter, atom-relative. */
+ const GLOW_SPRITE_SCALE = 2.4;
+ 
++/** World-space radius of the central anchor sphere (small dense core). */
++const ANCHOR_WORLD_RADIUS = ATOM_RADIUS * NUCLEUS_SHELL_RADIUS * ANCHOR_RADIUS_FRACTION;
++/** World-space radius of one base nucleon (before the per-particle scaleMul). */
++const NUCLEON_WORLD_RADIUS = ATOM_RADIUS * NUCLEUS_PARTICLE_BASE_RADIUS;
++/** Nucleon cluster offset scale — particle positions are core-radius units. */
++const NUCLEON_CLUSTER_SCALE = ATOM_RADIUS;
++
++/** Role diffuse/emissive tint: white (diffuse carries the instance tint). */
++const ROLE_BASE_TINT = "#ffffff";
++
++/**
++ * Build the two instanced role meshes (protons / neutrons) for one atom
++ * from the deterministic cluster. ONE unit-sphere geometry is shared by
++ * both meshes; per-instance color carries the nucleon tint, per-role
++ * material carries the roughness/emissive differentiation — the two
++ * materials use the same `makeFresnelCoreMaterial` injection, so the whole
++ * atom (anchor + protons + neutrons) compiles to ONE program
++ * (program-cache friendly; roles differ only in uniforms).
++ */
++function buildRoleMeshes(
++  cluster: NucleusCluster,
++  stateEmissive: number
++): { protonMesh: THREE.InstancedMesh; neutronMesh: THREE.InstancedMesh } {
++  const protonParticles = cluster.particles.filter((p) => p.isProton);
++  const neutronParticles = cluster.particles.filter((p) => !p.isProton);
++
++  const geometry = new THREE.SphereGeometry(1, 24, 24);
++  const protonMaterial = makeFresnelCoreMaterial(
++    ROLE_BASE_TINT,
++    ROLE_BASE_TINT,
++    stateEmissive * PROTON_EMISSIVE_MUL
++  );
++  protonMaterial.roughness = PROTON_ROUGHNESS;
++  const neutronMaterial = makeFresnelCoreMaterial(
++    ROLE_BASE_TINT,
++    ROLE_BASE_TINT,
++    stateEmissive * NEUTRON_EMISSIVE_MUL
++  );
++  neutronMaterial.roughness = NEUTRON_ROUGHNESS;
++
++  const matrix = new THREE.Matrix4();
++  const color = new THREE.Color();
++  const fill = (mesh: THREE.InstancedMesh, particles: NucleusParticle[]): void => {
++    for (let i = 0; i < particles.length; i += 1) {
++      const p = particles[i];
++      const s = NUCLEON_WORLD_RADIUS * p.scaleMul;
++      matrix.makeScale(s, s, s);
++      matrix.setPosition(
++        p.position[0] * NUCLEON_CLUSTER_SCALE,
++        p.position[1] * NUCLEON_CLUSTER_SCALE,
++        p.position[2] * NUCLEON_CLUSTER_SCALE
++      );
++      mesh.setMatrixAt(i, matrix);
++      color.set(p.tint);
++      mesh.setColorAt(i, color);
++    }
++    mesh.instanceMatrix.needsUpdate = true;
++    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
++  };
++
++  const protonMesh = new THREE.InstancedMesh(
++    geometry,
++    protonMaterial,
++    Math.max(protonParticles.length, 1)
++  );
++  const neutronMesh = new THREE.InstancedMesh(
++    geometry,
++    neutronMaterial,
++    Math.max(neutronParticles.length, 1)
++  );
++  protonMesh.frustumCulled = false;
++  neutronMesh.frustumCulled = false;
++  fill(protonMesh, protonParticles);
++  fill(neutronMesh, neutronParticles);
++  return { protonMesh, neutronMesh };
++}
++
+ export function AtomNode({
+   descriptor,
+   paused,
+@@ -69,6 +178,7 @@ export function AtomNode({
+ }) {
+   const groupRef = useRef<THREE.Group | null>(null);
+   const coreRef = useRef<THREE.Mesh | null>(null);
++  const clusterRef = useRef<THREE.Group | null>(null);
+ 
+   const { position } = descriptor;
+   const basePosition = useMemo<[number, number, number]>(
+@@ -76,61 +186,117 @@ export function AtomNode({
+     [position]
+   );
+ 
+-  // One shared fresnel-injected core material, tinted with the truthful
++  // Deterministic seed for the layered electron shells + nucleus cluster
++  // (same FNV-1a pattern as `visualEncoding.ts`).
++  const seed = useMemo(() => fnv1a(descriptor.id), [descriptor.id]);
++
++  // Motion gate (accessibility + no-fabrication): breathing/spin run only
++  // for a measured positive rate; paused or reduced-motion → static.
++  const motion = useMemo(
++    () =>
++      motionParams({
++        reducedMotion: false,
++        spinValue: descriptor.spin.value,
++        spinMode: descriptor.spin.mode,
++      }),
++    [descriptor.spin.value, descriptor.spin.mode]
++  );
++
++  const stateEmissive = STATE_EMISSIVE[descriptor.visualState.state] ?? STATE_EMISSIVE.healthy;
++
++  // One shared fresnel-injected anchor material, tinted with the truthful
+   // per-model color (emissive carries the per-state boost + lane hue, as in
+   // the pre-existing contract).
+-  const emissiveIntensity = STATE_EMISSIVE[descriptor.visualState.state] ?? STATE_EMISSIVE.healthy;
+   const coreMaterial = useMemo(
+     () =>
+       makeFresnelCoreMaterial(
+         descriptor.color,
+         focused ? descriptor.color : descriptor.laneHue,
+-        emissiveIntensity
++        stateEmissive
+       ),
+-    [descriptor.color, descriptor.laneHue, focused, emissiveIntensity]
++    [descriptor.color, descriptor.laneHue, focused, stateEmissive]
+   );
+-  const glowTexture = useMemo(() => getSharedGlowTexture(), []);
+-
+-  // Deterministic seed for the layered electron shells (same FNV-1a pattern
+-  // as `visualEncoding.ts`).
+-  const seed = useMemo(() => fnv1a(descriptor.id), [descriptor.id]);
+ 
+-  // Motion gate (accessibility + no-fabrication): breathing/spin run only for
+-  // a measured positive rate; paused or reduced-motion → static.
+-  const motion = useMemo(
++  //
++  // Deterministic nucleus cluster (S8.3). `observedModelIds` is absent today
++  // (the snapshot carries no per-node model ids) → neutral two-tone; the
++  // builder is general so model-color sectors activate automatically once
++  // a future snapshot/descriptor exposes them.
++  const cluster = useMemo(
+     () =>
+-      motionParams({
+-        reducedMotion: false,
+-        spinValue: descriptor.spin.value,
+-        spinMode: descriptor.spin.mode,
++      buildNucleusCluster({
++        seed,
++        particleCount: RING_NUCLEUS_PARTICLE_COUNT,
++        observedModelIds: descriptor.observedModelIds,
+       }),
+-    [descriptor.spin.value, descriptor.spin.mode]
++    [seed, descriptor.observedModelIds]
++  );
++  const clusterAxis = useMemo(
++    () =>
++      new THREE.Vector3(cluster.spinAxis[0], cluster.spinAxis[1], cluster.spinAxis[2]).normalize(),
++    [cluster]
+   );
+ 
++  const glowTexture = useMemo(() => getSharedGlowTexture(), []);
++
+   const { amplitude, frequencyHz, mode } = descriptor.vibration;
+   const vibrating = !paused && mode === "measured" && amplitude > 0;
+ 
+   const scale = focused ? FOCUS_SCALE : 1;
+ 
+-  // Per-frame: breathing scale + queue vibration (positional tremor). No
+-  // React state; reuses only `groupRef`/`coreRef` (zero per-frame allocation).
+-  useFrame(() => {
++  // The instanced role meshes are built imperatively: a shared unit-sphere
++  // geometry is reused by both role meshes and must be disposed with the
++  // meshes on unmount/rebuild (JSX geometry disposal is keyed to element
++  // identity, which would leak the shared buffer).
++  const roleMeshes = useMemo(
++    () => buildRoleMeshes(cluster, stateEmissive),
++    [cluster, stateEmissive]
++  );
++  useEffect(
++    () => () => {
++      roleMeshes.protonMesh.dispose();
++      roleMeshes.neutronMesh.dispose();
++      roleMeshes.protonMesh.geometry.dispose();
++      roleMeshes.protonMesh.material.dispose();
++      roleMeshes.neutronMesh.material.dispose();
++    },
++    [roleMeshes]
++  );
++
++  // Preallocated per-frame rotation quaternion + accumulated spin angle
++  // (zero per-frame allocation; the angle freezes mid-orientation when
++  // paused and resumes contiguously).
++  const clusterRotation = useMemo(() => new THREE.Quaternion(), []);
++  const spinAngle = useRef(0);
++
++  // Per-frame: breathing scale (anchor + cluster) + cluster spin + queue
++  // vibration (positional tremor). No React state; reuses only refs, the
++  // preallocated quaternion and the accumulated angle.
++  useFrame((_state, delta) => {
+     const group = groupRef.current;
+     const core = coreRef.current;
++    const cl = clusterRef.current;
+     if (!group) return;
+     const frozen = paused || sceneState.contextLost || sceneState.reducedMotion;
+ 
+-    if (core) {
+-      const breath =
+-        frozen || !motion.breathActive
+-          ? 1
+-          : breathingScale(sceneClock.now, motion.breathPeriod, BREATH_AMPLITUDE, true);
+-      core.scale.setScalar(scale * breath);
++    const breath =
++      frozen || !motion.breathActive
++        ? 1
++        : breathingScale(sceneClock.now, motion.breathPeriod, BREATH_AMPLITUDE, true);
++    if (core) core.scale.setScalar(ANCHOR_WORLD_RADIUS * scale * breath);
++    if (cl) {
++      if (!frozen && motion.spinActive) {
++        spinAngle.current += Math.min(delta, MAX_FRAME_DELTA) * descriptor.spin.value;
++      }
++      clusterRotation.setFromAxisAngle(clusterAxis, spinAngle.current);
++      cl.quaternion.copy(clusterRotation);
++      cl.scale.setScalar(scale * breath);
+     }
+ 
+     if (vibrating && !frozen) {
+-      // Gentle 3-axis tremor at the encoded amplitude/frequency. The phase is
+-      // derived from the shared clock so it is continuous across re-renders.
++      // Gentle 3-axis tremor at the encoded amplitude/frequency. The phase
++      // is derived from the shared clock so it is continuous across
++      // re-renders.
+       const t = sceneClock.now * frequencyHz * Math.PI * 2;
+       group.position.set(
+         position.x + Math.sin(t) * amplitude,
+@@ -144,11 +310,16 @@ export function AtomNode({
+ 
+   return (
+     <group ref={groupRef} position={basePosition}>
+-      {/* Core sphere — shared geometry scaled per atom; fresnel rim injected. */}
+-      <mesh ref={coreRef} scale={scale}>
+-        <sphereGeometry args={[1, 32, 32]} />
++      {/* Central anchor sphere — small dense core; fresnel rim injected. */}
++      <mesh ref={coreRef} scale={ANCHOR_WORLD_RADIUS * scale}>
++        <sphereGeometry args={[1, 24, 24]} />
+         <primitive object={coreMaterial} attach="material" />
+       </mesh>
++      {/* Proton/neutron nucleon cluster (instanced, shared unit geometry). */}
++      <group ref={clusterRef}>
++        <primitive object={roleMeshes.protonMesh} dispose={null} />
++        <primitive object={roleMeshes.neutronMesh} dispose={null} />
++      </group>
+       {/* Outer additive glow — reads as a light source on the dark background. */}
+       {glowTexture && (
+         <sprite scale={[ATOM_RADIUS * GLOW_SPRITE_SCALE, ATOM_RADIUS * GLOW_SPRITE_SCALE, 1]}>
+diff --git a/src/plugins/atomic-topology/scene/ElectronCloud.tsx b/src/plugins/atomic-topology/scene/ElectronCloud.tsx
+index 336a5cd42..b7f7e20d9 100644
+--- a/src/plugins/atomic-topology/scene/ElectronCloud.tsx
++++ b/src/plugins/atomic-topology/scene/ElectronCloud.tsx
+@@ -24,18 +24,135 @@
+  * seed. `paused` freezes the accumulated angle exactly (no drift — the shared
+  * pause-aware scene clock holds still). Zero allocations per frame: only the
+  * spin group's `rotation.y` is mutated.
++ *
++ * OR-ATOM-008 S8.2 adds a **volumetric haze layer** around the shells: 1–3
++ * large, very soft, translucent additive billboards per atom (ONE shared
++ * procedurally-generated low-contrast noise texture — module-local to this
++ * file, lazily created on the client, disposed through
++ * `disposeHazeTexture()` with the same lifetime contract as the glow
++ * texture). Each billboard is centered on the atom, sized ~2.6–3.4× the base
++ * cloud radius, tinted by the same lane hue the electrons use (unknown lane →
++ * neutral), counter-rotating slowly (`sprite.material.rotation`) with a very
++ * slow scale breathing (±3–5 %) — all driven by the same pause-aware clock,
++ * so pause/reduced-motion freezes the haze exactly like the electrons. The
++ * haze renders at a lower `renderOrder` than the electron sprites, so the
++ * crisp moving points stay legible on top of the soft luminous volume.
++ * Sprite budget: 38 atoms × 3 haze sprites (high tier) = 114, keeping the
++ * scene under the ~700 total-sprite budget.
+  */
+ import { useMemo, useRef } from "react";
+ import * as THREE from "three";
+ import { useFrame } from "@react-three/fiber";
+ 
+-import { cloudShells } from "./cloudShells";
++import { cloudShells, fnv1a } from "./cloudShells";
++import {
++  HAZE_RENDER_ORDER,
++  HAZE_TIER,
++  HAZE_TIER_TABLE,
++  hazeBreathScale,
++  hazeSpinRadians,
++  hazeSprites,
++} from "./cloudHaze";
+ import { getSharedGlowTexture } from "./sceneResources";
+ import { sceneClock, sceneState } from "./sceneState";
+ 
+ /** Electron sprite size, in atom-relative units (tuned soft). */
+ const ELECTRON_SPRITE_SCALE = 0.13;
+ 
++/** The haze noise texture's edge size (px) and blob-grid resolution. */
++const HAZE_NOISE_SIZE = 64;
++const HAZE_BLOB_GRID = 8;
++
++/** The shared noise-haze texture (created lazily on the client, module-local). */
++let hazeTexture: THREE.CanvasTexture | null = null;
++let hazeTextureCreated = false;
++
++/**
++ * Generate the soft orbital-haze canvas: low-contrast seeded blob noise (a
++ * FNV-1a-seeded mulberry32 PRNG — NO `Math.random`) bilinearly smoothed,
++ * multiplied by a radial falloff. Deterministic: the same module always
++ * produces the same texture. Client-only — returns `null` under SSR (no
++ * `document`) so the cloud simply renders no haze.
++ */
++function createHazeNoiseCanvas(): HTMLCanvasElement | null {
++  if (typeof document === "undefined") return null;
++  const canvas = document.createElement("canvas");
++  canvas.width = HAZE_NOISE_SIZE;
++  canvas.height = HAZE_NOISE_SIZE;
++  const ctx = canvas.getContext("2d");
++  if (!ctx) return null;
++  // Seeded mulberry32 (FNV-1a of a stable tag) — deterministic, no Math.random.
++  let state = fnv1a("atomic-haze-v1");
++  const next = (): number => {
++    state = (state + 0x6d2b79f5) | 0;
++    let z = Math.imul(state ^ (state >>> 15), 1 | state);
++    z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z;
++    return ((z ^ (z >>> 14)) >>> 0) / 4294967296;
++  };
++  const grid: number[] = [];
++  for (let i = 0; i < HAZE_BLOB_GRID * HAZE_BLOB_GRID; i += 1) grid.push(next());
++  const image = ctx.createImageData(HAZE_NOISE_SIZE, HAZE_NOISE_SIZE);
++  const half = HAZE_NOISE_SIZE / 2;
++  for (let y = 0; y < HAZE_NOISE_SIZE; y += 1) {
++    for (let x = 0; x < HAZE_NOISE_SIZE; x += 1) {
++      // Bilinear sample of the blob grid → soft, low-contrast blob variation.
++      const gx = (x / HAZE_NOISE_SIZE) * HAZE_BLOB_GRID;
++      const gy = (y / HAZE_NOISE_SIZE) * HAZE_BLOB_GRID;
++      const x0 = Math.floor(gx) % HAZE_BLOB_GRID;
++      const y0 = Math.floor(gy) % HAZE_BLOB_GRID;
++      const x1 = (x0 + 1) % HAZE_BLOB_GRID;
++      const y1 = (y0 + 1) % HAZE_BLOB_GRID;
++      const fx = gx - Math.floor(gx);
++      const fy = gy - Math.floor(gy);
++      const top = grid[y0 * HAZE_BLOB_GRID + x0] * (1 - fx) + grid[y0 * HAZE_BLOB_GRID + x1] * fx;
++      const bot = grid[y1 * HAZE_BLOB_GRID + x0] * (1 - fx) + grid[y1 * HAZE_BLOB_GRID + x1] * fx;
++      const blob = top * (1 - fy) + bot * fy;
++      // Radial falloff: (1 − d²)² — a soft gaussian-ish edge, like the glow.
++      const d = Math.sqrt((x - half) ** 2 + (y - half) ** 2) / half;
++      const falloff = d >= 1 ? 0 : (1 - d * d) * (1 - d * d);
++      // Low-contrast: the blob only gently modulates the falloff (55–100 %).
++      const alpha = Math.round(255 * falloff * (0.55 + 0.45 * blob));
++      const o = (y * HAZE_NOISE_SIZE + x) * 4;
++      image.data[o] = 255;
++      image.data[o + 1] = 255;
++      image.data[o + 2] = 255;
++      image.data[o + 3] = alpha;
++    }
++  }
++  ctx.putImageData(image, 0, 0);
++  return canvas;
++}
++
++/**
++ * Get (and lazily create) the shared haze texture — module-local so the
++ * shared `sceneResources.ts` stays untouched (OR-ATOM-008 scope). Same
++ * lifetime contract as `getSharedGlowTexture()`: ONE texture for the whole
++ * scene, created at most once per client module load.
++ */
++function getHazeTexture(): THREE.CanvasTexture | null {
++  if (hazeTextureCreated) return hazeTexture;
++  hazeTextureCreated = true;
++  const canvas = createHazeNoiseCanvas();
++  if (!canvas) return null;
++  const texture = new THREE.CanvasTexture(canvas);
++  texture.colorSpace = THREE.SRGBColorSpace;
++  hazeTexture = texture;
++  return texture;
++}
++
++/**
++ * Dispose the shared haze texture exactly once (scene unmount / context
++ * rebuild). Idempotent — safe to call multiple times. Same contract as
++ * `disposeSharedGlowTexture()` in `sceneResources.ts`.
++ */
++export function disposeHazeTexture(): void {
++  if (hazeTexture) {
++    hazeTexture.dispose();
++    hazeTexture = null;
++  }
++  hazeTextureCreated = false;
++}
++
+ /** Props for a layered electron cloud. */
+ export interface ElectronCloudProps {
+   /** Base (innermost shell) orbit radius in world units. */
+@@ -83,6 +200,15 @@ export function ElectronCloud({
+   const spinRefs = useRef<Array<THREE.Group | null>>([]);
+   const glow = useMemo(() => getSharedGlowTexture(), []);
+ 
++  // Haze (OR-ATOM-008 S8.2): deterministic per-sprite params + base scales.
++  const haze = useMemo(() => getHazeTexture(), []);
++  const hazeParams = useMemo(() => hazeSprites(seed, HAZE_TIER), [seed]);
++  const hazeBaseScales = useMemo(
++    () => hazeParams.map((p) => radius * p.scaleMultiplier),
++    [hazeParams, radius]
++  );
++  const hazeRefs = useRef<Array<THREE.Sprite | null>>([]);
++
+   // Deterministic shell parameters (non-coplanar great circles).
+   const shells = useMemo(() => cloudShells(seed), [seed]);
+ 
+@@ -127,6 +253,19 @@ export function ElectronCloud({
+       // Absolute angle from the (frozen) clock → exact freeze, no drift.
+       group.rotation.y = (w * t + shell.phaseOffset) % (Math.PI * 2);
+     });
++    // Haze: absolute spin/breath from the same pause-aware clock. A frozen
++    // clock (paused / context-lost / reduced-motion) skips the mutation, so
++    // the haze holds the last frame exactly; resume is contiguous.
++    if (!frozen) {
++      hazeRefs.current.forEach((sprite, i) => {
++        const p = hazeParams[i];
++        if (!sprite || !p) return;
++        sprite.material.rotation = hazeSpinRadians(p, t);
++        const s = hazeBaseScales[i] * hazeBreathScale(p, t, HAZE_TIER_TABLE[HAZE_TIER]);
++        sprite.scale.x = s;
++        sprite.scale.y = s;
++      });
++    }
+   });
+ 
+   const spriteScale = Math.max(4, radius * ELECTRON_SPRITE_SCALE);
+@@ -186,6 +325,34 @@ export function ElectronCloud({
+           </group>
+         </group>
+       )}
++      {/*
++       * Volumetric haze (OR-ATOM-008 S8.2): 1–3 large, very soft, translucent
++       * billboards centered on the atom — a luminous volume *around* the
++       * crisp electron points (lower renderOrder → electrons composite on
++       * top). Same lane-hue tint as the electrons; slow counter-spin +
++       * ±3–5 % scale breathing, frozen with the shared clock.
++       */}
++      {haze &&
++        hazeParams.map((p, i) => (
++          <sprite
++            key={`haze-${i}`}
++            scale={[hazeBaseScales[i], hazeBaseScales[i], 1]}
++            renderOrder={HAZE_RENDER_ORDER}
++            ref={(s) => {
++              hazeRefs.current[i] = s;
++            }}
++          >
++            <spriteMaterial
++              map={haze}
++              color={color}
++              transparent
++              opacity={HAZE_TIER_TABLE[HAZE_TIER].spriteOpacity * p.opacityScale}
++              rotation={p.spinPhase}
++              depthWrite={false}
++              blending={THREE.AdditiveBlending}
++            />
++          </sprite>
++        ))}
+     </group>
+   );
+ }
+diff --git a/src/plugins/atomic-topology/scene/EnergyLink.tsx b/src/plugins/atomic-topology/scene/EnergyLink.tsx
+index bab07a6e6..7b3dc5707 100644
+--- a/src/plugins/atomic-topology/scene/EnergyLink.tsx
++++ b/src/plugins/atomic-topology/scene/EnergyLink.tsx
+@@ -1,37 +1,69 @@
+ "use client";
+ 
+ /**
+- * Energy link — one hub→atom route edge (OR-ATOM-007, design spec §3).
++ * Energy link — one hub→atom route edge (OR-ATOM-008 S8.1, design spec S8.1).
+  *
+  * Renders as a curved "energy flow" following a quadratic Bézier from the
+  * nucleus (origin) to the atom's deterministic layout position (the arc
+- * geometry is unchanged from the existing contract). Layered per state:
++ * geometry is UNCHANGED: same endpoints, `ARC_FACTOR = 0.25`, same
++ * `CURVE_SEGMENTS = 24` sampling). Layered per state:
+  *
+- *   (a) **base FILAMENT** — a `Line2` (real width semantics — per-state
+- *       `style.width` in world units), additive, opacity =
+- *       `VISUAL_STATE_STYLE.opacity × 0.5` (faint "subtle idle energy").
+- *   (b) **ACTIVE** — a bounded moving pulse: one small additive comet sprite
+- *       traveling hub→atom, ~2.5 s per hop, ease-in-out phase
+- *       (`pulsePhase` + `easeInOut` — interaction-design: ease-in-out for a
+- *       continuous cycle), continuous while `state === 'active'`; hidden
+- *       under `prefers-reduced-motion` (accessibility.md).
++ *   (a) **base FILAMENT** — two primitives, same path:
++ *       - a hairline `Line2` core (`FILAMENT_CORE_WIDTH` ≈ 0.75 world units
++ *         — ~1–2 CSS px at normal framing), additive, opacity =
++ *         `VISUAL_STATE_STYLE.opacity × 0.5` (faint "subtle idle energy";
++ *         error → `ERROR_STATIC_OPACITY` floor while the bolt carries red);
++ *       - a **plasma ribbon** — a thin quad strip (`RIBBON_HALF_WIDTH` →
++ *         ~0.6 world units wide, `RIBBON_SEGMENTS` quads) along the curve,
++ *         `MeshBasicMaterial` + `applyPlasmaInjection` (`plasmaShader.ts`).
++ *         CHOICE NOTE (webgpu-threejs-tsl port discipline): `LineMaterial`
++ *         does NOT support `onBeforeCompile`, so instead of a custom line
++ *         program the halo is a small ribbon mesh with the STANDARD
++ *         `MeshBasicMaterial` program — the injection adds NO custom
++ *         uniforms (it reuses the material's own `diffuse` uniform for the
++ *         lane hue and the geometry `uv`s for the core/halo profile), so
++ *         every link shares ONE compiled program (program-cache friendly —
++ *         the same discipline as `makeFresnelCoreMaterial` in
++ *         `sceneResources.ts`). Static by construction → correct under
++ *         `prefers-reduced-motion`.
++ *   (b) **ACTIVE** — a **bounded pool of ≤ 3 pulse packets** (pure
++ *       scheduling in `filament.ts`: `packetPoolSize` /
++ *       `packetHeadProgress`): each packet = 1 head sprite + 2 tail sprites
++ *       (shared glow texture, additive, `depthWrite: false`), placed by
++ *       ARC-LENGTH fraction along the curve (`createPointAtFraction` over
++ *       the memoized cumulative table — webgpu-threejs-tsl arc-length-
++ *       progress technique; the Bézier points were already sampled to
++ *       `CURVE_SEGMENTS`). Heads ease-in-out over `PULSE_PERIOD_S`
++ *       (~2.5 s/hop — interaction-design: ease-in-out for a continuous
++ *       cycle); tails trail behind with decaying scale/opacity (comet).
++ *       Pool = 0 when the link has no active traffic OR under reduced
++ *       motion (scale-down). Packets are driven ONLY by the existing
++ *       `visualState` evidence — never fabricated.
+  *   (c) **COMPLETION** — on transition INTO `last`: ONE teal flash impulse
+- *       (#2DD4BF) at the atom end, ~350 ms sharp ease-out, single-shot,
+- *       edge-booked by `bookTransition` (never re-fires; a transition that
+- *       occurs while `paused` is deferred until the first unpaused frame —
+- *       "never while paused").
++ *       (#2DD4BF) that now **TRAVELS** — a short cool impulse moving from
++ *       the atom toward the hub (`COMPLETION_TRAVEL_FRACTION` of the arc)
++ *       over ~350 ms, sharp ease-out, single-shot, edge-booked by
++ *       `bookTransition` (never re-fires; a transition that occurs while
++ *       `paused` is deferred until the first unpaused frame — "never while
++ *       paused").
+  *   (d) **FAILURE** — on transition INTO `error`: ONE ~1.2 s exponential-
+- *       decay burst of procedural **jagged red lightning** — a deterministic
+- *       polyline (9–14 segments, `mulberry32` over FNV-1a of id+state),
+- *       perpendicular jitter decaying outward from the hub, red (#ef4444)
+- *       additive. While still in `error`, a faint static red filament
+- *       remains (the bolt at low opacity — no loop; the burst is
++ *       decay burst of procedural **jagged red lightning** — a
++ *       deterministic polyline (9–14 segments, `mulberry32` over FNV-1a of
++ *       id+state) plus **1–2 short seeded branches** forking off
++ *       mid-segments (`filament.ts::branchGeometry`; memoized with the
++ *       bolt, same seed discipline — time-bounded by the same one-shot
++ *       envelope, NEVER latched while in error). While still in `error`,
++ *       a faint static red filament remains (the bolt at low opacity —
+  *       single-shot, pinned by `sceneOneShot.test.ts`).
+  *
+  * No fabrication: pulses/flash/lightning are driven ONLY by the existing
+  * `visualState`/state-transition evidence. Zero per-frame allocations: all
+- * curve/bolt geometry and line objects are memoized; per-frame work only
+- * mutates sprite positions/scales/opacities and line opacities.
++ * curves/arc-tables/ribbon/branch geometry and line objects are memoized;
++ * per-frame work only mutates sprite positions/scales/opacities and
++ * material opacities. Everything is driven by the pause-aware
++ * `sceneClock.now` (pause freezes discharge positions; resume is
++ * contiguous). All geometry/material/line/sprite objects are disposed on
++ * unmount (matching the existing cleanup patterns in this file).
+  */
+ import { useEffect, useMemo, useRef, useState } from "react";
+ import * as THREE from "three";
+@@ -43,8 +75,24 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+ import type { AtomVisualDescriptor, LinkVisualDescriptor } from "../AtomicTopologyRenderer";
+ 
+ import { boltPoints, boltSegmentCount } from "./discharge";
+-import { easeInOut, pulsePhase } from "./motion";
++import {
++  MAX_PACKET_POOL,
++  PACKET_TAILS,
++  branchGeometry,
++  buildArcLengthTable,
++  buildRibbonStripData,
++  completionImpulseFraction,
++  createPointAtFraction,
++  packetHeadOpacity,
++  packetHeadProgress,
++  packetPoolSize,
++  packetTailOpacity,
++  packetTailScale,
++  packetTailStep,
++} from "./filament";
++import { easeInOut, easeOutSharp } from "./motion";
+ import { bookTransition, oneShotIntensity, type OneShotEvent } from "./oneShot";
++import { applyPlasmaInjection } from "./plasmaShader";
+ import { getSharedGlowTexture } from "./sceneResources";
+ import { sceneClock, sceneState } from "./sceneState";
+ 
+@@ -52,7 +100,13 @@ import { sceneClock, sceneState } from "./sceneState";
+ const ARC_FACTOR = 0.25;
+ /** Bézier sampling resolution (pre-computed point list, no per-frame work). */
+ const CURVE_SEGMENTS = 24;
+-/** Active pulse hop period (s) — spec: ~2.5 s per hop. */
++/** Hairline core width (world units) — ~1–2 CSS px at normal framing (S8.1). */
++const FILAMENT_CORE_WIDTH = 0.75;
++/** Ribbon quad-strip half-width (world units) → ~0.6 wide halo strip. */
++const RIBBON_HALF_WIDTH = 0.3;
++/** Ribbon segment count (memoized geometry — not per-frame work). */
++const RIBBON_SEGMENTS = 32;
++/** Active pulse hop period (s) — spec: ~2.5 s per hop, per packet. */
+ const PULSE_PERIOD_S = 2.5;
+ /** Completion flash color (teal/green family per spec). */
+ const COMPLETION_COLOR = "#2DD4BF";
+@@ -62,8 +116,10 @@ const FAILURE_COLOR = "#ef4444";
+ const ERROR_STATIC_OPACITY = 0.25;
+ /** Max perpendicular bolt jitter (world units) — bounded, reads as arcing. */
+ const BOLT_MAX_JITTER = 26;
+-/** Comet sprite diameter (world units). */
+-const PULSE_SIZE = 40;
++/** Pulse head sprite diameter (world units). */
++const PULSE_SIZE = 36;
++/** Pulse tail sprite diameter (world units) (scaled further by `packetTailScale`). */
++const PULSE_TAIL_SIZE = 24;
+ /** Completion flash sprite diameter (world units). */
+ const FLASH_SIZE = 150;
+ 
+@@ -96,10 +152,19 @@ export function EnergyLink({
+     const radial = mid.lengthSq() > 1e-6 ? mid.clone().normalize() : new THREE.Vector3(0, 0, 1);
+     const control = mid.clone().add(radial.multiplyScalar(end.length() * ARC_FACTOR));
+     const curve = new THREE.QuadraticBezierCurve3(start, control, end);
+-    return { points: curve.getPoints(CURVE_SEGMENTS), end };
++    // Arc-length parameterization (S8.1): the SAME sampling as before, plus
++    // a memoized cumulative arc-length table + fraction lookup, so every
++    // effect places its heads by arc length (constant visual speed) with
++    // zero per-frame cost.
++    const points = curve.getPoints(CURVE_SEGMENTS);
++    const flat: number[] = [];
++    for (const p of points) flat.push(p.x, p.y, p.z);
++    const arc = buildArcLengthTable(flat);
++    const pointAt = createPointAtFraction(arc, flat);
++    return { points, end, pointAt };
+   }, [target]);
+ 
+-  // --- Base filament geometry + material (real width semantics, additive) --
++  // --- Base filament hairline core (Line2 — real width semantics, additive)
+   const filamentGeometry = useMemo(() => {
+     if (!curvePoints) return null;
+     const geometry = new LineGeometry();
+@@ -113,9 +178,9 @@ export function EnergyLink({
+     () =>
+       new LineMaterial({
+         color: new THREE.Color(descriptor.laneHue),
+-        linewidth: 2, // world units (LineMaterial worldUnits default)
++        linewidth: FILAMENT_CORE_WIDTH, // world units (LineMaterial worldUnits)
+         transparent: true,
+-        opacity: 0.3,
++        opacity: 0.15,
+         blending: THREE.AdditiveBlending,
+         depthWrite: false,
+       }),
+@@ -136,6 +201,99 @@ export function EnergyLink({
+     filamentMaterialRef.current = filamentMaterial;
+   }, [filamentMaterial]);
+ 
++  // --- Plasma ribbon (halo quad-strip along the same path, S8.1) -----------
++  // Ribbon basis (0,1,0): the strip extends vertically; the curves bow in
++  // the screen plane at the default framing, and at ~0.6 world units wide
++  // the strip reads as a gentle halo around the hairline core (not a tube).
++  const ribbonGeometry = useMemo(() => {
++    if (!curvePoints) return null;
++    const flat: number[] = [];
++    for (const p of curvePoints.points) flat.push(p.x, p.y, p.z);
++    const table = buildArcLengthTable(flat);
++    const { positions, uvs, indices } = buildRibbonStripData(
++      table,
++      flat,
++      RIBBON_SEGMENTS,
++      RIBBON_HALF_WIDTH,
++      1, // basisY — vertical (screen-facing at default framing)
++      0 // basisZ
++    );
++    const geometry = new THREE.BufferGeometry();
++    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
++    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
++    geometry.setIndex(indices);
++    return geometry;
++  }, [curvePoints]);
++
++  const ribbonMaterial = useMemo(() => {
++    const material = new THREE.MeshBasicMaterial({
++      color: new THREE.Color(descriptor.laneHue),
++      transparent: true,
++      opacity: 0.15,
++      blending: THREE.AdditiveBlending,
++      depthWrite: false,
++      side: THREE.DoubleSide,
++    });
++    applyPlasmaInjection(material);
++    return material;
++  }, [descriptor.laneHue]);
++  useEffect(() => () => ribbonMaterial.dispose(), [ribbonMaterial]);
++  useEffect(() => () => ribbonGeometry?.dispose(), [ribbonGeometry]);
++
++  const ribbonMesh = useMemo(
++    () => (ribbonGeometry ? new THREE.Mesh(ribbonGeometry, ribbonMaterial) : null),
++    [ribbonGeometry, ribbonMaterial]
++  );
++  const ribbonMaterialRef = useRef<THREE.MeshBasicMaterial | null>(null);
++  useEffect(() => {
++    ribbonMaterialRef.current = ribbonMaterial;
++  }, [ribbonMaterial]);
++
++  // --- Pulse packet pool (S8.1 — bounded: ≤ MAX_PACKET_POOL packets) -------
++  // Preallocated once (MAX_PACKET_POOL heads + PACKET_TAILS tails each): the
++  // pool SIZE per frame comes from the visual-state evidence only; sprites
++  // beyond it are simply hidden. Materials are disposed on unmount (sprite
++  // meshes are stateless containers; the shared glow texture is a scene-
++  // level resource owned by `sceneResources.ts`).
++  const glow = useMemo(() => getSharedGlowTexture(), []);
++  const pulsePool = useMemo(() => {
++    const sprites: THREE.Sprite[] = [];
++    if (!glow) return sprites;
++    for (let index = 0; index < MAX_PACKET_POOL; index += 1) {
++      for (let tail = 0; tail <= PACKET_TAILS; tail += 1) {
++        const size = tail === 0 ? PULSE_SIZE : PULSE_TAIL_SIZE;
++        const material = new THREE.SpriteMaterial({
++          map: glow,
++          color: new THREE.Color(descriptor.laneHue),
++          transparent: true,
++          opacity: 0,
++          depthWrite: false,
++          blending: THREE.AdditiveBlending,
++        });
++        const sprite = new THREE.Sprite(material);
++        sprite.visible = false;
++        sprite.scale.set(size, size, 1);
++        sprites.push(sprite);
++      }
++    }
++    return sprites;
++  }, [glow, descriptor.laneHue]);
++  useEffect(() => {
++    const pool = pulsePool;
++    return () => {
++      for (const sprite of pool) sprite.material.dispose();
++    };
++  }, [pulsePool]);
++  // The per-frame callback mutates sprite fields on this pool; the
++  // react-hooks/immutability rule forbids mutating a `useMemo` value from
++  // `useFrame`, so — like `filamentMaterialRef` / `ribbonMaterialRef` — the
++  // frame loop reaches the sprites through a ref bridge.
++  const pulsePoolRef = useRef<THREE.Sprite[]>([]);
++  useEffect(() => {
++    pulsePoolRef.current = pulsePool;
++  }, [pulsePool]);
++
++  // --- Failure bolt + branches (deterministic, seeded, single-shot) --------
+   const boltGeometry = useMemo(() => {
+     if (!curvePoints || state !== "error") return null;
+     const segments = boltSegmentCount(`${descriptor.id}:error`);
+@@ -144,17 +302,34 @@ export function EnergyLink({
+     // (≤ BOLT_MAX_JITTER) decaying outward from the hub (see boltAmplitudeAt).
+     const amp = BOLT_MAX_JITTER / chordLength;
+     const points = boltPoints(segments, `${descriptor.id}:error`, amp);
++    // S8.1: 1–2 short SEEDED branches fork off the bolt's mid-segments
++    // (pure — filament.ts; same mulberry32/FNV-1a seed discipline).
++    const boltFlat: number[] = [];
++    for (const p of points) boltFlat.push(p.x, p.y, p.z);
++    const branches = branchGeometry(`${descriptor.id}:error`, boltFlat, amp);
+     const axis = curvePoints.end.clone().normalize();
+     const up = Math.abs(axis.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+     const px = axis.clone().cross(up).normalize();
+     const pz = axis.clone().cross(px).normalize();
++    const toWorld = (u: number, v: number, w: number): [number, number, number] => [
++      u * chordLength + px.x * v * chordLength + pz.x * w * chordLength,
++      px.y * v * chordLength + pz.y * w * chordLength,
++      px.z * v * chordLength + pz.z * w * chordLength,
++    ];
+     const flat: number[] = [];
+-    for (const p of points) {
+-      flat.push(
+-        p.x * chordLength + px.x * p.y * chordLength + pz.x * p.z * chordLength,
+-        px.y * p.y * chordLength + pz.y * p.z * chordLength,
+-        px.z * p.y * chordLength + pz.z * p.z * chordLength
+-      );
++    const push = (p: { x: number; y: number; z: number }): void => {
++      const [wx, wy, wz] = toWorld(p.x, p.y, p.z);
++      flat.push(wx, wy, wz);
++    };
++    // Main bolt polyline (p.x is the fraction along the unit axis; y/z are
++    // perpendicular jitter — same world mapping as the pre-008 bolt).
++    for (const p of points) push(p);
++    // Branches: anchor (on the bolt) → kink 1 → kink 2 (open polylines —
++    // they die out; the same red material + burst envelope drives them).
++    for (const b of branches) {
++      push({ x: b.x0, y: b.y0, z: b.z0 });
++      push({ x: b.x1, y: b.y1, z: b.z1 });
++      push({ x: b.x2, y: b.y2, z: b.z2 });
+     }
+     const geometry = new LineGeometry();
+     geometry.setPositions(flat);
+@@ -208,9 +383,7 @@ export function EnergyLink({
+     else setBurst(event);
+   }, [state]);
+ 
+-  // --- Pulse / flash sprites ------------------------------------------------
+-  const glow = useMemo(() => getSharedGlowTexture(), []);
+-  const pulseRef = useRef<THREE.Sprite | null>(null);
++  // --- Flash sprite + per-frame scratch --------------------------------------
+   const flashRef = useRef<THREE.Sprite | null>(null);
+   const lerpTmp = useMemo(() => new THREE.Vector3(), []);
+ 
+@@ -228,48 +401,69 @@ export function EnergyLink({
+       else setBurst(event);
+     }
+ 
+-    // (a) base filament — faint idle energy (state opacity × 0.5; error →
+-    // the bolt carries the red, filament drops to the static floor).
++    // (a) base filament — hairline core (state opacity × 0.5; error → the
++    // bolt carries the red) + plasma ribbon halo (slightly fainter than the
++    // core — the halo must stay "low-contrast").
+     const filamentMat = filamentMaterialRef.current;
+     if (filamentMat) {
+       filamentMat.opacity = state === "error" ? ERROR_STATIC_OPACITY : style.opacity * 0.5;
+-      filamentMat.linewidth = style.width;
++      filamentMat.linewidth = FILAMENT_CORE_WIDTH;
++    }
++    const ribbonMat = ribbonMaterialRef.current;
++    if (ribbonMat) {
++      ribbonMat.opacity = state === "error" ? ERROR_STATIC_OPACITY * 0.8 : style.opacity * 0.45;
+     }
+ 
+-    // (b) active pulse — bounded comet, ease-in-out, continuous while active.
+-    // (reduced motion → hidden: accessibility.md static render.)
+-    const pulse = pulseRef.current;
+-    if (pulse) {
+-      const visible = isActive && !reduced && !!curvePoints;
+-      pulse.visible = visible;
+-      if (visible && curvePoints) {
+-        const phase = easeInOut(pulsePhase(t, PULSE_PERIOD_S));
+-        const pts = curvePoints.points;
+-        const f = phase * (pts.length - 1);
+-        const i = Math.min(pts.length - 2, Math.floor(f));
+-        lerpTmp.lerpVectors(pts[i], pts[i + 1], f - i);
+-        pulse.position.copy(lerpTmp);
+-        const mat = pulse.material as THREE.SpriteMaterial;
+-        mat.opacity = 0.55 + 0.35 * Math.sin(phase * Math.PI); // swell mid-hop
++    // (b) active packets — bounded pool, arc-length travel, ease-in-out.
++    // (reduced motion → pool 0: accessibility.md static render.)
++    const poolSize = packetPoolSize(MAX_PACKET_POOL, isActive, reduced);
++    const pool = pulsePoolRef.current;
++    for (let i = 0; i < pool.length; i += 1) {
++      const sprite = pool[i];
++      const index = Math.floor(i / (1 + PACKET_TAILS));
++      const tail = i % (1 + PACKET_TAILS);
++      if (index >= poolSize || !curvePoints) {
++        sprite.visible = false;
++        continue;
+       }
++      const progress = packetHeadProgress(t, PULSE_PERIOD_S, index, poolSize);
++      if (progress <= 0) {
++        sprite.visible = false;
++        continue;
++      }
++      const headF = easeInOut(progress);
++      const f = tail === 0 ? headF : Math.max(0, headF - packetTailStep(tail));
++      curvePoints.pointAt(f, lerpTmp);
++      sprite.position.copy(lerpTmp);
++      sprite.visible = true;
++      const mat = sprite.material as THREE.SpriteMaterial;
++      mat.opacity = tail === 0 ? 0.85 * packetHeadOpacity(progress) : packetTailOpacity(progress, tail);
++      const scale = tail === 0 ? 1 : packetTailScale(tail);
++      const size = tail === 0 ? PULSE_SIZE : PULSE_TAIL_SIZE;
++      sprite.scale.set(size * scale, size * scale, 1);
+     }
+ 
+-    // (c) completion flash — one teal impulse at the atom end.
++    // (c) completion — one TRAVELING teal impulse from the atom toward the
++    // hub (S8.1): the sprite moves along the arc while the sharp ease-out
++    // intensity decays; it decays cleanly (intensity 0 at duration).
+     const flashSprite = flashRef.current;
+     if (flashSprite) {
+       const intensity = flash ? oneShotIntensity(flash, t) : 0;
+-      const visible = intensity > 0.01 && !!target;
++      const visible = intensity > 0.01 && !!curvePoints && !reduced;
+       flashSprite.visible = visible;
+-      if (visible) {
+-        flashSprite.position.set(target!.position.x, target!.position.y, target!.position.z);
++      if (visible && flash && curvePoints) {
++        const elapsedFrac = Math.min(1, Math.max(0, (t - flash.startAt) / flash.duration));
++        const fraction = completionImpulseFraction(elapsedFrac, easeOutSharp(elapsedFrac));
++        curvePoints.pointAt(fraction, lerpTmp);
++        flashSprite.position.copy(lerpTmp);
+         (flashSprite.material as THREE.SpriteMaterial).opacity = 0.9 * intensity;
+         // Expand as it fades (a soft "pop" that reads without a label).
+         flashSprite.scale.setScalar(FLASH_SIZE * (0.5 + 1.5 * (1 - intensity)));
+       }
+     }
+ 
+-    // (d) failure bolt — static faint while error; one decaying burst on the
+-    // edge into error (never loops).
++    // (d) failure bolt + branches — static faint while error; one decaying
++    // burst on the edge into error (never loops, never latched).
+     const bolt = boltLineRef.current;
+     if (bolt) {
+       bolt.visible = state === "error";
+@@ -284,22 +478,14 @@ export function EnergyLink({
+ 
+   return (
+     <group>
+-      {/* (a) base filament (Line2 — real width, additive) */}
++      {/* (a) base filament — hairline core (Line2) + plasma ribbon halo */}
+       {filamentLine && <primitive object={filamentLine} />}
+-      {/* (b) active pulse comet */}
+-      {glow && (
+-        <sprite ref={pulseRef} scale={[PULSE_SIZE, PULSE_SIZE, 1]} visible={false}>
+-          <spriteMaterial
+-            map={glow}
+-            color={descriptor.laneHue}
+-            transparent
+-            opacity={0.85}
+-            depthWrite={false}
+-            blending={THREE.AdditiveBlending}
+-          />
+-        </sprite>
+-      )}
+-      {/* (c) completion flash */}
++      {ribbonMesh && <primitive object={ribbonMesh} />}
++      {/* (b) active pulse packets (bounded preallocated pool) */}
++      {pulsePool.map((sprite, i) => (
++        <primitive key={i} object={sprite} />
++      ))}
++      {/* (c) completion flash (traveling) */}
+       {glow && (
+         <sprite ref={flashRef} scale={[FLASH_SIZE, FLASH_SIZE, 1]} visible={false}>
+           <spriteMaterial
+@@ -312,7 +498,7 @@ export function EnergyLink({
+           />
+         </sprite>
+       )}
+-      {/* (d) failure lightning bolt */}
++      {/* (d) failure lightning bolt (+ seeded branches in the same geometry) */}
+       {boltLine && <primitive object={boltLine} />}
+     </group>
+   );
+diff --git a/src/plugins/atomic-topology/scene/Nucleus.tsx b/src/plugins/atomic-topology/scene/Nucleus.tsx
+index bef87de65..e7c7f9645 100644
+--- a/src/plugins/atomic-topology/scene/Nucleus.tsx
++++ b/src/plugins/atomic-topology/scene/Nucleus.tsx
+@@ -1,34 +1,57 @@
+ "use client";
+ 
+ /**
+- * The hub nucleus — the central atom of the topology (OR-ATOM-007).
++ * The hub nucleus — the central atom of the topology (OR-ATOM-007;
++ * OR-ATOM-008 S8.3 — proton/neutron nucleus cluster + model identity).
+  *
+- * Rendered at the world origin as a luminous sphere: the "nucleus" of the
+- * atomic model. The core color is the truthful per-state mapping
+- * ({@link NUCLEUS_STATE_COLOR} — healthy → blue, error → red, idle → slate),
+- * unchanged from the existing contract, and adds the same "luminous"
+- * treatment as the ring atoms:
++ * Rendered at the world origin as the "nucleus" of the atomic model. The
++ * core color is the truthful per-state mapping
++ * ({@link NUCLEUS_STATE_COLOR} — healthy → blue, error → red, idle →
++ * slate), unchanged, and keeps the same "luminous" treatment:
+  *   (a) **fresnel rim glow** (shared injection via
+- *       {@link makeFresnelCoreMaterial});
+- *   (b) an **outer additive glow sprite** (shared radial-gradient texture) so
+- *       the hub reads as the scene's primary light source;
++ *       {@link makeFresnelCoreMaterial} — the nucleon role materials use
++ *       the identical injection, so anchor + nucleons share ONE compiled
++ *       program; roles differ only in uniforms);
++ *   (b) an **outer additive glow sprite** (shared radial-gradient texture)
++ *       so the hub reads as the scene's primary light source;
+  *   (c) subtle **breathing** (±2 %, slow period, tied to the state: an
+  *       error hub breathes faster — urgency — while paused / reduced-motion
+- *       holds it still).
++ *       holds it still), now applied to the anchor AND the cluster.
+  *
+- * It wears a slow-spinning {@link ElectronCloud} (one fixed ring — the hub
+- * has no per-atom telemetry, so its cloud is seed-stable and uses a constant
+- * speed) so the hub reads as "alive" without moving atoms.
++ * S8.3 cluster: the hub wears 12 nucleons (prominence — more than the
++ * ring atoms' 8) on the same deterministic proton/neutron shell: protons
++ * larger/brighter/smooth, neutrons smaller/darker/matte, tinted per
++ * instance. The hub has **no model attribution** (no per-node model ids
++ * exist on the snapshot for the hub), so it ALWAYS renders the honest
++ * neutral two-tone palette — never a model-color group.
++ *
++ * The cluster itself is *static* (orientation fixed by the seed): the hub
++ * carries no measured spin rate, and motion here must never be fabricated
++ * — the "alive" reading comes from its existing slow constant-speed
++ * {@link ElectronCloud} (one fixed ring), which is unchanged.
+  *
+  * R3F/three are confined to this `scene/**` subtree.
+  */
+-import { useMemo, useRef } from "react";
++import { useEffect, useMemo, useRef } from "react";
+ import * as THREE from "three";
+ import { useFrame } from "@react-three/fiber";
+ 
+ import type { AtomVisualDescriptor, AtomicVisualState } from "../AtomicTopologyRenderer";
+ import { fnv1a } from "./cloudShells";
+ import { breathingScale } from "./motion";
++import {
++  ANCHOR_RADIUS_FRACTION,
++  buildNucleusCluster,
++  HUB_NUCLEUS_PARTICLE_COUNT,
++  NUCLEUS_PARTICLE_BASE_RADIUS,
++  NUCLEUS_SHELL_RADIUS,
++  NEUTRON_EMISSIVE_MUL,
++  NEUTRON_ROUGHNESS,
++  PROTON_EMISSIVE_MUL,
++  PROTON_ROUGHNESS,
++  type NucleusCluster,
++  type NucleusParticle,
++} from "./nucleusCluster";
+ import { getSharedGlowTexture, makeFresnelCoreMaterial } from "./sceneResources";
+ import { sceneClock, sceneState } from "./sceneState";
+ import { ElectronCloud } from "./ElectronCloud";
+@@ -59,6 +82,85 @@ const BREATH_PERIOD: Record<AtomicVisualState, number> = {
+ const GLOW_SPRITE_SCALE = 2.6;
+ /** Focused emphasis (readable, not orbit — unchanged behavior). */
+ const FOCUSED_RIM_BOOST = 1.0;
++/** Base emissive of the hub anchor/cluster (uniform across states, as today). */
++const HUB_BASE_EMISSIVE = 0.4;
++
++/** World-space radius of the central anchor sphere (small dense core). */
++const ANCHOR_WORLD_RADIUS = NUCLEUS_RADIUS * NUCLEUS_SHELL_RADIUS * ANCHOR_RADIUS_FRACTION;
++/** World-space radius of one base nucleon (before the per-particle scaleMul). */
++const NUCLEON_WORLD_RADIUS = NUCLEUS_RADIUS * NUCLEUS_PARTICLE_BASE_RADIUS;
++/** Nucleon cluster offset scale — particle positions are core-radius units. */
++const NUCLEON_CLUSTER_SCALE = NUCLEUS_RADIUS;
++
++/** Role diffuse/emissive tint: white (diffuse carries the instance tint). */
++const ROLE_BASE_TINT = "#ffffff";
++
++/**
++ * Build the two instanced role meshes (protons / neutrons) for the hub
++ * from the deterministic cluster. ONE unit-sphere geometry is shared by
++ * both meshes; per-instance color carries the nucleon tint, per-role
++ * material carries the roughness/emissive differentiation — the two
++ * materials use the same `makeFresnelCoreMaterial` injection, so the whole
++ * hub (anchor + protons + neutrons) compiles to ONE program (program-cache
++ * friendly; roles differ only in uniforms).
++ */
++function buildRoleMeshes(
++  cluster: NucleusCluster,
++  stateEmissive: number
++): { protonMesh: THREE.InstancedMesh; neutronMesh: THREE.InstancedMesh } {
++  const protonParticles = cluster.particles.filter((p) => p.isProton);
++  const neutronParticles = cluster.particles.filter((p) => !p.isProton);
++
++  const geometry = new THREE.SphereGeometry(1, 24, 24);
++  const protonMaterial = makeFresnelCoreMaterial(
++    ROLE_BASE_TINT,
++    ROLE_BASE_TINT,
++    stateEmissive * PROTON_EMISSIVE_MUL
++  );
++  protonMaterial.roughness = PROTON_ROUGHNESS;
++  const neutronMaterial = makeFresnelCoreMaterial(
++    ROLE_BASE_TINT,
++    ROLE_BASE_TINT,
++    stateEmissive * NEUTRON_EMISSIVE_MUL
++  );
++  neutronMaterial.roughness = NEUTRON_ROUGHNESS;
++
++  const matrix = new THREE.Matrix4();
++  const color = new THREE.Color();
++  const fill = (mesh: THREE.InstancedMesh, particles: NucleusParticle[]): void => {
++    for (let i = 0; i < particles.length; i += 1) {
++      const p = particles[i];
++      const s = NUCLEON_WORLD_RADIUS * p.scaleMul;
++      matrix.makeScale(s, s, s);
++      matrix.setPosition(
++        p.position[0] * NUCLEON_CLUSTER_SCALE,
++        p.position[1] * NUCLEON_CLUSTER_SCALE,
++        p.position[2] * NUCLEON_CLUSTER_SCALE
++      );
++      mesh.setMatrixAt(i, matrix);
++      color.set(p.tint);
++      mesh.setColorAt(i, color);
++    }
++    mesh.instanceMatrix.needsUpdate = true;
++    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
++  };
++
++  const protonMesh = new THREE.InstancedMesh(
++    geometry,
++    protonMaterial,
++    Math.max(protonParticles.length, 1)
++  );
++  const neutronMesh = new THREE.InstancedMesh(
++    geometry,
++    neutronMaterial,
++    Math.max(neutronParticles.length, 1)
++  );
++  protonMesh.frustumCulled = false;
++  neutronMesh.frustumCulled = false;
++  fill(protonMesh, protonParticles);
++  fill(neutronMesh, neutronParticles);
++  return { protonMesh, neutronMesh };
++}
+ 
+ export function Nucleus({
+   descriptor,
+@@ -70,39 +172,84 @@ export function Nucleus({
+   focused: boolean;
+ }) {
+   const coreRef = useRef<THREE.Mesh | null>(null);
++  const clusterRef = useRef<THREE.Group | null>(null);
+ 
+   const state = descriptor.visualState.state;
+   const coreColor = NUCLEUS_STATE_COLOR[state] ?? NUCLEUS_STATE_COLOR.healthy;
+   // A focused nucleus glows more strongly (readable emphasis).
+   const rimBoost = focused ? FOCUSED_RIM_BOOST : 1;
++  const stateEmissive = HUB_BASE_EMISSIVE * rimBoost;
+ 
+-  // One shared fresnel-injected material, tinted by the per-state color.
++  // One shared fresnel-injected anchor material, tinted by the per-state
++  // color (truthful mapping, unchanged).
+   const coreMaterial = useMemo(() => {
+-    const m = makeFresnelCoreMaterial(coreColor, coreColor, 0.4 * rimBoost);
++    const m = makeFresnelCoreMaterial(coreColor, coreColor, stateEmissive);
+     return m;
+-  }, [coreColor, rimBoost]);
++  }, [coreColor, stateEmissive]);
+ 
+-  const glowTexture = useMemo(() => getSharedGlowTexture(), []);
++  // Deterministic seed (same FNV-1a pattern as `visualEncoding.ts`). The
++  // hub ALWAYS renders the neutral two-tone palette — it has no model
++  // attribution (the snapshot carries no per-node model ids for the hub),
++  // so `observedModelIds` is deliberately never passed.
+   const seed = useMemo(() => fnv1a(descriptor.id), [descriptor.id]);
++  const cluster = useMemo(
++    () =>
++      buildNucleusCluster({
++        seed,
++        particleCount: HUB_NUCLEUS_PARTICLE_COUNT,
++      }),
++    [seed]
++  );
++
++  const glowTexture = useMemo(() => getSharedGlowTexture(), []);
++
++  // The instanced role meshes are built imperatively: a shared unit-sphere
++  // geometry is reused by both role meshes and must be disposed with the
++  // meshes on unmount/rebuild (JSX geometry disposal is keyed to element
++  // identity, which would leak the shared buffer).
++  const roleMeshes = useMemo(
++    () => buildRoleMeshes(cluster, stateEmissive),
++    [cluster, stateEmissive]
++  );
++  useEffect(
++    () => () => {
++      roleMeshes.protonMesh.dispose();
++      roleMeshes.neutronMesh.dispose();
++      roleMeshes.protonMesh.geometry.dispose();
++      roleMeshes.protonMesh.material.dispose();
++      roleMeshes.neutronMesh.material.dispose();
++    },
++    [roleMeshes]
++  );
+ 
+-  // Per-frame: breathing scale (static when paused / reduced-motion / context
+-  // lost). No React state; only the core scale is mutated.
++  // Per-frame: breathing scale (static when paused / reduced-motion /
++  // context lost). No React state; only the anchor + cluster scales are
++  // mutated (the cluster orientation is seed-fixed — static, no spin, since
++  // the hub has no measured rate to map).
+   useFrame(() => {
+     const core = coreRef.current;
+-    if (!core) return;
++    const cl = clusterRef.current;
++    if (!core && !cl) return;
+     const frozen = paused || sceneState.contextLost || sceneState.reducedMotion;
+     const s = frozen
+       ? 1
+       : breathingScale(sceneClock.now, BREATH_PERIOD[state], BREATH_AMPLITUDE, true);
+-    core.scale.setScalar(s);
++    if (core) core.scale.setScalar(ANCHOR_WORLD_RADIUS * s);
++    if (cl) cl.scale.setScalar(s);
+   });
+ 
+   return (
+     <group position={[0, 0, 0]}>
+-      <mesh ref={coreRef}>
+-        <sphereGeometry args={[NUCLEUS_RADIUS, 48, 48]} />
++      {/* Central anchor sphere — small dense core; fresnel rim injected. */}
++      <mesh ref={coreRef} scale={ANCHOR_WORLD_RADIUS}>
++        <sphereGeometry args={[1, 32, 32]} />
+         <primitive object={coreMaterial} attach="material" />
+       </mesh>
++      {/* Proton/neutron nucleon cluster (instanced, shared unit geometry). */}
++      <group ref={clusterRef}>
++        <primitive object={roleMeshes.protonMesh} dispose={null} />
++        <primitive object={roleMeshes.neutronMesh} dispose={null} />
++      </group>
+       {/* Outer additive glow — the scene's primary light source. */}
+       {glowTexture && (
+         <sprite scale={[NUCLEUS_RADIUS * GLOW_SPRITE_SCALE, NUCLEUS_RADIUS * GLOW_SPRITE_SCALE, 1]}>
+diff --git a/src/plugins/atomic-topology/scene/cloudHaze.ts b/src/plugins/atomic-topology/scene/cloudHaze.ts
+new file mode 100644
+index 000000000..2de24a92b
+--- /dev/null
++++ b/src/plugins/atomic-topology/scene/cloudHaze.ts
+@@ -0,0 +1,160 @@
++/**
++ * Pure orbital-haze math for the Atomic scene (OR-ATOM-008 S8.2).
++ *
++ * No `three`, no DOM, no `Math.random`, no clock. Adds a volumetric luminous
++ * haze *around* the existing electron shells: 1–3 large, very soft,
++ * translucent additive billboards per atom, each counter-rotating slowly and
++ * "breathing" (±3–5 % scale) with the pause-aware scene clock. All per-sprite
++ * parameters are deterministic from the atom seed (FNV-1a bit-slice pattern —
++ * same construction as `cloudShells.ts`), so the scene must not depend on
++ * array order or wall-clock time.
++ *
++ * Quality tiers (web-quality-performance: bounded sprite budget): worst case
++ * is 38 ring atoms × 3 haze sprites (high tier) = 114 haze sprites, keeping
++ * the whole scene under the ~700 total-sprite budget. The tier is resolved
++ * ONCE at module scope (stable for the lifetime of the module — it never
++ * flickers mid-session) from `navigator.hardwareConcurrency`.
++ */
++
++import { fnv1a } from "./cloudShells";
++
++/** The three haze quality tiers. */
++export type HazeQualityTier = "high" | "medium" | "low";
++
++/** Per-tier haze parameters (module-scope constants — the only place tier numbers live). */
++export interface HazeTierParams {
++  /** Haze billboards per atom (high 3 / medium 2 / low 1). */
++  spriteCount: number;
++  /**
++   * Base per-sprite additive opacity (0.03–0.08 — very low so the cloud reads
++   * as volume without blowing out white; worst-case stack is
++   * 3 × 0.06 × 1.15 opacity jitter = 0.207 < 0.25 at the nucleus).
++   */
++  spriteOpacity: number;
++  /**
++   * Base billboard radius as a multiple of the cloud's base radius. Each
++   * sprite jitters up to +0.4× from this base, staying inside [2.6, 3.4] ×.
++   */
++  radiusMultiplier: number;
++  /** Base counter-rotation speed, rad/s (one revolution ≈ 1.3–3 min). */
++  spinRadPerSecond: number;
++  /** Scale-breathing amplitude (±0.03–0.05). */
++  breathAmplitude: number;
++  /** Scale-breathing period, seconds (very slow). */
++  breathPeriodSeconds: number;
++}
++
++/** Quality-tier table (high/medium/low). */
++export const HAZE_TIER_TABLE: Record<HazeQualityTier, HazeTierParams> = {
++  high: {
++    spriteCount: 3,
++    spriteOpacity: 0.06,
++    radiusMultiplier: 3.0,
++    spinRadPerSecond: 0.08,
++    breathAmplitude: 0.05,
++    breathPeriodSeconds: 9,
++  },
++  medium: {
++    spriteCount: 2,
++    spriteOpacity: 0.05,
++    radiusMultiplier: 2.9,
++    spinRadPerSecond: 0.07,
++    breathAmplitude: 0.04,
++    breathPeriodSeconds: 10,
++  },
++  low: {
++    spriteCount: 1,
++    spriteOpacity: 0.04,
++    radiusMultiplier: 2.7,
++    spinRadPerSecond: 0.06,
++    breathAmplitude: 0.03,
++    breathPeriodSeconds: 11,
++  },
++};
++
++/**
++ * Haze render order — strictly below the electron sprites (renderOrder 0) so
++ * the crisp moving points composite on top of the soft luminous volume.
++ */
++export const HAZE_RENDER_ORDER = -1;
++
++/**
++ * Resolve the haze quality tier from a CPU-core count (stable heuristic, no
++ * flicker). 1–7 cores → low, 8–11 → medium, ≥12 → high. An absent/falsy core
++ * count (SSR, headless) falls back to the 8-core default (medium).
++ */
++export function resolveHazeQualityTier(hardwareConcurrency?: number): HazeQualityTier {
++  const cores = hardwareConcurrency || 8;
++  const steps = Math.min(3, Math.max(1, Math.floor(cores / 4)));
++  return steps >= 3 ? "high" : steps === 2 ? "medium" : "low";
++}
++
++/**
++ * The scene's haze tier, resolved ONCE at module scope — stable for the
++ * lifetime of the module (never re-evaluated per frame, per atom, or per
++ * render; the browser's `navigator.hardwareConcurrency` is read at most once
++ * here, guarded for SSR — Node ≥22 exposes a global `navigator`, so the SSR
++ * signal is `window`, not `navigator`).
++ */
++export const HAZE_TIER: HazeQualityTier = resolveHazeQualityTier(
++  typeof window === "undefined" ? undefined : navigator.hardwareConcurrency
++);
++
++/** One haze billboard around an atom (deterministic per seed + slot index). */
++export interface HazeSpriteParams {
++  /** Billboard radius multiplier vs the cloud's base radius, inside [2.6, 3.4]. */
++  scaleMultiplier: number;
++  /**
++   * Counter-rotation speed in rad/s — always NEGATIVE (the electron shells
++   * spin positive), magnitude 0.4×–1.0× the tier base.
++   */
++  spinRadPerSecond: number;
++  /** Initial in-plane rotation (radians, [0, 2π)). */
++  spinPhase: number;
++  /** Initial phase of the scale-breathing sine (radians, [0, 2π)). */
++  breathPhase: number;
++  /** Per-sprite opacity multiplier (0.85–1.15) — desynchronizes the stack. */
++  opacityScale: number;
++}
++
++const TWO_PI = Math.PI * 2;
++
++/**
++ * Deterministic per-sprite haze parameters from a seed.
++ *
++ * Same FNV bit-slice construction as `cloudShells()`: hash `"<seed>:<i>"` and
++ * read 16-bit slices at different bit offsets so the 1–3 billboards of one
++ * atom get distinct scale/spin/breath without a visible pattern.
++ */
++export function hazeSprites(seed: number, tier: HazeQualityTier): HazeSpriteParams[] {
++  const params = HAZE_TIER_TABLE[tier];
++  const out: HazeSpriteParams[] = [];
++  for (let i = 0; i < params.spriteCount; i += 1) {
++    const s = fnv1a(`${seed}:${i}`);
++    const frac = (shift: number): number => ((s >>> shift) & 0xffff) / 0x10000;
++    out.push({
++      scaleMultiplier: params.radiusMultiplier + 0.4 * frac(0),
++      spinRadPerSecond: -params.spinRadPerSecond * (0.4 + 0.6 * frac(12)),
++      spinPhase: frac(24) * TWO_PI,
++      breathPhase: frac(36) * TWO_PI,
++      opacityScale: 0.85 + 0.3 * frac(48),
++    });
++  }
++  return out;
++}
++
++/**
++ * The haze sprite's in-plane rotation at clock time `t` (absolute, not
++ * accumulated — a frozen clock holds the angle exactly and resume is
++ * contiguous; same pattern as the shell spin in `ElectronCloud.tsx`).
++ */
++export function hazeSpinRadians(p: HazeSpriteParams, t: number): number {
++  const angle = (p.spinPhase + p.spinRadPerSecond * t) % TWO_PI;
++  return angle < 0 ? angle + TWO_PI : angle;
++}
++
++/** The scale-breathing factor at clock time `t` (1 ± tier amplitude). */
++export function hazeBreathScale(p: HazeSpriteParams, t: number, tier: HazeTierParams): number {
++  const phase = (TWO_PI * t) / tier.breathPeriodSeconds + p.breathPhase;
++  return 1 + tier.breathAmplitude * Math.sin(phase);
++}
+diff --git a/src/plugins/atomic-topology/scene/filament.ts b/src/plugins/atomic-topology/scene/filament.ts
+new file mode 100644
+index 000000000..0a96dab1c
+--- /dev/null
++++ b/src/plugins/atomic-topology/scene/filament.ts
+@@ -0,0 +1,430 @@
++/**
++ * Pure filament math for the Atomic scene (OR-ATOM-008 S8.1).
++ *
++ * No `three`, no DOM, no `Math.random`, no clock. The scene components consume
++ * these pure functions so the arc-length lookup, the bounded pulse-packet
++ * scheduling, the traveling completion impulse, the seeded failure branches
++ * and the ribbon strip layout are deterministic and unit-testable in Node.
++ *
++ * Zero per-frame allocation contract (web-quality-performance): the caller
++ * builds the arc-length table ONCE per geometry (`buildArcLengthTable` —
++ * memoized) and passes a preallocated `number[3]` scratch (in the scene, a
++ * shared `THREE.Vector3`) into every per-frame call. Every per-frame helper
++ * here is allocation-free and stateless; `branchGeometry` /
++ * `buildRibbonStripData` allocate once per geometry change (memoized
++ * upstream — never per frame).
++ */
++import { fnv1a } from "./cloudShells";
++import { mulberry32 } from "./discharge";
++
++/** A flat (x0,y0,z0, x1,y1,z1, …) list of sampled curve points. */
++export type PointArray = readonly number[];
++
++/** Something that receives a written (x, y, z) — a scratch `number[3]`. */
++export interface Vec3Out {
++  x: number;
++  y: number;
++  z: number;
++}
++
++/**
++ * A cumulative arc-length table over a sampled polyline.
++ *
++ * `totalLength` is the sum of all segment lengths; `cumulative[i]` is the
++ * length from the first point up to point `i` (`cumulative[0] === 0`,
++ * `cumulative[last] === totalLength`). A valid table has ≥ 2 points.
++ */
++export interface ArcLengthTable {
++  /** Total arc length of the polyline. */
++  readonly totalLength: number;
++  /** `cumulative[i]` — arc length from `points[0]` to point `i`. */
++  readonly cumulative: Float32Array;
++}
++
++/**
++ * Build the cumulative arc-length table from flat sampled points
++ * (webgpu-threejs-tsl `arc-length progress` technique: the Bézier is sampled
++ * ONCE into `CURVE_SEGMENTS` points — `EnergyLink` already does this — and
++ * emission heads are placed by arc-length fraction instead of raw index, so
++ * packets travel at a visually constant speed along the curve).
++ *
++ * Pure + allocation-free beyond the single output `Float32Array`. Fewer than
++ * 2 points yields `totalLength === 0` (the lookup then writes zeros —
++ * degenerate guard).
++ */
++export function buildArcLengthTable(points: PointArray): ArcLengthTable {
++  const n = points.length / 3;
++  if (n < 2) {
++    return { totalLength: 0, cumulative: new Float32Array(0) };
++  }
++  const cumulative = new Float32Array(n);
++  cumulative[0] = 0;
++  for (let i = 1; i < n; i += 1) {
++    const ax = points[(i - 1) * 3];
++    const ay = points[(i - 1) * 3 + 1];
++    const az = points[(i - 1) * 3 + 2];
++    const dx = points[i * 3] - ax;
++    const dy = points[i * 3 + 1] - ay;
++    const dz = points[i * 3 + 2] - az;
++    cumulative[i] = cumulative[i - 1] + Math.sqrt(dx * dx + dy * dy + dz * dz);
++  }
++  return { totalLength: cumulative[n - 1], cumulative };
++}
++
++/**
++ * A `fraction → point` lookup bound to one polyline (webgpu-threejs-tsl
++ * `curve.getPointAt(t)` equivalent on the memoized table). The returned
++ * closure writes into `out` (a preallocated `THREE.Vector3`) via binary
++ * search over the cumulative table + linear interpolation inside the hit
++ * segment — zero per-frame allocation, zero per-frame state.
++ */
++export function createPointAtFraction(
++  table: ArcLengthTable,
++  points: PointArray
++): (fraction: number, out: Vec3Out) => void {
++  const n = table.cumulative.length;
++  return (fraction, out) => {
++    const total = table.totalLength;
++    if (total <= 0 || n < 2) {
++      out.x = 0;
++      out.y = 0;
++      out.z = 0;
++      return;
++    }
++    const f = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
++    const target = f * total;
++    // Binary search: first index with cumulative[i] >= target.
++    let lo = 0;
++    let hi = n - 1;
++    while (lo < hi) {
++      const mid = (lo + hi) >> 1;
++      if (table.cumulative[mid] < target) lo = mid + 1;
++      else hi = mid;
++    }
++    const i = Math.max(1, lo);
++    const segStart = table.cumulative[i - 1];
++    const segLen = table.cumulative[i] - segStart;
++    const w = segLen > 1e-9 ? (target - segStart) / segLen : 0;
++    const ax = points[(i - 1) * 3];
++    const ay = points[(i - 1) * 3 + 1];
++    const az = points[(i - 1) * 3 + 2];
++    out.x = ax + (points[i * 3] - ax) * w;
++    out.y = ay + (points[i * 3 + 1] - ay) * w;
++    out.z = az + (points[i * 3 + 2] - az) * w;
++  };
++}
++
++/* ------------------------------------------------------------------ */
++/* Bounded pulse-packet pool (≤ MAX_PACKET_POOL packets per link)      */
++/* ------------------------------------------------------------------ */
++
++/** The hard bound on pulse packets per link (spec: ≤ 3). */
++export const MAX_PACKET_POOL = 3;
++/** Tails per packet (head + 2 tail sprites — spec; fixed → no allocation). */
++export const PACKET_TAILS = 2;
++/**
++ * A packet is dormant during the last `PACKET_GAP_FRACTION` of its hop —
++ * the comet has arrived at the atom and the packet is invisible, so
++ * staggered packets never pop at the wrap (bounded, no fabricated motion).
++ */
++export const PACKET_GAP_FRACTION = 0.32;
++/** Tail spacing behind the head, in arc-length fraction (innermost first). */
++export const PACKET_TAIL_STEP = 0.045;
++/** Per-tail decay factor for opacity + scale (comet trail). */
++export const PACKET_TAIL_DECAY = 0.55;
++/** Head fade in/out band (fraction of the visible hop) — no wrap pop. */
++export const PACKET_FADE_BAND = 0.15;
++
++/**
++ * Pool size from the link's visual-state evidence (no fabrication):
++ * - `0` when the link has no active traffic (`active === false`) — static
++ *   filament only;
++ * - `0` under reduced motion (`reducedMotion === true`) — spec: pool scales
++ *   down to zero, static only;
++ * - otherwise `min(activeSlots, MAX_PACKET_POOL)` — multiple in-flight
++ *   requests render distinct packets, bounded by the pool cap.
++ */
++export function packetPoolSize(activeSlots: number, active: boolean, reducedMotion: boolean): number {
++  if (!active || reducedMotion) return 0;
++  if (activeSlots <= 0) return 0;
++  return Math.min(activeSlots, MAX_PACKET_POOL);
++}
++
++/**
++ * Raw (un-eased) head progress ∈ [0, 1] of the `index`-th packet in a pool
++ * of `packets` at scene-time `tSeconds`.
++ *
++ * Stagger discipline (interaction-design: bounded, continuous motion):
++ * every packet runs its OWN full hop of `periodSeconds` (spec: ~2.5 s/hop,
++ * independent of pool size), offset by `index / packets` of the period so
++ * staggered packets never occupy the same point of the path at the same
++ * time. The last `PACKET_GAP_FRACTION` of the hop is a dormant trailing gap
++ * where the packet has arrived at the atom and is hidden — combined with the
++ * head fade-in/out band (`packetHeadOpacity`) this removes the wrap-around
++ * pop completely (no motion without evidence).
++ *
++ * Wrap-safe with the pause-aware clock (`tSeconds % period`), so a
++ * paused/resumed clock produces no jump (motion.ts contract).
++ */
++export function packetHeadProgress(
++  tSeconds: number,
++  periodSeconds: number,
++  index: number,
++  packets: number
++): number {
++  if (periodSeconds <= 0 || packets <= 0) return 0;
++  const m = tSeconds % periodSeconds;
++  const phase = ((m < 0 ? m + periodSeconds : m) / periodSeconds + index / packets) % 1;
++  const visibleEnd = 1 - PACKET_GAP_FRACTION;
++  if (phase >= visibleEnd) return 0; // trailing gap → dormant
++  return phase / visibleEnd; // 0..1 progress across the visible path
++}
++
++/**
++ * Tail offset (arc-length fraction BEHIND the head) for the `tailIndex`-th
++ * tail sprite (0 = innermost). Always `0 < tailOffset` when `tailIndex ≥ 0`;
++ * the caller clamps `head − tailOffset` to ≥ 0.
++ */
++export function packetTailStep(tailIndex: number): number {
++  if (tailIndex < 0) return 0;
++  return PACKET_TAIL_STEP * (tailIndex + 1);
++}
++
++/**
++ * Head sprite opacity for a packet at raw progress `p` ∈ [0, 1]: fades in
++ * over the first `PACKET_FADE_BAND` and out over the last one (no pop at
++ * the hop wrap). Bounded to [0, 1].
++ */
++export function packetHeadOpacity(progress: number): number {
++  const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
++  const fadeIn = Math.min(1, p / PACKET_FADE_BAND);
++  const fadeOut = Math.min(1, (1 - p) / PACKET_FADE_BAND);
++  return fadeIn * fadeOut;
++}
++
++/**
++ * Tail sprite opacity for the `tailIndex`-th tail (monotone-decaying comet
++ * trail): `headOpacity(p) × PACKET_TAIL_DECAY^(tailIndex+1)`. Bounded [0, 1].
++ */
++export function packetTailOpacity(progress: number, tailIndex: number): number {
++  const decay = Math.pow(PACKET_TAIL_DECAY, tailIndex + 1);
++  return packetHeadOpacity(progress) * decay;
++}
++
++/** Tail sprite scale multiplier for the `tailIndex`-th tail (bounded ≤ 1). */
++export function packetTailScale(tailIndex: number): number {
++  return 0.85 * Math.pow(PACKET_TAIL_DECAY, tailIndex + 1);
++}
++
++/* ------------------------------------------------------------------ */
++/* Traveling completion impulse (the flash now moves)                  */
++/* ------------------------------------------------------------------ */
++
++/**
++ * How far (arc-length fraction) the completion impulse travels over its
++ * ~350 ms duration — a short "cool" impulse starting just behind the atom
++ * and arriving AT the atom as it decays (S8.1: "moves toward the atom").
++ */
++export const COMPLETION_TRAVEL_FRACTION = 0.15;
++
++/**
++ * Arc-length fraction of the traveling completion impulse at
++ * `elapsedFraction` ∈ [0, 1] through its duration, given an already-eased
++ * progress `easedProgress` ∈ [0, 1] (the scene feeds `easeOutSharp`).
++ *
++ * - Starts just behind the atom end: `1 − COMPLETION_TRAVEL_FRACTION`.
++ * - Arrives exactly at the atom (fraction 1) as the intensity decays to 0 —
++ *   the flash lands on the atom and dissolves there (clean decay).
++ * - Monotone non-decreasing; clamped to [1 − TRAVEL_FRACTION, 1].
++ */
++export function completionImpulseFraction(elapsedFraction: number, easedProgress: number): number {
++  const e = elapsedFraction < 0 ? 0 : elapsedFraction > 1 ? 1 : elapsedFraction;
++  const eased = easedProgress < 0 ? 0 : easedProgress > 1 ? 1 : easedProgress;
++  return 1 - COMPLETION_TRAVEL_FRACTION * (1 - eased * e);
++}
++
++/* ------------------------------------------------------------------ */
++/* Seeded failure branches (1–2 short kinks off mid-segments)          */
++/* ------------------------------------------------------------------ */
++
++/**
++ * Deterministic branch count (1–2) for a link from a seed — the same link in
++ * the same state always grows the same number of branches (FNV-1a seed, the
++ * repo's established pattern; NO `Math.random`).
++ */
++export function branchCount(seedString: string): number {
++  const h = fnv1a(seedString);
++  return 1 + (h % 2);
++}
++
++/**
++ * One branch in bolt-unit space (x along the hub→target axis, y/z
++ * perpendicular — the SAME space as `discharge.boltPoints`): an anchor point
++ * on the bolt plus two kinks that fork off the mid-segment and die out.
++ */
++export interface BoltBranch {
++  /** Branch root — sits exactly on the bolt polyline. */
++  readonly x0: number;
++  readonly y0: number;
++  readonly z0: number;
++  /** First kink — perpendicular to the bolt, bounded by `amplitude`. */
++  readonly x1: number;
++  readonly y1: number;
++  readonly z1: number;
++  /** Second kink — further out along the branch's own direction (dying spark). */
++  readonly x2: number;
++  readonly y2: number;
++  readonly z2: number;
++}
++
++/**
++ * Deterministic short branches forking OFF the mid-segments of a bolt.
++ *
++ * - Pure + seeded: `mulberry32(fnv1a(seedString))` (same seed → identical
++ *   branches); NO `Math.random`.
++ * - `boltPointsFlat` is the bolt's flat unit-space points
++ *   (x,y,z triples; hub = origin, target = (1,0,0)); branch `b` anchors at
++ *   `0.38 + 0.24·b` of the bolt's span (mid-segments, away from both ends
++ *   so the bolt still connects hub→atom).
++ * - Each branch consumes a FIXED 5-value PRNG stream, so the branch count
++ *   never re-seeds the other branches' values.
++ * - Bounded: kink 1's perpendicular offset ≤ `amplitude` (same units as the
++ *   bolt's jitter, i.e. `BOLT_MAX_JITTER / chordLength` in the scene); the
++ *   branch extends at most ~15% of the chord along the tangent.
++ *
++ * Allocates exactly one small output array (memoized once per mount — never
++ * per frame).
++ */
++export function branchGeometry(seedString: string, boltPointsFlat: PointArray, amplitude: number): BoltBranch[] {
++  const count = branchCount(seedString);
++  const n = boltPointsFlat.length / 3;
++  const branches: BoltBranch[] = [];
++  if (n < 2) return branches;
++  const last = n - 1;
++  for (let b = 0; b < count; b += 1) {
++    const rand = mulberry32(fnv1a(`${seedString}:branch:${b}`));
++    // Anchor on the bolt at the branch's mid-segment fraction.
++    const anchorF = (0.38 + 0.24 * b) * last;
++    const ai = Math.min(last - 1, Math.max(1, Math.round(anchorF)));
++    const w = anchorF - ai;
++    const ax = boltPointsFlat[(ai - 1) * 3] + (boltPointsFlat[ai * 3] - boltPointsFlat[(ai - 1) * 3]) * w;
++    const ay =
++      boltPointsFlat[(ai - 1) * 3 + 1] +
++      (boltPointsFlat[ai * 3 + 1] - boltPointsFlat[(ai - 1) * 3 + 1]) * w;
++    const az =
++      boltPointsFlat[(ai - 1) * 3 + 2] +
++      (boltPointsFlat[ai * 3 + 2] - boltPointsFlat[(ai - 1) * 3 + 2]) * w;
++    // Tangent along the bolt at the anchor (≈ +x; (1,0,0) fallback).
++    let tx = boltPointsFlat[ai * 3] - boltPointsFlat[(ai - 1) * 3];
++    let ty = boltPointsFlat[ai * 3 + 1] - boltPointsFlat[(ai - 1) * 3 + 1];
++    let tz = boltPointsFlat[ai * 3 + 2] - boltPointsFlat[(ai - 1) * 3 + 2];
++    const tl = Math.sqrt(tx * tx + ty * ty + tz * tz);
++    if (tl > 1e-9) {
++      tx /= tl;
++      ty /= tl;
++      tz /= tl;
++    } else {
++      tx = 1;
++      ty = 0;
++      tz = 0;
++    }
++    // Seeded unit direction perpendicular to the tangent, in the bolt's
++    // (y, z) jitter plane (the bolt's jitter lives there too, so the branch
++    // forks naturally out of the discharge).
++    const dy = rand() * 2 - 1;
++    const dz = rand() * 2 - 1;
++    const dot = ty * dy + tz * dz;
++    let oy = dy - ty * dot;
++    let oz = dz - tz * dot;
++    const ol = Math.sqrt(oy * oy + oz * oz);
++    if (ol > 1e-6) {
++      oy /= ol;
++      oz /= ol;
++    } else {
++      oy = 1;
++      oz = 0;
++    }
++    // Branch reach: ~9–14% of the chord, shrinking toward the target end.
++    const lenFrac = 0.09 + 0.05 * (rand() * 2 - 1);
++    const len = lenFrac * Math.max(0.5, 1 - Math.abs(ax));
++    const amp = amplitude * 0.9;
++    // Kink 1: off the bolt along the perpendicular, plus a seeded twist.
++    const twist = 0.4 * (rand() * 2 - 1);
++    const k1 = Math.sqrt(Math.max(0, 1 - twist * twist));
++    branches.push({
++      x0: ax,
++      y0: ay,
++      z0: az,
++      x1: ax + tx * len * 0.35,
++      y1: ay + ty * len * 0.35 + (oy * k1 + ty * twist) * amp,
++      z1: az + tz * len * 0.35 + (oz * k1 + tz * twist) * amp,
++      // Kink 2: further out along the branch's own direction (dying spark).
++      x2: ax + tx * len * 0.8,
++      y2: ay + ty * len * 0.8 + (oy * k1 + ty * twist) * amp * 1.9,
++      z2: az + tz * len * 0.8 + (oz * k1 + tz * twist) * amp * 1.9,
++    });
++    // Consume the final rand so the per-branch stream is fixed-width.
++    rand();
++  }
++  return branches;
++}
++
++/* ------------------------------------------------------------------ */
++/* Ribbon strip layout (the halo quad-strip along the curve)          */
++/* ------------------------------------------------------------------ */
++
++/**
++ * Build the flat vertex/UV/index data for a ribbon quad-strip woven along a
++ * sampled curve: `segments` quads (positions at arc-length fractions
++ * `i/segments` … `1`, each pair offset ±`halfWidth` along the curve
++ * PERPENDICULAR in the screen-facing plane `planeBasis` — a single unit
++ * vector in the (y,z) space of the curve, so every quad's normal points
++ * toward the camera at the default framing).
++ *
++ * Layout (counter-clockwise when looking down the curve):
++ * ```
++ *   [i*2-1, i*2]     — quad i: v0 = center − halfWidth·basis
++ *   [i*2+1, i*2+3]   — v1 = center + halfWidth·basis
++ * ```
++ * - `positions` length = `(segments + 1) * 2 * 3`.
++ * - `uvs` length = `(segments + 1) * 2 * 2` — u along the curve (0..1),
++ *   v = 0 (−side) / 1 (+side).
++ * - `indices` length = `segments * 6` (unsigned short range — ≤ 65535
++ *   vertices; the scene uses `RIBBON_SEGMENTS = 32` → 66 vertices).
++ *
++ * Pure; allocates exactly the three output arrays (memoized once per
++ * geometry — never per frame). `basisY`/`basisZ` must be a unit vector.
++ */
++export function buildRibbonStripData(
++  table: ArcLengthTable,
++  points: PointArray,
++  segments: number,
++  halfWidth: number,
++  basisY: number,
++  basisZ: number
++): { positions: number[]; uvs: number[]; indices: number[] } {
++  const pointAt = createPointAtFraction(table, points);
++  const scratch = { x: 0, y: 0, z: 0 };
++  const segs = Math.max(1, Math.floor(segments));
++  const positions: number[] = [];
++  const uvs: number[] = [];
++  for (let i = 0; i <= segs; i += 1) {
++    const f = i / segs;
++    pointAt(f, scratch);
++    positions.push(
++      scratch.x,
++      scratch.y - halfWidth * basisY,
++      scratch.z - halfWidth * basisZ,
++      scratch.x,
++      scratch.y + halfWidth * basisY,
++      scratch.z + halfWidth * basisZ
++    );
++    uvs.push(f, 0, f, 1);
++  }
++  const indices: number[] = [];
++  for (let i = 0; i < segs; i += 1) {
++    const a = i * 2;
++    indices.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
++  }
++  return { positions, uvs, indices };
++}
+diff --git a/src/plugins/atomic-topology/scene/nucleusCluster.ts b/src/plugins/atomic-topology/scene/nucleusCluster.ts
+new file mode 100644
+index 000000000..8ecd000da
+--- /dev/null
++++ b/src/plugins/atomic-topology/scene/nucleusCluster.ts
+@@ -0,0 +1,345 @@
++/**
++ * Deterministic nucleus-cluster builder for the Atomic scene
++ * (OR-ATOM-008, S8.3 — distinct proton/neutron shading + model identity).
++ *
++ * Pure module: no `three`, no DOM, no `Math.random` (seeded mulberry32 driven
++ * by the caller's FNV-1a id hash — the same determinism pattern as
++ * `cloudShells.ts` and `visualEncoding.ts`).
++ *
++ * What the builder produces (one {@link NucleusCluster} per atom, rendered by
++ * the scene components as TWO instanced meshes sharing ONE unit-sphere
++ * geometry):
++ *
++ *   - **positions** are unit-radius offsets (1 == the atom's core radius) on a
++ *     small even Fibonacci shell of radius {@link NUCLEUS_SHELL_RADIUS}, so
++ *     the cluster reads as the atom *body* — not orbiting electrons.
++ *   - **protons vs neutrons** are distinguished by *scale + material +
++ *     luminance*, not by a color wash (webgpu-threejs-tsl per-particle
++ *     luminance separation): protons are larger, brighter, smooth
++ *     ({@link PROTON_ROUGHNESS}); neutrons smaller, darker, matte
++ *     ({@link NEUTRON_ROUGHNESS}). This module carries the per-particle
++ *     `scaleMul` / `emissiveMul` / `tint` so the exact separation is unit-
++ *     testable; the scene applies the role roughness on two shared material
++ *     instances.
++ *   - **model identity** (visual-design-foundations color-systems): when
++ *     observed model ids exist, particles are grouped into at most
++ *     {@link MAX_MODEL_GROUPS} deterministic angular sectors, each colored by
++ *     `modelColor(modelId)`. Group identity is a hash of the model id (never
++ *     the array index), so groups are stable across frames, redraws, and
++ *     input-ORDER changes; sectors are contiguous azimuth bands, so 2–3 model
++ *     colors read as spatially clustered groups. When ids are absent the
++ *     cluster renders the honest neutral two-tone palette — never labeled as
++ *     observed models.
++ *
++ * The topology snapshot does NOT expose per-node model ids today (the lane
++ * derivation consumes them internally in `normalizeTopology`), so the scene
++ * currently passes none and every nucleus renders neutral. The builder is
++ * fully general and unit-tested so the model-color groups activate the moment
++ * a descriptor carries `observedModelIds` — no scene change needed.
++ */
++import { modelColor } from "../visualEncoding";
++import { fnv1a } from "./cloudShells";
++
++/* ------------------------------------------------------------------ */
++/* Constants — pinned by the unit tests                                */
++/* ------------------------------------------------------------------ */
++
++/** Particle count for a ring (provider/gpu) atom nucleus. Spec: 7–9. */
++export const RING_NUCLEUS_PARTICLE_COUNT = 8;
++/** Particle count for the hub nucleus (more particles keep its prominence). Spec: 11–13. */
++export const HUB_NUCLEUS_PARTICLE_COUNT = 12;
++
++/** Cluster shell radius, in units of the atom's core radius (~0.55×). */
++export const NUCLEUS_SHELL_RADIUS = 0.55;
++/** Deterministic per-particle radial jitter around the shell (± fraction). */
++export const NUCLEUS_SHELL_JITTER = 0.06;
++/**
++ * Base particle radius, in units of the atom's core radius. Sized so the
++ * even-Fibonacci shell spacing keeps the nucleons *packed but individually
++ * distinguishable* (a nucleus reads as structured nucleons, not a fuzzy
++ * ball): the min adjacent chord on the 0.55× shell (2·0.55·sin(π/N) ≈ 0.45
++ * core units for 12 particles) is just above the max proton-proton diameter
++ * (2·0.20·1.15 = 0.46), so same-role neighbors nearly touch without
++ * swallowing each other.
++ */
++export const NUCLEUS_PARTICLE_BASE_RADIUS = 0.2;
++/**
++ * Central anchor sphere radius, as a fraction of the CLUSTER shell radius
++ * (so the anchor stays small relative to the nucleon body on every atom —
++ * S8.3: "keep core sphere as the small central anchor").
++ */
++export const ANCHOR_RADIUS_FRACTION = 0.35;
++
++/** Proton scale range vs the base particle radius (slightly larger). */
++export const PROTON_SCALE_MIN = 1.0;
++export const PROTON_SCALE_MAX = 1.15;
++/** Neutron scale range vs the base particle radius (slightly smaller). */
++export const NEUTRON_SCALE_MIN = 0.75;
++export const NEUTRON_SCALE_MAX = 0.9;
++
++/**
++ * Per-role roughness (webgpu-threejs-tsl: material differentiation, not a
++ * color wash). Protons are smooth/luminous, neutrons matte/absorbent. Applied
++ * as uniforms on two shared material instances — no shader change, so both
++ * roles keep the ONE fresnel-injected compiled program.
++ */
++export const PROTON_ROUGHNESS = 0.35;
++export const NEUTRON_ROUGHNESS = 0.7;
++
++/** Emissive multipliers on top of the per-state emissive (role luminance). */
++export const PROTON_EMISSIVE_MUL = 1.0;
++export const NEUTRON_EMISSIVE_MUL = 0.35;
++
++/** Target proton share of the cluster (~55/45 proton/neutron split). */
++export const PROTON_TARGET_SHARE = 0.55;
++
++/** Maximum distinct model-color groups readable in the nucleus. */
++export const MAX_MODEL_GROUPS = 3;
++
++/**
++ * Neutral two-tone palette for unknown model attribution (visual-
++ * design-foundations: an intentionally neutral two-tone — not a color wash
++ * and not labeled as observed models).
++ *
++ * `PROTON_TINT_WARM` — warm white (a bright neutral).
++ * `NEUTRON_TINT_SLATE` — `UNKNOWN_MODEL_COLOR` (#64748B) darkened toward
++ * slate (#334155) by 45 % → #4E5D73, a cool neutral clearly below the
++ * proton luminance.
++ */
++export const PROTON_TINT_WARM = "#F2EDE3";
++export const NEUTRON_TINT_SLATE = "#4E5D73";
++
++/** Blend toward the warm tint for observed-group protons (bright, warm-lit). */
++export const GROUP_PROTON_WARM_BLEND = 0.45;
++/** Blend toward the cool slate for observed-group neutrons (dim, cool). */
++export const GROUP_NEUTRON_SLATE_BLEND = 0.55;
++
++/** Golden angle — even Fibonacci-sphere spacing, deterministic. */
++const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
++
++/* ------------------------------------------------------------------ */
++/* Pure helpers                                                        */
++/* ------------------------------------------------------------------ */
++
++/** Deterministic seeded PRNG (mulberry32) — stable across engines. */
++function mulberry32(seed: number): () => number {
++  let a = seed >>> 0;
++  return () => {
++    a = (a + 0x6d2b79f5) >>> 0;
++    let t = a;
++    t = Math.imul(t ^ (t >>> 15), t | 1);
++    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
++    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
++  };
++}
++
++/** Mix two hex colors toward `b` by `t` ∈ [0,1]. Returns uppercase hex. */
++export function mixHex(a: string, b: string, t: number): string {
++  const ch = (x: number, y: number): string =>
++    Math.round(x + (y - x) * t)
++      .toString(16)
++      .padStart(2, "0");
++  return (
++    `#${ch(parseInt(a.slice(1, 3), 16), parseInt(b.slice(1, 3), 16))}` +
++    `${ch(parseInt(a.slice(3, 5), 16), parseInt(b.slice(3, 5), 16))}` +
++    `${ch(parseInt(a.slice(5, 7), 16), parseInt(b.slice(5, 7), 16))}`
++  ).toUpperCase();
++}
++
++/**
++ * Canonicalize observed model ids for group assignment:
++ * trim + lowercase (same canonical form as `modelColor`), drop blanks and
++ * duplicates, then sort by the FNV-1a hash of the id — so group k is always
++ * the k-th smallest hash, NEVER the k-th array slot (order-independent).
++ * Caps at {@link MAX_MODEL_GROUPS}.
++ */
++function resolveModelGroups(ids: readonly string[] | undefined): string[] {
++  if (!ids || ids.length === 0) return [];
++  const seen = new Set<string>();
++  const canonical = ids
++    .map((id) => id.trim().toLowerCase())
++    .filter((id) => {
++      if (id.length === 0 || seen.has(id)) return false;
++      seen.add(id);
++      return true;
++    });
++  canonical.sort((x, y) => {
++    const h = fnv1a(x) - fnv1a(y);
++    return h !== 0 ? h : x < y ? -1 : x > y ? 1 : 0;
++  });
++  return canonical.slice(0, MAX_MODEL_GROUPS);
++}
++
++/**
++ * Final instance tint for one particle:
++ * - unknown attribution → the neutral two-tone (role color, no model label);
++ * - observed group → `modelColor(modelId)` blended toward the warm (proton)
++ *   or cool-slate (neutron) role tint, so the group reads as a spatially
++ *   clustered color family while protons stay brighter than neutrons.
++ */
++function particleTint(isProton: boolean, modelId: string | null): string {
++  if (modelId === null) return isProton ? PROTON_TINT_WARM : NEUTRON_TINT_SLATE;
++  const group = modelColor(modelId);
++  return isProton
++    ? mixHex(group, PROTON_TINT_WARM, GROUP_PROTON_WARM_BLEND)
++    : mixHex(group, NEUTRON_TINT_SLATE, GROUP_NEUTRON_SLATE_BLEND);
++}
++
++/** Rotate (x,y,z) around the Y axis by `angle` (radians). */
++function rotateY(x: number, y: number, z: number, angle: number): [number, number, number] {
++  const c = Math.cos(angle);
++  const s = Math.sin(angle);
++  return [x * c + z * s, y, -x * s + z * c];
++}
++
++/** Rotate (x,y,z) around the X axis by `angle` (radians). */
++function rotateX(x: number, y: number, z: number, angle: number): [number, number, number] {
++  const c = Math.cos(angle);
++  const s = Math.sin(angle);
++  return [x, y * c - z * s, y * s + z * c];
++}
++
++/* ------------------------------------------------------------------ */
++/* Builder                                                             */
++/* ------------------------------------------------------------------ */
++
++/** One nucleus particle spec (rendered as an instanced unit sphere). */
++export interface NucleusParticle {
++  /**
++   * Unit-radius offset — 1 == the atom's core radius. The scene scales it by
++   * the core radius; the cluster is therefore proportional per atom.
++   */
++  position: [number, number, number];
++  /** Protons are the larger, brighter, low-roughness role. */
++  isProton: boolean;
++  /** 0..k-1 (observed model-group sector) or `-1` (unknown / neutral). */
++  modelGroupIndex: number;
++  /** Particle radius multiplier relative to the base particle radius. */
++  scaleMul: number;
++  /** Emissive multiplier on top of the per-state emissive (role luminance). */
++  emissiveMul: number;
++  /** Final per-instance tint (hex) — neutral two-tone or model-group color. */
++  tint: string;
++}
++
++/** The full deterministic nucleus cluster (particles + spin axis + groups). */
++export interface NucleusCluster {
++  particles: NucleusParticle[];
++  /**
++   * Unit spin axis (seeded, distinct per atom) — the scene rotates the whole
++   * cluster around it at the measured spin rate; absent spin → static.
++   */
++  spinAxis: [number, number, number];
++  /** Observed model ids after canonicalization (≤ {@link MAX_MODEL_GROUPS}); empty when unknown. */
++  modelGroups: string[];
++}
++
++/** Inputs to {@link buildNucleusCluster}. */
++export interface NucleusClusterInput {
++  /** FNV-1a hash of the atom id (the same seed the electron cloud uses). */
++  seed: number;
++  /** Number of particles (ring = 8, hub = 12 — see the count constants). */
++  particleCount: number;
++  /**
++   * Observed in-flight model ids, when available. Absent / empty → neutral
++   * two-tone palette (honest unknown, no fabricated attribution).
++   */
++  observedModelIds?: readonly string[];
++}
++
++/**
++ * Build the deterministic nucleus cluster.
++ *
++ * Determinism contract (same discipline as `cloudShells.ts`): the same
++ * `(seed, particleCount, observedModelIds)` ALWAYS yields the same specs —
++ * no `Math.random`, no wall clock, no array-order dependence (model ids are
++ * hashed, not indexed). Different seeds give different (but equally even)
++ * orientations.
++ */
++export function buildNucleusCluster(input: NucleusClusterInput): NucleusCluster {
++  const { seed, particleCount } = input;
++  const groups = resolveModelGroups(input.observedModelIds);
++  if (particleCount <= 0) {
++    return { particles: [], spinAxis: [0, 1, 0], modelGroups: groups };
++  }
++
++  const rng = mulberry32(seed);
++
++  // Seeded spin axis on the unit sphere (deterministic per atom; the scene
++  // rotates the cluster around it only when a measured spin rate exists).
++  const axisY = 1 - 2 * rng();
++  const axisR = Math.sqrt(Math.max(0, 1 - axisY * axisY));
++  const axisTheta = rng() * Math.PI * 2;
++  const spinAxis: [number, number, number] = [
++    axisR * Math.cos(axisTheta),
++    axisY,
++    axisR * Math.sin(axisTheta),
++  ];
++
++  // Fibonacci-sphere phase + seed-derived orientation (two fixed-axis
++  // rotations): every atom gets a distinct cluster orientation, but the
++  // spacing stays even and fully deterministic.
++  const phase = rng() * Math.PI * 2;
++  const yaw = rng() * Math.PI * 2;
++  const pitch = rng() * Math.PI * 2;
++
++  // Proton slots: round-robin every 2nd slot from a seeded start, so the
++  // roles alternate around the cluster (no role clumping); a collision from
++  // the wrap-around advances by 1 (deterministic).
++  const protonCount = Math.min(
++    particleCount,
++    Math.max(1, Math.round(particleCount * PROTON_TARGET_SHARE))
++  );
++  const start = Math.floor(rng() * particleCount);
++  const isProton = new Array<boolean>(particleCount).fill(false);
++  const taken = new Set<number>();
++  for (let placed = 0; placed < protonCount; placed += 1) {
++    let slot = (start + placed * 2) % particleCount;
++    while (taken.has(slot)) slot = (slot + 1) % particleCount;
++    isProton[slot] = true;
++    taken.add(slot);
++  }
++
++  const particles: NucleusParticle[] = [];
++  for (let i = 0; i < particleCount; i += 1) {
++    // Even Fibonacci distribution on the unit sphere.
++    const t = (i + 0.5) / particleCount;
++    const y0 = 1 - 2 * t;
++    const r0 = Math.sqrt(Math.max(0, 1 - y0 * y0));
++    const theta = i * GOLDEN_ANGLE + phase;
++    let x = r0 * Math.cos(theta);
++    let y = y0;
++    let z = r0 * Math.sin(theta);
++    [x, y, z] = rotateY(x, y, z, yaw);
++    [x, y, z] = rotateX(x, y, z, pitch);
++
++    // Deterministic per-particle radial jitter around the shell radius.
++    const radius = NUCLEUS_SHELL_RADIUS + (rng() * 2 - 1) * NUCLEUS_SHELL_JITTER;
++
++    // Model-group sector from the POST-rotation azimuth: sectors are
++    // contiguous angular ranges, so groups read as spatial clusters and the
++    // mapping is stable under model ORDER changes (group identity is the
++    // hash-sorted model id, never the array index).
++    const azimuth = Math.atan2(z, x);
++    const modelGroupIndex =
++      groups.length > 0
++        ? Math.floor(((azimuth + Math.PI) / (Math.PI * 2)) * groups.length) % groups.length
++        : -1;
++
++    const proton = isProton[i];
++    const scaleMul = proton
++      ? PROTON_SCALE_MIN + (PROTON_SCALE_MAX - PROTON_SCALE_MIN) * rng()
++      : NEUTRON_SCALE_MIN + (NEUTRON_SCALE_MAX - NEUTRON_SCALE_MIN) * rng();
++
++    particles.push({
++      position: [x * radius, y * radius, z * radius],
++      isProton: proton,
++      modelGroupIndex,
++      scaleMul,
++      emissiveMul: proton ? PROTON_EMISSIVE_MUL : NEUTRON_EMISSIVE_MUL,
++      tint: particleTint(proton, modelGroupIndex >= 0 ? groups[modelGroupIndex] : null),
++    });
++  }
++
++  return { particles, spinAxis, modelGroups: groups };
++}
+diff --git a/src/plugins/atomic-topology/scene/plasmaShader.ts b/src/plugins/atomic-topology/scene/plasmaShader.ts
+new file mode 100644
+index 000000000..1386ab3cc
+--- /dev/null
++++ b/src/plugins/atomic-topology/scene/plasmaShader.ts
+@@ -0,0 +1,129 @@
++/**
++ * Plasma filament shader for the Atomic scene (OR-ATOM-008 S8.1).
++ *
++ * webgpu-threejs-tsl technique, ported to the installed WebGL2 idiom
++ * (three r186 — `three/examples/jsm/tsl` does not exist here): instead of a
++ * TSL node material, the filament halo is injected into a standard
++ * `MeshBasicMaterial`'s vertex + fragment shaders via `onBeforeCompile` —
++ * the same program-cache-friendly pattern as `makeFresnelCoreMaterial` in
++ * `sceneResources.ts`.
++ *
++ * Why a ribbon MESH (not `Line2`) for the halo: `LineMaterial` does NOT
++ * support `onBeforeCompile`, so a shader line would require its own custom
++ * program. A `MeshBasicMaterial` ribbon (a thin quad strip along the curve,
++ * built by `filament.ts::buildRibbonStripData`) reuses a STANDARD program —
++ * the injection adds ZERO custom uniforms:
++ *   - it reuses the stock `diffuse` uniform (set from `material.color`) for
++ *     the per-link lane hue — so every link's tint needs no extra uniform
++ *     and ALL links share ONE compiled program;
++ *   - it reuses the stock `opacity` uniform so the per-state, per-frame
++ *     opacity (driven in `EnergyLink`) scales the plasma without touching
++ *     the program.
++ *
++ * r186 UV channel caveat (verified in `WebGLPrograms.js`): three r186 only
++ * defines `USE_UV`/declares `vUv` when a texture actually consumes channel
++ * 0 — a map-less `MeshBasicMaterial` has NO `vUv` at all. The injection is
++ * therefore SELF-CONTAINED: it declares its own `vPlasmaUv` varying, fed
++ * from the `uv` attribute that three declares UNCONDITIONALLY in the vertex
++ * prelude (`'attribute vec2 uv;'` — `WebGLProgram.js`, verified). No guard,
++ * no dependency on the material's map state.
++ *
++ * The plasma profile (per-fragment): `vPlasmaUv.x` = arc-length fraction
++ * along the link, `vPlasmaUv.y` = 0 at one ribbon edge, 1 at the other
++ * (center at 0.5). A narrow gaussian core at the center reads as a 1–2 CSS
++ * px hairline filament at normal framing (the ribbon is ~0.6 world units
++ * wide — see `EnergyLink.RIBBON_HALF_WIDTH`), plus a wide, low-contrast
++ * gaussian halo on either side ("almost hairline, low-contrast" — S8.1).
++ * The along-path shimmer is a STATIC spatial sine (no time uniform →
++ * deterministic, zero uniforms, and static by construction — exactly what
++ * `prefers-reduced-motion` wants; the traveling ACTIVE packets carry all
++ * motion evidence).
++ *
++ * Pure module: string constants + one factory function. No `three` import,
++ * no DOM, unit-testable in Node.
++ */
++
++/**
++ * Fragment plasma term, spliced right AFTER the `meshbasic` fragment's
++ * `vec3 outgoingLight = reflectedLight.indirectDiffuse;` line (verified in
++ * `three/src/renderers/shaders/ShaderLib/meshbasic.glsl.js` for r186) — the
++ * same value the stock shader then tone-maps, color-space-converts and
++ * writes. Adds the tinted plasma contribution to `outgoingLight`.
++ */
++export const PLASMA_FRAG_INJECTION = /* glsl */ `
++{
++	float plasmaSide = vPlasmaUv.y - 0.5;
++	// Hairline core: narrow gaussian ridge centered on the ribbon.
++	float plasmaCore = exp( -pow( plasmaSide / 0.055, 2.0 ) );
++	// Gentle halo: wide, low-contrast gaussian on both sides.
++	float plasmaHalo = 0.28 * exp( -pow( plasmaSide / 0.30, 2.0 ) );
++	// Static spatial shimmer along the arc (deterministic — no time uniform,
++	// no motion under reduced motion by construction).
++	float plasmaShimmer = 0.92 + 0.08 * sin( vPlasmaUv.x * 62.8319 );
++	// Tinted by the material's own diffuse color (per-link lane hue).
++	outgoingLight += ( plasmaCore * 1.35 + plasmaHalo ) * plasmaShimmer * diffuse * opacity;
++}
++`;
++
++/**
++ * The exact fragment-shader anchor line to splice
++ * {@link PLASMA_FRAG_INJECTION} after. Present in `meshbasic.glsl.js` for
++ * three r16x–r18x (stable since the `outgoingLight` rename; r186 verified).
++ */
++export const PLASMA_FRAG_ANCHOR = "vec3 outgoingLight = reflectedLight.indirectDiffuse;";
++
++/** Vertex anchor: the stock `uv_vertex` include (feeds the UV channel). */
++export const PLASMA_VERT_ANCHOR = "#include <uv_vertex>";
++
++/**
++ * Attach the plasma filament injection to a standard material's shaders.
++ *
++ * - Vertex: splices `vPlasmaUv = uv;` AFTER `#include <uv_vertex>` (the
++ *   `uv` attribute is declared unconditionally in three's prelude).
++ * - Fragment: splices the plasma term AFTER {@link PLASMA_FRAG_ANCHOR}.
++ * - Both shaders get a `varying vec2 vPlasmaUv;` declaration prepended to
++ *   their `main()`.
++ * - A missing anchor THROWS (a three.js version drift must surface loudly
++ *   instead of shipping an invisible filament).
++ * - `customProgramCacheKey` is pinned to a STABLE constant — every plasma
++ *   filament compiles into ONE shared program slot (no custom uniforms →
++ *   nothing varies between links).
++ * - The callback always re-applies its splices: three calls `onBeforeCompile`
++ *   with a FRESH stock shader source on every (re)compile (including after
++ *   a WebGL context restore), so a material-level "already injected" flag
++ *   would silently drop the injection on the second compile. This matches
++ *   the repo's own `makeFresnelCoreMaterial` pattern (anchor-replace, no
++ *   guard).
++ */
++export function applyPlasmaInjection(material: {
++  onBeforeCompile?: (shader: { vertexShader: string; fragmentShader: string }, renderer: unknown) => void;
++  customProgramCacheKey?: () => string;
++  needsUpdate?: boolean;
++}): void {
++  material.onBeforeCompile = (shader) => {
++    if (!shader.fragmentShader.includes(PLASMA_FRAG_ANCHOR)) {
++      throw new Error(
++        `plasmaShader: fragment anchor "${PLASMA_FRAG_ANCHOR}" not found — three.js version drift`
++      );
++    }
++    if (!shader.vertexShader.includes(PLASMA_VERT_ANCHOR)) {
++      throw new Error(
++        `plasmaShader: vertex anchor "${PLASMA_VERT_ANCHOR}" not found — three.js version drift`
++      );
++    }
++    shader.vertexShader = shader.vertexShader
++      .replace("void main() {", "varying vec2 vPlasmaUv;\n\nvoid main() {")
++      .replace(PLASMA_VERT_ANCHOR, `${PLASMA_VERT_ANCHOR}\n\tvPlasmaUv = uv;`);
++    shader.fragmentShader = shader.fragmentShader
++      .replace("void main() {", "varying vec2 vPlasmaUv;\n\nvoid main() {")
++      .replace(
++        PLASMA_FRAG_ANCHOR,
++        `${PLASMA_FRAG_ANCHOR}\n\t${PLASMA_FRAG_INJECTION.trim()}`
++      );
++  };
++  material.customProgramCacheKey = () => PLASMA_PROGRAM_KEY;
++  material.needsUpdate = true;
++}
++
++/** Stable program-cache key shared by every plasma filament (one program). */
++export const PLASMA_PROGRAM_KEY = "atomic-topology-plasma-filament-v1";
+diff --git a/tests/unit/atomic-topology/electronCloudHaze.test.ts b/tests/unit/atomic-topology/electronCloudHaze.test.ts
+new file mode 100644
+index 000000000..f67e72236
+--- /dev/null
++++ b/tests/unit/atomic-topology/electronCloudHaze.test.ts
+@@ -0,0 +1,162 @@
++/**
++ * Unit tests for the pure orbital-haze math (OR-ATOM-008 S8.2, `cloudHaze.ts`).
++ *
++ * Pure helpers only — no `three`, no DOM, no clock: deterministic tier
++ * resolution, sprite budgets, counter-rotation bounds, and breathing math.
++ */
++import assert from "node:assert/strict";
++import { test } from "node:test";
++
++import {
++  HAZE_RENDER_ORDER,
++  HAZE_TIER,
++  HAZE_TIER_TABLE,
++  hazeBreathScale,
++  hazeSpinRadians,
++  hazeSprites,
++  resolveHazeQualityTier,
++} from "../../../src/plugins/atomic-topology/scene/cloudHaze";
++import { fnv1a } from "../../../src/plugins/atomic-topology/scene/cloudShells";
++
++test("resolveHazeQualityTier maps core counts to tiers (stable, no flicker)", () => {
++  // 1–7 cores → low, 8–11 → medium, ≥12 → high (floor(cores/4) clamped 1..3).
++  assert.equal(resolveHazeQualityTier(1), "low");
++  assert.equal(resolveHazeQualityTier(4), "low");
++  assert.equal(resolveHazeQualityTier(7), "low");
++  assert.equal(resolveHazeQualityTier(8), "medium");
++  assert.equal(resolveHazeQualityTier(11), "medium");
++  assert.equal(resolveHazeQualityTier(12), "high");
++  assert.equal(resolveHazeQualityTier(16), "high");
++  assert.equal(resolveHazeQualityTier(128), "high");
++  // Falsy / absent → 8-core default (medium) — SSR-safe fallback.
++  assert.equal(resolveHazeQualityTier(), "medium");
++  assert.equal(resolveHazeQualityTier(0), "medium");
++  // Same input always yields the same tier (stable for the module lifetime).
++  assert.equal(resolveHazeQualityTier(16), resolveHazeQualityTier(16));
++});
++
++test("HAZE_TIER_TABLE constants stay inside the S8.2 spec envelopes", () => {
++  for (const tier of ["high", "medium", "low"] as const) {
++    const p = HAZE_TIER_TABLE[tier];
++    // Bounded sprite budget (web-quality-performance): 1–3 per atom.
++    assert.ok(p.spriteCount >= 1 && p.spriteCount <= 3, `${tier}: count ${p.spriteCount}`);
++    // Controlled additive glow: per-sprite opacity ~0.03–0.08 (never blown out).
++    assert.ok(p.spriteOpacity >= 0.03 && p.spriteOpacity <= 0.08, `${tier}: opacity`);
++    // Base radius multiplier keeps the max (base + 0.4 jitter) inside [2.6, 3.4]×.
++    assert.ok(
++      p.radiusMultiplier >= 2.6 && p.radiusMultiplier + 0.4 <= 3.4,
++      `${tier}: radius ${p.radiusMultiplier}`
++    );
++    // Slow counter-rotation: one revolution in ≈ 70–170 s (0.06–0.08 rad/s).
++    const period = (2 * Math.PI) / p.spinRadPerSecond;
++    assert.ok(period >= 70 && period <= 170, `${tier}: period ${period}s`);
++    // Very slow breathing (±3–5 %, 9–11 s period).
++    assert.ok(p.breathAmplitude >= 0.03 && p.breathAmplitude <= 0.05, `${tier}: amp`);
++    assert.ok(p.breathPeriodSeconds >= 9 && p.breathPeriodSeconds <= 11, `${tier}: period`);
++  }
++});
++
++test("sprite budget: 38 atoms × worst-case 3 haze sprites = 114", () => {
++  const worstPerAtom = Math.max(...Object.values(HAZE_TIER_TABLE).map((t) => t.spriteCount));
++  assert.equal(worstPerAtom, 3);
++  const hazeTotal = 38 * worstPerAtom;
++  // The haze layer adds at most 114 sprites on top of the existing electron
++  // shells (38 atoms × 18 = 684), per the OR-ATOM-008 S8.2 bounded budget.
++  assert.equal(hazeTotal, 114);
++  assert.ok(hazeTotal <= 114);
++});
++
++test("hazeSprites is deterministic per seed and tier (FNV-1a driven)", () => {
++  const a = hazeSprites(fnv1a("atom-alpha"), "high");
++  const b = hazeSprites(fnv1a("atom-alpha"), "high");
++  assert.deepEqual(a, b); // same seed → identical params
++  const c = hazeSprites(fnv1a("atom-beta"), "high");
++  assert.notDeepEqual(a, c); // different seed → different params
++  assert.equal(a.length, 3);
++  assert.equal(hazeSprites(fnv1a("atom-alpha"), "medium").length, 2);
++  assert.equal(hazeSprites(fnv1a("atom-alpha"), "low").length, 1);
++});
++
++test("hazeSprites bounds: scale, counter-spin, phases, opacity jitter", () => {
++  for (const seed of [0, 1, 777, 0x811c9dc5, fnv1a("provider-gpu-0")]) {
++    for (const tier of ["high", "medium", "low"] as const) {
++      const params = HAZE_TIER_TABLE[tier];
++      for (const p of hazeSprites(seed, tier)) {
++        // Scale stays inside [2.6, 3.4]× the base cloud radius.
++        assert.ok(
++          p.scaleMultiplier >= 2.6 && p.scaleMultiplier <= 3.4,
++          `scale ${p.scaleMultiplier}`
++        );
++        // Counter-rotation: always negative (electrons spin positive),
++        // magnitude in [0.4×, 1.0×] the tier base.
++        assert.ok(p.spinRadPerSecond < 0, `spin ${p.spinRadPerSecond}`);
++        assert.ok(
++          -p.spinRadPerSecond <= params.spinRadPerSecond &&
++            -p.spinRadPerSecond >= 0.4 * params.spinRadPerSecond,
++          `spin magnitude ${-p.spinRadPerSecond}`
++        );
++        // Phases inside [0, 2π).
++        const twoPi = 2 * Math.PI;
++        assert.ok(p.spinPhase >= 0 && p.spinPhase < twoPi, `phase ${p.spinPhase}`);
++        assert.ok(p.breathPhase >= 0 && p.breathPhase < twoPi, `bphase ${p.breathPhase}`);
++        // Opacity jitter inside [0.85, 1.15].
++        assert.ok(p.opacityScale >= 0.85 && p.opacityScale <= 1.15, `osc ${p.opacityScale}`);
++      }
++    }
++  }
++});
++
++test("opacity stack stays under 0.25 at the nucleus (banding/blow-out guard)", () => {
++  const high = HAZE_TIER_TABLE["high"];
++  const worstStack = high.spriteCount * high.spriteOpacity * 1.15; // max jitter
++  assert.ok(worstStack < 0.25, `worst stack ${worstStack.toFixed(3)}`);
++});
++
++test("hazeSpinRadians is absolute, [0, 2π), and pure in t (exact freeze)", () => {
++  const p = hazeSprites(fnv1a("atom-spin"), "high")[0];
++  const twoPi = 2 * Math.PI;
++  // Absolute: same t → same angle (no accumulated drift).
++  assert.equal(hazeSpinRadians(p, 3.7), hazeSpinRadians(p, 3.7));
++  // Always in [0, 2π) even with a negative spin speed.
++  for (const t of [0, 1, 10.5, 100]) {
++    const a = hazeSpinRadians(p, t);
++    assert.ok(a >= 0 && a < twoPi, `angle ${a} at t=${t}`);
++  }
++  // A frozen scene skips the per-frame mutation, so the last computed angle
++  // is held exactly by construction (pure in t).
++  assert.equal(hazeSpinRadians(p, 5), hazeSpinRadians(p, 5));
++  // The angle genuinely moves over time (nonzero spin speed).
++  assert.notEqual(hazeSpinRadians(p, 10), hazeSpinRadians(p, 0));
++});
++
++test("hazeBreathScale stays in [1 − amp, 1 + amp] and is period-stable", () => {
++  for (const tier of ["high", "medium", "low"] as const) {
++    const params = HAZE_TIER_TABLE[tier];
++    const p = hazeSprites(fnv1a("atom-breath"), tier)[0];
++    // Sweep well beyond one period — the envelope never leaves ±amplitude.
++    for (let t = 0; t <= params.breathPeriodSeconds * 2; t += 0.25) {
++      const s = hazeBreathScale(p, t, params);
++      assert.ok(
++        s >= 1 - params.breathAmplitude - 1e-12 && s <= 1 + params.breathAmplitude + 1e-12,
++        `scale ${s} at t=${t}`
++      );
++    }
++    // Period-stable: the factor repeats every breath period exactly.
++    const t0 = 1.37;
++    assert.ok(
++      Math.abs(
++        hazeBreathScale(p, t0, params) - hazeBreathScale(p, t0 + params.breathPeriodSeconds, params)
++      ) < 1e-9
++    );
++  }
++});
++
++test("HAZE_RENDER_ORDER is below the electron sprites (renderOrder 0)", () => {
++  assert.ok(HAZE_RENDER_ORDER < 0);
++});
++
++test("HAZE_TIER resolves once at module scope to a valid tier (SSR-safe)", () => {
++  assert.ok(["high", "medium", "low"].includes(HAZE_TIER));
++  // Under SSR (no navigator) it must be the 8-core default → medium.
++  assert.equal(HAZE_TIER, resolveHazeQualityTier());
++});
+diff --git a/tests/unit/atomic-topology/nucleusCluster.test.ts b/tests/unit/atomic-topology/nucleusCluster.test.ts
+new file mode 100644
+index 000000000..ab757ed21
+--- /dev/null
++++ b/tests/unit/atomic-topology/nucleusCluster.test.ts
+@@ -0,0 +1,266 @@
++/**
++ * Unit tests for the deterministic nucleus-cluster builder (OR-ATOM-008,
++ * S8.3) — `src/plugins/atomic-topology/scene/nucleusCluster.ts`.
++ *
++ * Runner: `node --import tsx/esm --test` (node:test + assert; the builder is
++ * pure — no `three`, no DOM, no wall clock, seeded mulberry32 only).
++ */
++import assert from "node:assert/strict";
++import { test } from "node:test";
++
++import { modelColor } from "../../../src/plugins/atomic-topology/visualEncoding";
++import {
++  buildNucleusCluster,
++  GROUP_NEUTRON_SLATE_BLEND,
++  GROUP_PROTON_WARM_BLEND,
++  HUB_NUCLEUS_PARTICLE_COUNT,
++  MAX_MODEL_GROUPS,
++  mixHex,
++  NEUTRON_EMISSIVE_MUL,
++  NEUTRON_SCALE_MAX,
++  NEUTRON_SCALE_MIN,
++  NEUTRON_TINT_SLATE,
++  NUCLEUS_SHELL_JITTER,
++  NUCLEUS_SHELL_RADIUS,
++  PROTON_EMISSIVE_MUL,
++  PROTON_SCALE_MAX,
++  PROTON_SCALE_MIN,
++  PROTON_TINT_WARM,
++  PROTON_TARGET_SHARE,
++  RING_NUCLEUS_PARTICLE_COUNT,
++  type NucleusCluster,
++} from "../../../src/plugins/atomic-topology/scene/nucleusCluster";
++
++/** FNV-1a 32-bit (same construction as `cloudShells.ts` / `visualEncoding.ts`). */
++function fnv1a(input: string): number {
++  let hash = 0x811c9dc5;
++  for (let i = 0; i < input.length; i += 1) {
++    hash ^= input.charCodeAt(i);
++    hash = (hash * 0x01000193) >>> 0;
++  }
++  return hash >>> 0;
++}
++
++const SEED_A = fnv1a("provider:openai");
++const SEED_B = fnv1a("provider:anthropic");
++
++const MODELS = ["gpt-4o", "claude-sonnet-4-5", "gemini-2.5-pro"];
++
++function expectedProtonCount(count: number): number {
++  return Math.min(count, Math.max(1, Math.round(count * PROTON_TARGET_SHARE)));
++}
++
++test("ring/hub particle count constants are inside the S8.3 spec ranges", () => {
++  assert.ok(RING_NUCLEUS_PARTICLE_COUNT >= 7 && RING_NUCLEUS_PARTICLE_COUNT <= 9);
++  assert.ok(HUB_NUCLEUS_PARTICLE_COUNT >= 11 && HUB_NUCLEUS_PARTICLE_COUNT <= 13);
++});
++
++test("determinism: identical inputs always yield identical clusters", () => {
++  const a = buildNucleusCluster({ seed: SEED_A, particleCount: RING_NUCLEUS_PARTICLE_COUNT });
++  const b = buildNucleusCluster({ seed: SEED_A, particleCount: RING_NUCLEUS_PARTICLE_COUNT });
++  assert.deepStrictEqual(a, b);
++
++  const c = buildNucleusCluster({
++    seed: SEED_A,
++    particleCount: RING_NUCLEUS_PARTICLE_COUNT,
++    observedModelIds: MODELS,
++  });
++  const d = buildNucleusCluster({
++    seed: SEED_A,
++    particleCount: RING_NUCLEUS_PARTICLE_COUNT,
++    observedModelIds: MODELS,
++  });
++  assert.deepStrictEqual(c, d);
++});
++
++test("different seeds give different cluster orientations", () => {
++  const a = buildNucleusCluster({ seed: SEED_A, particleCount: HUB_NUCLEUS_PARTICLE_COUNT });
++  const b = buildNucleusCluster({ seed: SEED_B, particleCount: HUB_NUCLEUS_PARTICLE_COUNT });
++  assert.notDeepStrictEqual(a.particles[0].position, b.particles[0].position);
++  assert.notDeepStrictEqual(a.spinAxis, b.spinAxis);
++});
++
++test("particle count is exact; zero count yields an empty cluster", () => {
++  const ring = buildNucleusCluster({ seed: SEED_A, particleCount: RING_NUCLEUS_PARTICLE_COUNT });
++  assert.equal(ring.particles.length, RING_NUCLEUS_PARTICLE_COUNT);
++  const hub = buildNucleusCluster({ seed: SEED_A, particleCount: HUB_NUCLEUS_PARTICLE_COUNT });
++  assert.equal(hub.particles.length, HUB_NUCLEUS_PARTICLE_COUNT);
++  assert.deepStrictEqual(
++    buildNucleusCluster({ seed: SEED_A, particleCount: 0 }).particles,
++    []
++  );
++});
++
++test("proton/neutron split is the deterministic ~55/45 target", () => {
++  for (const count of [RING_NUCLEUS_PARTICLE_COUNT, HUB_NUCLEUS_PARTICLE_COUNT]) {
++    const cluster = buildNucleusCluster({ seed: SEED_A, particleCount: count });
++    const protons = cluster.particles.filter((p) => p.isProton).length;
++    const expected = expectedProtonCount(count);
++    assert.equal(protons, expected);
++    assert.equal(count - protons, count - expected);
++  }
++});
++
++test("neutral palette when no model ids are observed (honest unknown)", () => {
++  const cluster = buildNucleusCluster({ seed: SEED_A, particleCount: HUB_NUCLEUS_PARTICLE_COUNT });
++  assert.deepStrictEqual(cluster.modelGroups, []);
++  for (const p of cluster.particles) {
++    assert.equal(p.modelGroupIndex, -1);
++    assert.equal(p.tint, p.isProton ? PROTON_TINT_WARM : NEUTRON_TINT_SLATE);
++  }
++});
++
++test("empty-string / blank model ids resolve to the neutral palette", () => {
++  for (const ids of [[], ["", "  "]]) {
++    const cluster = buildNucleusCluster({
++      seed: SEED_A,
++      particleCount: RING_NUCLEUS_PARTICLE_COUNT,
++      observedModelIds: ids,
++    });
++    assert.deepStrictEqual(cluster.modelGroups, []);
++    for (const p of cluster.particles) {
++      assert.equal(p.modelGroupIndex, -1);
++    }
++  }
++});
++
++test("model groups cap at MAX_MODEL_GROUPS and are hash-sorted (not array-indexed)", () => {
++  const ids = MODELS.concat(["llama-3.3-70b", "qwen-3-235b"]);
++  const cluster = buildNucleusCluster({
++    seed: SEED_A,
++    particleCount: HUB_NUCLEUS_PARTICLE_COUNT,
++    observedModelIds: ids,
++  });
++  assert.equal(cluster.modelGroups.length, MAX_MODEL_GROUPS);
++  const hashes = cluster.modelGroups.map((id) => fnv1a(id));
++  assert.deepStrictEqual(hashes, [...hashes].sort((x, y) => x - y));
++});
++
++test("case-insensitive, de-duplicated canonicalization", () => {
++  const cluster = buildNucleusCluster({
++    seed: SEED_A,
++    particleCount: RING_NUCLEUS_PARTICLE_COUNT,
++    observedModelIds: ["GPT-4O", " gpt-4o ", "claude-sonnet-4-5"],
++  });
++  const canonical = ["gpt-4o", "claude-sonnet-4-5"].sort((x, y) => {
++    const h = fnv1a(x) - fnv1a(y);
++    return h !== 0 ? h : x < y ? -1 : 1;
++  });
++  assert.deepStrictEqual(cluster.modelGroups, canonical);
++});
++
++test("model-group assignment is stable under model ORDER changes", () => {
++  const perm = [MODELS[2], MODELS[0], MODELS[1]];
++  const a = buildNucleusCluster({
++    seed: SEED_A,
++    particleCount: HUB_NUCLEUS_PARTICLE_COUNT,
++    observedModelIds: MODELS,
++  });
++  const b = buildNucleusCluster({
++    seed: SEED_A,
++    particleCount: HUB_NUCLEUS_PARTICLE_COUNT,
++    observedModelIds: perm,
++  });
++  assert.deepStrictEqual(a.modelGroups, b.modelGroups);
++  assert.deepStrictEqual(
++    a.particles.map((p) => p.modelGroupIndex),
++    b.particles.map((p) => p.modelGroupIndex)
++  );
++  assert.deepStrictEqual(
++    a.particles.map((p) => p.tint),
++    b.particles.map((p) => p.tint)
++  );
++});
++
++test("grouped particles read as spatially clustered angular sectors", () => {
++  const cluster = buildNucleusCluster({
++    seed: SEED_A,
++    particleCount: HUB_NUCLEUS_PARTICLE_COUNT,
++    observedModelIds: MODELS,
++  });
++  const byIndex = new Map<number, [number, number, number][]>();
++  for (const p of cluster.particles) {
++    assert.ok(p.modelGroupIndex >= 0 && p.modelGroupIndex < MAX_MODEL_GROUPS);
++    const arr = byIndex.get(p.modelGroupIndex) ?? [];
++    arr.push(p.position);
++    byIndex.set(p.modelGroupIndex, arr);
++  }
++  assert.equal(byIndex.size, MAX_MODEL_GROUPS);
++  const azimuth = (p: [number, number, number]): number => {
++    let a = Math.atan2(p[2], p[0]);
++    if (a < 0) a += Math.PI * 2;
++    return a;
++  };
++  const sectorWidth = (Math.PI * 2) / MAX_MODEL_GROUPS;
++  for (const [, positions] of byIndex) {
++    const angles = positions.map(azimuth).sort((x, y) => x - y);
++    let spread = angles[angles.length - 1] - angles[0];
++    if (angles.length > 1) {
++      spread = Math.min(spread, Math.PI * 2 - spread);
++    }
++    assert.ok(spread <= sectorWidth + 1e-9, `sector spread ${spread} exceeds band`);
++  }
++});
++
++test("protons vs neutrons: scale + emissive separation is exact and bounded", () => {
++  const cluster = buildNucleusCluster({ seed: SEED_A, particleCount: HUB_NUCLEUS_PARTICLE_COUNT });
++  for (const p of cluster.particles) {
++    if (p.isProton) {
++      assert.ok(p.scaleMul >= PROTON_SCALE_MIN && p.scaleMul <= PROTON_SCALE_MAX);
++      assert.equal(p.emissiveMul, PROTON_EMISSIVE_MUL);
++    } else {
++      assert.ok(p.scaleMul >= NEUTRON_SCALE_MIN && p.scaleMul <= NEUTRON_SCALE_MAX);
++      assert.equal(p.emissiveMul, NEUTRON_EMISSIVE_MUL);
++      // Neutrons never reach proton scale (shape/luminance separation).
++      assert.ok(p.scaleMul < PROTON_SCALE_MIN);
++    }
++  }
++});
++
++test("positions sit on the jittered 0.55x-core-radius shell", () => {
++  const minR = NUCLEUS_SHELL_RADIUS - NUCLEUS_SHELL_JITTER;
++  const maxR = NUCLEUS_SHELL_RADIUS + NUCLEUS_SHELL_JITTER;
++  for (const p of buildNucleusCluster({ seed: SEED_A, particleCount: HUB_NUCLEUS_PARTICLE_COUNT })
++    .particles) {
++    const r = Math.hypot(p.position[0], p.position[1], p.position[2]);
++    assert.ok(r >= minR && r <= maxR, `radius ${r} outside shell band`);
++  }
++});
++
++test("spin axis is a unit vector and stable per seed", () => {
++  const a = buildNucleusCluster({ seed: SEED_A, particleCount: RING_NUCLEUS_PARTICLE_COUNT });
++  const b = buildNucleusCluster({ seed: SEED_A, particleCount: HUB_NUCLEUS_PARTICLE_COUNT });
++  for (const cluster of [a, b]) {
++    const [x, y, z] = cluster.spinAxis;
++    assert.ok(Math.abs(Math.hypot(x, y, z) - 1) < 1e-9);
++  }
++  assert.deepStrictEqual(a.spinAxis, b.spinAxis);
++});
++
++test("observed-group tints are modelColor blended toward the role tints", () => {
++  const cluster = buildNucleusCluster({
++    seed: SEED_A,
++    particleCount: HUB_NUCLEUS_PARTICLE_COUNT,
++    observedModelIds: MODELS,
++  });
++  const expected = (proton: boolean, modelId: string): string =>
++    proton
++      ? mixHex(modelColor(modelId), PROTON_TINT_WARM, GROUP_PROTON_WARM_BLEND)
++      : mixHex(modelColor(modelId), NEUTRON_TINT_SLATE, GROUP_NEUTRON_SLATE_BLEND);
++  for (const p of cluster.particles) {
++    assert.equal(p.tint, expected(p.isProton, cluster.modelGroups[p.modelGroupIndex]));
++  }
++});
++
++test("the same atom id always seeds the same cluster (seed contract)", () => {
++  const id = "provider:openai";
++  const a: NucleusCluster = buildNucleusCluster({
++    seed: fnv1a(id),
++    particleCount: RING_NUCLEUS_PARTICLE_COUNT,
++  });
++  const b: NucleusCluster = buildNucleusCluster({
++    seed: fnv1a(id),
++    particleCount: RING_NUCLEUS_PARTICLE_COUNT,
++  });
++  assert.deepStrictEqual(a, b);
++});
+diff --git a/tests/unit/atomic-topology/sceneFilament.test.ts b/tests/unit/atomic-topology/sceneFilament.test.ts
+new file mode 100644
+index 000000000..3dbbd0445
+--- /dev/null
++++ b/tests/unit/atomic-topology/sceneFilament.test.ts
+@@ -0,0 +1,283 @@
++/**
++ * Unit tests for the pure filament math module (OR-ATOM-008 S8.1):
++ * arc-length table + fraction lookup, bounded pulse-packet scheduling
++ * (pool cap, stagger, trailing gap, fade bands), the traveling completion
++ * impulse, the seeded failure-branch geometry and the ribbon strip layout.
++ */
++import assert from "node:assert/strict";
++import { test } from "node:test";
++
++import {
++  MAX_PACKET_POOL,
++  PACKET_TAIL_DECAY,
++  PACKET_TAIL_STEP,
++  branchCount,
++  branchGeometry,
++  buildArcLengthTable,
++  buildRibbonStripData,
++  completionImpulseFraction,
++  createPointAtFraction,
++  packetHeadOpacity,
++  packetHeadProgress,
++  packetPoolSize,
++  packetTailOpacity,
++  packetTailScale,
++  packetTailStep,
++} from "@/plugins/atomic-topology/scene/filament";
++import { boltPoints } from "@/plugins/atomic-topology/scene/discharge";
++
++/** Straight-line fixture: 4 points, 1 unit apart on the x axis. */
++const LINE: readonly number[] = [0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0];
++
++test("buildArcLengthTable: exact cumulative lengths on a straight line", () => {
++  const table = buildArcLengthTable(LINE);
++  assert.equal(table.totalLength, 3);
++  assert.deepEqual(Array.from(table.cumulative), [0, 1, 2, 3]);
++});
++
++test("buildArcLengthTable: fewer than 2 points is the degenerate guard", () => {
++  for (const pts of [[], [1, 2, 3]]) {
++    const table = buildArcLengthTable(pts);
++    assert.equal(table.totalLength, 0, `points(${pts.length}) must have zero total length`);
++    assert.equal(table.cumulative.length, 0);
++  }
++});
++
++test("createPointAtFraction: endpoint + arc-length midpoint lookups", () => {
++  const table = buildArcLengthTable(LINE);
++  const pointAt = createPointAtFraction(table, LINE);
++  const out = { x: -1, y: -1, z: -1 };
++
++  pointAt(0, out);
++  assert.deepEqual([out.x, out.y, out.z], [0, 0, 0]);
++  pointAt(1, out);
++  assert.deepEqual([out.x, out.y, out.z], [3, 0, 0]);
++  // 25% of the arc length lands on the first unit segment.
++  pointAt(0.25, out);
++  assert.ok(Math.abs(out.x - 0.75) < 1e-6, `x=0.75 (got ${out.x})`);
++  // 50% lands exactly between points 2 and 3.
++  pointAt(0.5, out);
++  assert.ok(Math.abs(out.x - 1.5) < 1e-6, `x=1.5 (got ${out.x})`);
++});
++
++test("createPointAtFraction: out-of-range fractions clamp to the ends", () => {
++  const table = buildArcLengthTable(LINE);
++  const pointAt = createPointAtFraction(table, LINE);
++  const out = { x: 0, y: 0, z: 0 };
++
++  pointAt(-0.25, out);
++  assert.deepEqual([out.x, out.y, out.z], [0, 0, 0]);
++  pointAt(1.5, out);
++  assert.deepEqual([out.x, out.y, out.z], [3, 0, 0]);
++});
++
++test("createPointAtFraction: degenerate table writes zeros", () => {
++  const single = LINE.slice(0, 3);
++  const table = buildArcLengthTable(single);
++  const pointAt = createPointAtFraction(table, single);
++  const out = { x: 9, y: 9, z: 9 };
++  pointAt(0.5, out);
++  assert.deepEqual([out.x, out.y, out.z], [0, 0, 0]);
++});
++
++test("packetPoolSize: caps at MAX_PACKET_POOL, scales down with evidence", () => {
++  assert.equal(packetPoolSize(5, true, false), MAX_PACKET_POOL, "many slots -> capped pool");
++  assert.equal(packetPoolSize(2, true, false), 2, "fewer slots -> fewer packets");
++  assert.equal(packetPoolSize(1, true, false), 1);
++  assert.equal(packetPoolSize(0, true, false), 0, "no active traffic -> static only");
++  assert.equal(packetPoolSize(3, false, false), 0, "inactive link -> no packets");
++  assert.equal(packetPoolSize(3, true, true), 0, "reduced motion -> no packets");
++});
++
++test("packetHeadProgress: staggered packets never share a path position", () => {
++  const t = 0.02;
++  const period = 2.5;
++  const p0 = packetHeadProgress(t, period, 0, 3);
++  const p1 = packetHeadProgress(t, period, 1, 3);
++  const p2 = packetHeadProgress(t, period, 2, 3);
++  assert.ok(p0 < p1 && p1 < p2, `staggered progression (got ${p0}, ${p1}, ${p2})`);
++  for (const p of [p0, p1, p2]) assert.ok(p >= 0 && p <= 1, `progress in [0,1] (got ${p})`);
++});
++
++test("packetHeadProgress: trailing gap is dormant (no wrap-around pop)", () => {
++  const period = 2.5;
++  // t/period = 0.72 >= 0.68 (gap start) -> hidden.
++  assert.equal(packetHeadProgress(1.8, period, 0, 1), 0, "a packet past the visible window must be hidden");
++  // t/period = 0.64 < 0.68 -> visible, near the end of the path.
++  const visible = packetHeadProgress(1.6, period, 0, 1);
++  assert.ok(visible > 0 && visible <= 1, `just inside the gap is visible (got ${visible})`);
++});
++
++test("packetHeadProgress: negative scene-time wraps safely (pause-aware clock)", () => {
++  const p0 = packetHeadProgress(-1, 2.5, 0, 3);
++  const p1 = packetHeadProgress(-1, 2.5, 1, 3);
++  const p2 = packetHeadProgress(-1, 2.5, 2, 3);
++  for (const p of [p0, p1, p2]) {
++    assert.ok(Number.isFinite(p), `finite progress (got ${p})`);
++    assert.ok(p >= 0 && p <= 1, `progress in [0,1] (got ${p})`);
++  }
++  // m = -1 + 2.5 = 1.5 -> base fraction 0.6: packet 0 visible, packet 1
++  // wraps into the trailing gap (0.6 + 1/3 >= 0.68), packet 2 wraps to 0.267.
++  assert.ok(Math.abs(p0 - 0.6 / 0.68) < 1e-12, `packet 0 (got ${p0})`);
++  assert.equal(p1, 0, `packet 1 in the gap (got ${p1})`);
++  assert.ok(Math.abs(p2 - ((0.6 + 2 / 3) % 1) / 0.68) < 1e-12, `packet 2 (got ${p2})`);
++});
++
++test("packetHeadProgress: monotone non-decreasing within a single hop", () => {
++  const period = 2.5;
++  let prev = -1;
++  for (let t = 0; t < 0.679 * period; t += 0.01) {
++    const p = packetHeadProgress(t, period, 0, 3);
++    assert.ok(p >= prev - 1e-12, `progress regressed at t=${t.toFixed(3)}: ${prev} -> ${p}`);
++    prev = p;
++  }
++});
++
++test("packetHeadProgress: guards (non-positive period / empty pool) -> 0", () => {
++  assert.equal(packetHeadProgress(1, 0, 0, 1), 0);
++  assert.equal(packetHeadProgress(1, -1, 0, 1), 0);
++  assert.equal(packetHeadProgress(1, 2.5, 0, 0), 0);
++});
++
++test("packetHeadOpacity: fade-in/out bands with a full plateau", () => {
++  assert.equal(packetHeadOpacity(0), 0, "birth frame is invisible");
++  assert.equal(packetHeadOpacity(1), 0, "arrival frame is invisible");
++  // Halfway through the fade-in band -> half strength.
++  assert.ok(Math.abs(packetHeadOpacity(0.075) - 0.5) < 1e-12);
++  // Past the fade-in and before the fade-out -> full plateau.
++  assert.equal(packetHeadOpacity(0.15), 1);
++  assert.equal(packetHeadOpacity(0.5), 1);
++  assert.equal(packetHeadOpacity(0.85), 1);
++  // Out-of-range progress clamps instead of extrapolating.
++  assert.equal(packetHeadOpacity(-1), 0);
++  assert.equal(packetHeadOpacity(2), 0);
++});
++
++test("packetTailStep: linear spacing behind the head", () => {
++  assert.equal(packetTailStep(-1), 0, "negative index -> no tail");
++  assert.equal(packetTailStep(0), PACKET_TAIL_STEP);
++  assert.equal(packetTailStep(1), PACKET_TAIL_STEP * 2);
++});
++
++test("packetTailOpacity / packetTailScale: bounded, monotone comet decay", () => {
++  // Tail opacity is the head opacity times a strict decay factor.
++  for (let tail = 0; tail < 3; tail += 1) {
++    const expected = packetHeadOpacity(0.5) * Math.pow(PACKET_TAIL_DECAY, tail + 1);
++    assert.ok(Math.abs(packetTailOpacity(0.5, tail) - expected) < 1e-12);
++  }
++  assert.ok(packetTailOpacity(0.5, 1) < packetTailOpacity(0.5, 0), "outer tails are fainter");
++  assert.equal(packetTailOpacity(1, 0), 0, "opacity follows the head fade-out");
++  // Scale multipliers are bounded <= 1 and strictly decreasing.
++  assert.ok(packetTailScale(0) <= 1);
++  assert.ok(packetTailScale(1) < packetTailScale(0));
++});
++
++test("completionImpulseFraction: starts behind the atom, lands exactly on it", () => {
++  assert.ok(Math.abs(completionImpulseFraction(0, 0) - 0.85) < 1e-12, "starts at 1 - travel");
++  assert.equal(completionImpulseFraction(1, 1), 1, "arrives at the atom end");
++  assert.ok(Math.abs(completionImpulseFraction(0.5, 0.5) - 0.8875) < 1e-9);
++  // Monotone non-decreasing through the flight.
++  let prev = -1;
++  for (let t = 0; t <= 1.0001; t += 0.1) {
++    const f = completionImpulseFraction(Math.min(1, t), Math.min(1, t));
++    assert.ok(f >= prev - 1e-12, `impulse regressed at t=${t}: ${prev} -> ${f}`);
++    prev = f;
++  }
++  // Out-of-range inputs clamp instead of extrapolating.
++  assert.equal(completionImpulseFraction(2, 2), 1);
++  assert.ok(Math.abs(completionImpulseFraction(-1, -1) - 0.85) < 1e-12);
++});
++
++test("branchCount: deterministic and bounded to 1-2", () => {
++  const a = branchCount("route:provider:link-1");
++  const b = branchCount("route:provider:link-1");
++  assert.equal(a, b, "same seed -> same branch count");
++  const seen = new Set<number>();
++  for (let i = 0; i < 20; i += 1) seen.add(branchCount(`route:${i}`));
++  for (const v of seen) assert.ok(v === 1 || v === 2, `branch count in {1,2} (got ${v})`);
++  assert.ok(seen.size >= 2, `both counts occur across seeds (got ${[...seen].join(",")})`);
++});
++
++test("branchGeometry: deterministic, roots anchored ON the bolt, bounded kinks", () => {
++  const seed = "route:provider:link-2";
++  const amplitude = 0.12;
++  const bolt = boltPoints(10, seed);
++  const flat: number[] = [];
++  for (const p of bolt) flat.push(p.x, p.y, p.z);
++
++  const first = branchGeometry(seed, flat, amplitude);
++  const second = branchGeometry(seed, flat, amplitude);
++  assert.deepEqual(first, second, "same seed -> identical branches");
++  assert.equal(first.length, branchCount(seed), "branch count matches branchCount");
++  for (const branch of first) {
++    // The root must sit within one sampled segment of the bolt polyline
++    // (it interpolates between two consecutive sampled points).
++    let minDist = Infinity;
++    for (const p of bolt) {
++      const d = Math.hypot(p.x - branch.x0, p.y - branch.y0, p.z - branch.z0);
++      if (d < minDist) minDist = d;
++    }
++    const maxSeg = Math.max(
++      ...bolt.slice(1).map((p, i) => Math.hypot(p.x - bolt[i].x, p.y - bolt[i].y, p.z - bolt[i].z))
++    );
++    assert.ok(minDist <= maxSeg + 1e-9, `root within one segment of the bolt (dist=${minDist})`);
++    // Tangent (x) reach is bounded by the branch contract: kink1 <= 35% of
++    // the branch length (len < 0.14 chord), kink2 <= 80%.
++    assert.ok(Math.abs(branch.x1 - branch.x0) <= 0.05 + 1e-9, `kink1 x-reach (got ${branch.x1 - branch.x0})`);
++    assert.ok(Math.abs(branch.x2 - branch.x0) <= 0.12 + 1e-9, `kink2 x-reach (got ${branch.x2 - branch.x0})`);
++    // Perpendicular reach is bounded: |tangent| * len + (perp + twist) * amp,
++    // where |perp| + |twist| <= 1.4.
++    const amp = 0.9 * amplitude;
++    const checks: Array<[number, number]> = [
++      [branch.y1 - branch.y0, 0.05 + 1.4 * amp],
++      [branch.z1 - branch.z0, 0.05 + 1.4 * amp],
++      [branch.y2 - branch.y0, 0.12 + 1.9 * 1.4 * amp],
++      [branch.z2 - branch.z0, 0.12 + 1.9 * 1.4 * amp],
++    ];
++    for (const [delta, bound] of checks) {
++      assert.ok(Math.abs(delta) <= bound + 1e-9, `perpendicular bound violated (got ${delta})`);
++    }
++    // Kink 2 (dying spark) is strictly further out than kink 1.
++    const d1 = Math.hypot(branch.x1 - branch.x0, branch.y1 - branch.y0, branch.z1 - branch.z0);
++    const d2 = Math.hypot(branch.x2 - branch.x0, branch.y2 - branch.y0, branch.z2 - branch.z0);
++    assert.ok(d2 > d1 + 1e-12, `kink2 must extend past kink1 (d1=${d1}, d2=${d2})`);
++  }
++});
++
++test("branchGeometry: degenerate bolt (fewer than 2 points) -> no branches", () => {
++  assert.deepEqual(branchGeometry("route:x", [0, 0, 0], 0.12), []);
++  assert.deepEqual(branchGeometry("route:x", [], 0.12), []);
++});
++
++test("buildRibbonStripData: straight-line layout, uv sweep and index count", () => {
++  const table = buildArcLengthTable(LINE);
++  const strip = buildRibbonStripData(table, LINE, 2, 0.3, 1, 0);
++  assert.equal(strip.positions.length, 18, "3 samples x 2 vertices x 3 components");
++  assert.equal(strip.uvs.length, 12, "3 samples x 2 vertices x 2 uv components");
++  assert.equal(strip.indices.length, 12, "2 quads x 6 indices");
++  // Each vertex pair sits +-halfWidth in y around the arc-length sample.
++  assert.deepEqual(strip.positions.slice(0, 6), [0, -0.3, 0, 0, 0.3, 0], "sample 0 (f=0)");
++  assert.deepEqual(strip.positions.slice(6, 12), [1.5, -0.3, 0, 1.5, 0.3, 0], "sample 1 (f=0.5)");
++  assert.deepEqual(strip.positions.slice(12, 18), [3, -0.3, 0, 3, 0.3, 0], "sample 2 (f=1)");
++  // UV u sweeps 0 -> 1; v is 0 (-side) / 1 (+side).
++  assert.deepEqual(strip.uvs, [0, 0, 0, 1, 0.5, 0, 0.5, 1, 1, 0, 1, 1], "uv sweep");
++  assert.deepEqual(strip.indices, [0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5], "quad winding");
++});
++
++test("buildRibbonStripData: perpendicular basis follows the requested axis", () => {
++  const table = buildArcLengthTable(LINE);
++  const strip = buildRibbonStripData(table, LINE, 2, 0.3, 0, 1);
++  assert.deepEqual(strip.positions.slice(0, 6), [0, 0, -0.3, 0, 0, 0.3], "strip spans z when basisZ=1");
++});
++
++test("buildRibbonStripData: degenerate table still produces a bounded strip", () => {
++  const single = [0, 0, 0];
++  const table = buildArcLengthTable(single);
++  const strip = buildRibbonStripData(table, single, 2, 0.3, 1, 0);
++  assert.equal(strip.positions.length, 18);
++  for (let i = 0; i < strip.positions.length; i += 1) {
++    assert.ok(Number.isFinite(strip.positions[i]), `position ${i} finite`);
++  }
++  assert.deepEqual(strip.uvs, [0, 0, 0, 1, 0.5, 0, 0.5, 1, 1, 0, 1, 1]);
++  assert.equal(strip.indices.length, 12);
++});
