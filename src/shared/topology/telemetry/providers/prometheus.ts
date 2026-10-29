@@ -252,6 +252,10 @@ function applyPrometheusSample(args: SampleApplyArgs): void {
     const id = runtimeIdentityFromLabels(sample.labels, labelKeys);
     if (!id) return; // no runtime identity → unattributed → unknown (dropped)
     const key = buildCanonicalResourceId("runtime", id.runtimeId, id.hostId);
+    // Join fact (OR-ATOM-009.2): metrics endpoint port from the standard
+    // `instance` label — ONLY when it fully parses as `<hostId>:<port>`
+    // (host part must equal the proven hostId). Never guessed.
+    const endpointPort = endpointPortFromInstanceLabel(sample.labels["instance"], id.hostId);
     let obs: Observed<number>;
     if (mapping.counter) {
       const counterEngine = args.counterEngine;
@@ -293,8 +297,36 @@ function applyPrometheusSample(args: SampleApplyArgs): void {
         unit,
       });
     }
-    upsert(args.rows, key, "runtime", id.hostId, { runtimeId: id.runtimeId, field, obs });
+    upsert(args.rows, key, "runtime", id.hostId, {
+      runtimeId: id.runtimeId,
+      endpointPort,
+      field,
+      obs,
+    });
   }
+}
+
+/**
+ * OR-ATOM-009.2 join fact: derive the runtime's metrics endpoint port from
+ * the standard Prometheus `instance` label. Valid ONLY when the label is
+ * exactly `<hostId>:<port>` — the host part must equal the proven hostId
+ * (which never contains ':') and the port must be a positive integer in
+ * [1, 65535]. IPv6 endpoints, extra colons, a host mismatch, or a
+ * non-numeric port → undefined: the join fact stays absent, never guessed.
+ */
+function endpointPortFromInstanceLabel(
+  instanceLabel: string | undefined,
+  hostId: string
+): number | undefined {
+  if (typeof instanceLabel !== "string" || instanceLabel === "") return undefined;
+  const colon = instanceLabel.indexOf(":");
+  if (colon === -1 || colon !== instanceLabel.lastIndexOf(":")) return undefined;
+  const host = instanceLabel.slice(0, colon);
+  const portText = instanceLabel.slice(colon + 1);
+  if (host !== hostId) return undefined; // host mismatch → never guessed
+  if (!/^\d+$/.test(portText)) return undefined; // non-numeric port
+  const port = Number.parseInt(portText, 10);
+  return port >= 1 && port <= 65535 ? port : undefined;
 }
 
 /** Insert or merge a field into the row keyed by its canonical id. */
@@ -306,6 +338,8 @@ function upsert(
   patch: {
     deviceUuid?: string;
     runtimeId?: string;
+    /** OR-ATOM-009.2 join fact: runtime metrics endpoint port. */
+    endpointPort?: number;
     field: keyof FleetResourceObservation;
     obs: Observed<number>;
   }
@@ -321,5 +355,6 @@ function upsert(
   }
   if (patch.deviceUuid) row.deviceUuid = patch.deviceUuid;
   if (patch.runtimeId) row.runtimeId = patch.runtimeId;
+  if (patch.endpointPort != null && row.endpointPort == null) row.endpointPort = patch.endpointPort;
   (row as unknown as Record<string, Observed<number>>)[patch.field] = patch.obs;
 }

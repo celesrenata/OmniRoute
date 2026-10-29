@@ -452,6 +452,71 @@ drop, missing-uuid drop, out-of-range drop, DCGM/vLLM regression, space
 identity contract); the prometheus + grafana provider suites carry the
 14-name allowlist cardinality.
 
+### 7.2.9 OR-ATOM-009.2 — proven provider→runtime edges (join rule)
+
+Provider atoms are **never** conflated with devices, so a
+`provider → runtime` relationship may only be established from an explicit,
+validated source. This task wires the _configured upstream base URL_ of a
+provider atom against the _proven host + observed metrics-endpoint port_ of a
+runtime atom. A missing fact on either side leaves the relationship **absent**
+(unattached) — it is never guessed.
+
+**Join facts (both sides must be present):**
+
+- _Provider side_ — `ReconciledProviderNode.baseUrl`: the configured upstream
+  base URL. It is extracted by `validatedBaseUrl()` in
+  [src/shared/topology/telemetry/providers/omniroute.ts](../../src/shared/topology/telemetry/providers/omniroute.ts)
+  from the opaque `provider_specific_data` JSON column. Only a **top-level
+  string** `baseUrl` that parses as an `http(s)` URL survives; malformed JSON,
+  a non-string value, a non-URL string, or a non-http(s) scheme all yield
+  `null` (no join fact). The credential-bearing blob itself **never** rides on
+  the observation — only the validated URL does.
+- _Runtime side_ — `ReconciledRuntimeNode.endpointPort`: the runtime's metrics
+  endpoint port, derived by `endpointPortFromInstanceLabel()` in
+  [src/shared/topology/telemetry/providers/prometheus.ts](../../src/shared/topology/telemetry/providers/prometheus.ts)
+  from the standard Prometheus `instance` label. It is set only when the label
+  is exactly `<hostId>:<port>` **and** the host part equals the proven `hostId`
+  and the port is an integer in `[1, 65535]`. A port-less instance, a host
+  mismatch, an IPv6 endpoint, or a non-numeric port all leave it `undefined`.
+
+**Match rule** (in
+[src/shared/topology/telemetry/reconcile.ts](../../src/shared/topology/telemetry/reconcile.ts)):
+parse the provider `baseUrl`; require an `http(s)` protocol; require a
+non-IPv6 hostname; resolve the port (explicit, or the protocol default
+`https→443` / `http→80`). For each runtime, emit one edge only when
+`url.hostname === runtime.hostId` **and** `urlPort === runtime.endpointPort`.
+Each distinct (provider, runtime) pair yields exactly one edge — an N:M match
+is N edges, and duplicate observations dedupe.
+
+```jsonc
+{
+  "source": "provider:<id>",
+  "target": "runtime:<host>:<id>",
+  "relation": "provider_runtime",
+  "basis": "configured provider baseUrl host:port match",
+  "sampledAt": 0,
+}
+```
+
+**q27 / vLLM relabel contract** (metric
+[src/shared/topology/telemetry/providers/metricMapping.ts](../../src/shared/topology/telemetry/providers/metricMapping.ts)):
+the live esnixi vLLM (dflash2 spec-decoding build) emits a `q27:` prefix in
+place of `vllm:` (verified against the live server 2026-10-29). The allowlist
+accepts **both** and maps them to the same `MetricField`
+(`q27:generation_tokens_total` / `q27:num_requests_waiting` /
+`q27:num_requests_running` → `runtime_output_tokens_total` /
+`runtime_scheduler_waiting` / `runtime_scheduler_running`). For runtime
+identity, `hostname` (or `host`) must be the **bare IP / host** matching the
+provider `baseUrl` host, and `runtime_id` is the runtime slug; the `instance`
+label is consumed **only** for the endpoint-port join, never for the hostname
+(which is never guessed from `instance`).
+
+**No visual change required:** the 3D atomic renderer already consumes
+`reconciliation.edges` + `providerNodes` (see §7.2.7); the new
+`provider_runtime` edge and the two join-fact fields flow through that existing
+seam. Demo snapshots carry no `baseUrl`, so no new edges appear in the demo
+harness — its `expectedReconciled` expectations are unchanged.
+
 ## 8. Centralized collection decision (M0)
 
 - M2 shipped (T005): the endpoint itself exists — `GET /api/telemetry/fleet`
@@ -519,6 +584,15 @@ Operator prerequisites before M0 sign-off:
 
 - M0 (T003): no production code was modified; the only change in that task was
   this file plus the `docs/specs/` directory creation.
+- OR-ATOM-009.2 (§7.2.9): `provider_runtime` edge emission verified by
+  `tests/unit/telemetry/telemetry-reconcile.test.ts` (10 cases: match, no
+  baseUrl, no endpointPort, port/host mismatch, IPv6, protocol defaults, N:M,
+  dedupe, non-disturbance of runtime_device/runtime_model); the join-fact
+  producers are covered by `telemetry-provider-prometheus.test.ts` (7
+  `endpointPort` cases) and `telemetry-omniroute-provider.test.ts` (8 `baseUrl`
+  cases, including credential-leak absence assertions). The q27 alias coverage
+  was confirmed present in `metricMapping.ts` (both `q27:*` and `vllm:*`
+  families map to the same `MetricField`).
 - M2 (T005): production code added — `src/app/api/telemetry/fleet/route.ts`,
   `src/shared/topology/telemetry/gatewayServer.ts`,
   `src/shared/topology/telemetry/httpQuery.ts` (the shared topology telemetry

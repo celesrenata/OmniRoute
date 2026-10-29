@@ -214,6 +214,10 @@ export function mergeSnapshots(
       merged.providerId = prev.providerId ?? r.providerId;
       merged.runtimeId = prev.runtimeId ?? r.runtimeId;
       merged.modelId = prev.modelId ?? r.modelId;
+      // Join facts (OR-ATOM-009.2): same fill-gap semantics — the most-recent
+      // non-undefined value per resourceId; absent stays absent.
+      merged.baseUrl = prev.baseUrl ?? r.baseUrl;
+      merged.endpointPort = prev.endpointPort ?? r.endpointPort;
       byId.set(r.resourceId, merged);
     }
   }

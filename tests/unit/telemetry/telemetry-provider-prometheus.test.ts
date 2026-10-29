@@ -667,3 +667,68 @@ describe("prometheus provider: snapshot — scheduler gauges + macmon (name-keye
     assert.equal(mappingForMetric("not_a_metric"), null);
   });
 });
+
+describe("prometheus provider: runtime endpointPort join fact (OR-ATOM-009.2)", () => {
+  async function snapshotWith(labels: Record<string, string>): Promise<FleetTelemetrySnapshot> {
+    const { fetchImpl } = makeFakeFetch({
+      "vllm:num_requests_waiting": {
+        body: { data: { result: series(labels, 3) } },
+      },
+    });
+    const provider = createPrometheusProvider({ config: config(), fetchImpl, now: fixtureNow });
+    return provider.snapshot(QUERY);
+  }
+
+  it("sets endpointPort when instance is `<hostId>:<port>` matching the proven hostId", async () => {
+    const snapshot = await snapshotWith({ host: "h1", runtime_id: "rt-0", instance: "h1:2701" });
+    const row = findBy(snapshot, "runtime:h1:rt-0");
+    assert.ok(row);
+    assert.equal(row.endpointPort, 2701);
+  });
+
+  it("omits endpointPort when instance has no port", async () => {
+    const snapshot = await snapshotWith({ host: "h1", runtime_id: "rt-0", instance: "h1" });
+    const row = findBy(snapshot, "runtime:h1:rt-0");
+    assert.ok(row);
+    assert.equal(row.endpointPort, undefined);
+  });
+
+  it("omits endpointPort when instance host mismatches the proven hostId", async () => {
+    const snapshot = await snapshotWith({ host: "h1", runtime_id: "rt-0", instance: "other:2701" });
+    const row = findBy(snapshot, "runtime:h1:rt-0");
+    assert.ok(row);
+    assert.equal(row.endpointPort, undefined);
+  });
+
+  it("omits endpointPort for an IPv6 instance (multiple colons)", async () => {
+    const snapshot = await snapshotWith({
+      host: "h1",
+      runtime_id: "rt-0",
+      instance: "[::1]:2701",
+    });
+    const row = findBy(snapshot, "runtime:h1:rt-0");
+    assert.ok(row);
+    assert.equal(row.endpointPort, undefined);
+  });
+
+  it("omits endpointPort when the port is non-numeric", async () => {
+    const snapshot = await snapshotWith({ host: "h1", runtime_id: "rt-0", instance: "h1:abc" });
+    const row = findBy(snapshot, "runtime:h1:rt-0");
+    assert.ok(row);
+    assert.equal(row.endpointPort, undefined);
+  });
+
+  it("omits endpointPort when the instance label is absent", async () => {
+    const snapshot = await snapshotWith({ host: "h1", runtime_id: "rt-0" });
+    const row = findBy(snapshot, "runtime:h1:rt-0");
+    assert.ok(row);
+    assert.equal(row.endpointPort, undefined);
+  });
+
+  it("rejects an out-of-range port (0)", async () => {
+    const snapshot = await snapshotWith({ host: "h1", runtime_id: "rt-0", instance: "h1:0" });
+    const row = findBy(snapshot, "runtime:h1:rt-0");
+    assert.ok(row);
+    assert.equal(row.endpointPort, undefined);
+  });
+});

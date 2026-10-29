@@ -23,7 +23,7 @@ const NOW = 1_700_000_000_000;
 type BreakerEntry = { name: string; state: string };
 
 interface FixtureParts {
-  connections?: Array<{ id: string; provider: string }>;
+  connections?: Array<{ id: string; provider: string; providerSpecificData?: string }>;
   breakers?: BreakerEntry[] | Record<string, { state: string }>;
   rateLimits?: Record<string, { queued: number; running: number; executing: number }>;
   inflight?: number;
@@ -301,5 +301,94 @@ describe("omniroute adapter: probe + abort + identity hygiene", () => {
     const snap = await provider.snapshot({ windowMs: 60_000 });
     assert.equal(snap.resources.length, 1);
     assert.equal(snap.resources[0].resourceId, "provider:openai");
+  });
+});
+
+describe("omniroute adapter: baseUrl join fact (OR-ATOM-009.2)", () => {
+  async function providerRowFor(
+    connections: FixtureParts["connections"]
+  ): Promise<FleetResourceObservation> {
+    const provider = buildOmnirouteTelemetryProvider(makeProducers({ connections }));
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    const row = snap.resources.find((r) => r.resourceId === "provider:openai");
+    assert.ok(row, "expected provider:openai row");
+    return row;
+  }
+
+  it("plumbs a validated baseUrl from providerSpecificData JSON", async () => {
+    const row = await providerRowFor([
+      {
+        id: "c1",
+        provider: "openai",
+        providerSpecificData: JSON.stringify({ baseUrl: "http://192.168.133.3:2701/v1" }),
+      },
+    ]);
+    assert.equal(row.baseUrl, "http://192.168.133.3:2701/v1");
+  });
+
+  it("omits baseUrl when providerSpecificData is invalid JSON", async () => {
+    const row = await providerRowFor([
+      { id: "c1", provider: "openai", providerSpecificData: "{not-json" },
+    ]);
+    assert.equal(row.baseUrl, undefined);
+  });
+
+  it("omits baseUrl when providerSpecificData is absent", async () => {
+    const row = await providerRowFor([{ id: "c1", provider: "openai" }]);
+    assert.equal(row.baseUrl, undefined);
+  });
+
+  it("omits baseUrl when the JSON value is not a string", async () => {
+    const row = await providerRowFor([
+      { id: "c1", provider: "openai", providerSpecificData: JSON.stringify({ baseUrl: 1234 }) },
+    ]);
+    assert.equal(row.baseUrl, undefined);
+  });
+
+  it("omits baseUrl when the JSON has no baseUrl key", async () => {
+    const row = await providerRowFor([
+      { id: "c1", provider: "openai", providerSpecificData: JSON.stringify({ other: "x" }) },
+    ]);
+    assert.equal(row.baseUrl, undefined);
+  });
+
+  it("omits baseUrl when the value is not a parseable http(s) URL", async () => {
+    const row = await providerRowFor([
+      {
+        id: "c1",
+        provider: "openai",
+        providerSpecificData: JSON.stringify({ baseUrl: "not a url" }),
+      },
+    ]);
+    assert.equal(row.baseUrl, undefined);
+  });
+
+  it("omits baseUrl for non-http(s) schemes", async () => {
+    const row = await providerRowFor([
+      {
+        id: "c1",
+        provider: "openai",
+        providerSpecificData: JSON.stringify({ baseUrl: "ftp://h1:21/x" }),
+      },
+    ]);
+    assert.equal(row.baseUrl, undefined);
+  });
+
+  it("carries ONLY the baseUrl — credential values NEVER leave the DB row", async () => {
+    const fakeApiKey = "sk-FAKE-CREDENTIAL-DO-NOT-LEAK";
+    const fakeSecret = "sec-FAKE-CREDENTIAL-DO-NOT-LEAK";
+    const psd = JSON.stringify({
+      baseUrl: "http://192.168.133.3:2701/v1",
+      api_key: fakeApiKey,
+      secret: fakeSecret,
+    });
+    const row = await providerRowFor([{ id: "c1", provider: "openai", providerSpecificData: psd }]);
+    assert.equal(row.baseUrl, "http://192.168.133.3:2701/v1");
+    // The raw JSON blob (with its credential fields) never rides on the
+    // observation — only the validated baseUrl string survives. Serialize
+    // the whole resource and assert the credential values are absent.
+    const serialized = JSON.stringify(row);
+    assert.ok(!serialized.includes(fakeApiKey), "api_key value must never leak");
+    assert.ok(!serialized.includes(fakeSecret), "secret value must never leak");
   });
 });

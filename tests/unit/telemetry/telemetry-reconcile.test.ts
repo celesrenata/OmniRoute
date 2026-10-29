@@ -370,3 +370,151 @@ describe("gpu presence tracking (updateGpuPresence)", () => {
     assert.deepEqual(updateGpuPresence(state, [GPU_B], 2), []); // 1 miss, below threshold
   });
 });
+
+describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
+  function edgesFor(result: ReturnType<typeof reconcileSnapshot>) {
+    return result.edges.filter((e) => e.relation === "provider_runtime");
+  }
+
+  it("emits exactly one provider_runtime edge when baseUrl host+port match", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([
+        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
+      ])
+    );
+    // Provider nodes carry the join fact through.
+    const pNode = result.providerNodes.find((n) => n.resourceId === "provider:p1");
+    assert.ok(pNode);
+    assert.equal(pNode.baseUrl, "http://h1:2701");
+    const rNode = runtimeById(result, RT_A);
+    assert.equal(rNode.endpointPort, 2701);
+
+    const edges = edgesFor(result);
+    assert.equal(edges.length, 1);
+    assert.deepEqual(edges[0], {
+      source: "provider:p1",
+      target: RT_A,
+      relation: "provider_runtime",
+      basis: "configured provider baseUrl host:port match",
+      sampledAt: NOW,
+    });
+  });
+
+  it("emits NO edge when the provider has no baseUrl", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([providerResource("p1"), runtimeResource("h1", "rt-0", { endpointPort: 2701 })])
+    );
+    assert.equal(edgesFor(result).length, 0);
+  });
+
+  it("emits NO edge when the runtime has no endpointPort (never guessed)", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([
+        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        runtimeResource("h1", "rt-0"),
+      ])
+    );
+    assert.equal(edgesFor(result).length, 0);
+  });
+
+  it("emits NO edge on a port mismatch", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([
+        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        runtimeResource("h1", "rt-0", { endpointPort: 8000 }),
+      ])
+    );
+    assert.equal(edgesFor(result).length, 0);
+  });
+
+  it("emits NO edge on a host mismatch", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([
+        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        runtimeResource("h2", "rt-0", { endpointPort: 2701 }),
+      ])
+    );
+    assert.equal(edgesFor(result).length, 0);
+  });
+
+  it("emits NO edge for an IPv6 baseUrl (unassigned, never guessed)", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([
+        providerResource("p1", { baseUrl: "http://[::1]:2701" }),
+        runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
+      ])
+    );
+    assert.equal(edgesFor(result).length, 0);
+  });
+
+  it("applies protocol defaults (https→443, http→80) when no explicit port", () => {
+    const httpsMatch = reconcileSnapshot(
+      snapshotOf([
+        providerResource("p1", { baseUrl: "https://h1" }),
+        runtimeResource("h1", "rt-0", { endpointPort: 443 }),
+      ])
+    );
+    assert.equal(edgesFor(httpsMatch).length, 1);
+    const httpMatch = reconcileSnapshot(
+      snapshotOf([
+        providerResource("p1", { baseUrl: "http://h1" }),
+        runtimeResource("h1", "rt-0", { endpointPort: 80 }),
+      ])
+    );
+    assert.equal(edgesFor(httpMatch).length, 1);
+  });
+
+  it("emits one edge PER provider for an N:M match (no double counting)", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([
+        providerResource("pa", { baseUrl: "http://h1:2701" }),
+        providerResource("pb", { baseUrl: "http://h1:2701" }),
+        runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
+      ])
+    );
+    const edges = edgesFor(result);
+    assert.equal(edges.length, 2);
+    const keys = edges.map((e) => `${e.source}->${e.target}`).sort();
+    assert.deepEqual(keys, ["provider:pa->runtime:h1:rt-0", "provider:pb->runtime:h1:rt-0"]);
+  });
+
+  it("dedupes duplicate observations to a single edge", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([
+        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
+        runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
+      ])
+    );
+    assert.equal(edgesFor(result).length, 1);
+  });
+
+  it("does not disturb runtime_device / runtime_model edges", () => {
+    const result = reconcileSnapshot(
+      snapshotOf([
+        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        gpuResource("h1", "uuid-0", {
+          utilizationPercent: observedValue(50, { source: "prometheus" }),
+        }),
+        runtimeResource("h1", "rt-0", {
+          endpointPort: 2701,
+          modelId: "m1",
+          deviceUuid: "uuid-0",
+        }),
+      ])
+    );
+    assert.equal(
+      result.edges.filter((e) => e.relation === "runtime_device").length,
+      1,
+      "runtime_device preserved"
+    );
+    assert.equal(
+      result.edges.filter((e) => e.relation === "runtime_model").length,
+      1,
+      "runtime_model preserved"
+    );
+    assert.equal(edgesFor(result).length, 1);
+  });
+});

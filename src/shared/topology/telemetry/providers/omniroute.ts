@@ -94,6 +94,12 @@ export interface OmnirouteCallLogRow {
 export interface OmnirouteProviderConnectionRow {
   id: string;
   provider: string;
+  /**
+   * Raw `provider_specific_data` JSON string (OR-ATOM-009.2). Carried
+   * opaquely; ONLY a validated `baseUrl` string may leave this module
+   * (see `validatedBaseUrl`) — never any credential field.
+   */
+  providerSpecificData?: string;
 }
 
 /** Breaker status as emitted by getAllCircuitBreakerStatuses() (name+state). */
@@ -198,6 +204,37 @@ function toProviderKey(row: OmnirouteProviderConnectionRow): string | null {
 }
 
 /**
+ * Extract a validated JOIN-FACT base URL from raw `provider_specific_data`
+ * (OR-ATOM-009.2). The DB column is a JSON blob that may also hold
+ * credentials, so ONLY a top-level STRING `baseUrl` that parses as an
+ * http(s) URL is returned. Any parse or validation failure → null (the
+ * join fact stays absent — never guessed). No other field of the blob
+ * ever leaves this module.
+ */
+export function validatedBaseUrl(providerSpecificData: string | undefined): string | null {
+  if (typeof providerSpecificData !== "string" || providerSpecificData.trim() === "") {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(providerSpecificData);
+  } catch {
+    return null; // malformed JSON → no join fact
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const raw = (parsed as Record<string, unknown>).baseUrl;
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null; // not a parseable URL → no join fact
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  return raw;
+}
+
+/**
  * Build the OmniRoute-native provider. Every producer is injectable so the
  * unit tests run from fixtures with NO live infrastructure (AC2).
  */
@@ -276,6 +313,12 @@ export function buildOmnirouteTelemetryProvider(
         kind: "provider",
         providerId: providerKey,
       };
+
+      // Join fact only (OR-ATOM-009.2): the configured upstream base URL,
+      // validated (http/https, parseable). Consumed solely to reconcile
+      // proven provider→runtime edges — never displayed, never credentials.
+      const baseUrl = validatedBaseUrl(row.providerSpecificData);
+      if (baseUrl !== null) resource.baseUrl = baseUrl;
 
       // Active jobs: process-wide in-flight count (documented, not per-provider).
       resource.activeJobs = observedNumberValue(inflightCount, "omniroute-live", capturedAt, {
@@ -364,6 +407,11 @@ export async function createProductionOmnirouteProvider(
       return rows.map((c) => ({
         id: typeof c.id === "string" ? c.id : String(c.id),
         provider: typeof c.provider === "string" ? c.provider : String(c.provider),
+        // Only the opaque JSON string rides through — credential columns
+        // (api_key, access_token, …) are never mapped (OR-ATOM-009.2).
+        ...(typeof c.provider_specific_data === "string"
+          ? { providerSpecificData: c.provider_specific_data }
+          : {}),
       }));
     },
     circuitBreakerStatuses: async () => {

@@ -98,6 +98,21 @@ export interface FleetResourceObservation {
   /** Runtime identity — required when kind === "runtime". */
   runtimeId?: string;
   modelId?: string;
+  /**
+   * Provider JOIN FACT (provider atoms only, OR-ATOM-009.2): the configured
+   * upstream base URL (http/https only). Used ONLY to reconcile a proven
+   * `provider_runtime` edge (host:port match against a runtime's observed
+   * endpoint) — NEVER rendered as a display label, NEVER parsed for
+   * credentials. Join-only; absent when unconfigured or invalid.
+   */
+  baseUrl?: string;
+  /**
+   * Runtime JOIN FACT (runtime atoms only, OR-ATOM-009.2): the port of the
+   * runtime's metrics endpoint, derived ONLY from a fully-parsed
+   * `<hostId>:<port>` instance label whose host part exactly equals the
+   * runtime's proven hostId. Join-only; never displayed; never guessed.
+   */
+  endpointPort?: number;
   /** ONLY throughput derived via the TTFT-excluded generationThroughput
    * helper, with windowMs + basis. Token COUNTS must never be placed here. */
   outputTokensPerSecond?: Observed<number>;
