@@ -13,6 +13,7 @@ import {
   GPU_UNAVAILABLE_BASIS,
   QUEUED_JOBS_BASIS,
   buildOmnirouteTelemetryProvider,
+  validatedBaseUrl,
   type OmnirouteCallLogRow,
   type OmnirouteProducers,
 } from "../../../src/shared/topology/telemetry/providers/omniroute";
@@ -26,8 +27,11 @@ interface FixtureParts {
   connections?: Array<{
     id: string;
     provider: string;
-    providerSpecificData?: string;
-    provider_specific_data?: string;
+    // DUAL SHAPE (caseMapping.ts::rowToCamel, line 46): the app DB path
+    // JSON.parses the column, so rows may carry the raw JSON string OR the
+    // already-parsed object.
+    providerSpecificData?: string | Record<string, unknown>;
+    provider_specific_data?: string | Record<string, unknown>;
   }>;
   breakers?: BreakerEntry[] | Record<string, { state: string }>;
   rateLimits?: Record<string, { queued: number; running: number; executing: number }>;
@@ -344,6 +348,86 @@ describe("omniroute adapter: baseUrls join fact (OR-ATOM-009.2)", () => {
       !JSON.stringify(row).includes("[REDACTED:openai_compatible]"),
       "credential value must never leak into the resource"
     );
+  });
+
+  // REGRESSION (2026-10-30, live pod ~02:00Z, image 3.8.52-oratom0092-2d1d8cf):
+  // caseMapping.ts::rowToCamel (line 46) JSON.parses the
+  // `provider_specific_data` column for the app DB path, so the row arrives
+  // with `providerSpecificData` as an ALREADY-PARSED OBJECT. 2d1d8cf fixed the
+  // Casing but not the TYPE — `validatedBaseUrl` only accepted `string`, so the
+  // live `provider:vllm` row (object shape) produced baseUrls=[] →
+  // reconciliation.edges=0 while the runtime node was LIVE.
+  it("carries baseUrls from a PARSER-OBJECT providerSpecificData (app DB path via rowToCamel)", async () => {
+    const row = await providerRowFor([
+      {
+        id: "c1",
+        provider: "openai",
+        providerSpecificData: {
+          baseUrl: "http://192.168.133.3:2701/v1",
+          api_key: "sk-fake-never-leave",
+        },
+      },
+    ]);
+    assert.deepEqual(row.baseUrls, ["http://192.168.133.3:2701/v1"]);
+    // The blob's credential field must never leave the module — exact-string
+    // absence of the raw value in the serialized resource.
+    assert.ok(
+      !JSON.stringify(row).includes("sk-fake-never-leave"),
+      "credential value must never leak into the resource"
+    );
+  });
+
+  it("accepts a PARSER-OBJECT provider_specific_data (snake_case casing)", async () => {
+    const row = await providerRowFor([
+      {
+        id: "c1",
+        provider: "openai",
+        provider_specific_data: { baseUrl: "http://192.168.133.3:2701/v1" },
+      },
+    ]);
+    assert.deepEqual(row.baseUrls, ["http://192.168.133.3:2701/v1"]);
+  });
+
+  it("omits object-shape rows with missing / non-string / invalid / array baseUrl (defensive)", async () => {
+    assert.equal(validatedBaseUrl({ api_key: "sk-x" }), null, "missing baseUrl → null");
+    assert.equal(validatedBaseUrl({ baseUrl: 2701 }), null, "non-string baseUrl → null");
+    assert.equal(validatedBaseUrl({ baseUrl: "" }), null, "empty baseUrl → null");
+    assert.equal(validatedBaseUrl({ baseUrl: "not-a-url" }), null, "unparseable URL → null");
+    assert.equal(
+      validatedBaseUrl({ baseUrl: "ftp://192.168.133.3/v1" }),
+      null,
+      "non-http(s) scheme → null"
+    );
+    assert.equal(
+      validatedBaseUrl({ baseUrl: ["http://192.168.133.3:2701/v1"] }),
+      null,
+      "array baseUrl → null"
+    );
+    // A full snapshot whose only row has a bad object-shape blob → no baseUrls.
+    const row = await providerRowFor([
+      {
+        id: "c1",
+        provider: "openai",
+        providerSpecificData: { api_key: "sk-y" },
+      },
+    ]);
+    assert.equal(row.baseUrls, undefined);
+  });
+
+  it("merges MIXED shapes for the same provider key (string + object rows, deduped)", async () => {
+    const row = await providerRowFor([
+      {
+        id: "c1",
+        provider: "openai",
+        providerSpecificData: JSON.stringify({ baseUrl: "http://192.168.133.3:2701/v1" }),
+      },
+      {
+        id: "c2",
+        provider: "openai",
+        providerSpecificData: { baseUrl: "http://10.1.1.12:2701/v1" },
+      },
+    ]);
+    assert.deepEqual(row.baseUrls, ["http://192.168.133.3:2701/v1", "http://10.1.1.12:2701/v1"]);
   });
 
   it("also accepts the legacy snake_case row shape (driver/cache paths)", async () => {
