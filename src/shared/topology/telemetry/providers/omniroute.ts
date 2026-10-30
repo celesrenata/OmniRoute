@@ -95,11 +95,20 @@ export interface OmnirouteProviderConnectionRow {
   id: string;
   provider: string;
   /**
-   * Raw `provider_specific_data` JSON string (OR-ATOM-009.2). Carried
-   * opaquely; ONLY a validated `baseUrl` string may leave this module
-   * (see `validatedBaseUrl`) — never any credential field.
+   * Raw `provider_specific_data` JSON string (OR-ATOM-009.2), camelCase
+   * casing as delivered by the app DB path (getProviderConnections →
+   * rowToCamel, src/lib/db/providers.ts:324). Carried opaquely; ONLY
+   * validated base URLs may leave this module (see
+   * `aggregateProviderBaseUrls`) — never any credential field.
    */
   providerSpecificData?: string;
+  /**
+   * The same blob under its raw column name — some driver/cache paths
+   * leave snake_case on the row (precedent: src/lib/db/quotaSnapshots.ts:60).
+   * Accepted as a fallback when `providerSpecificData` is absent; both
+   * casings are read, never trusted one over the other.
+   */
+  provider_specific_data?: string;
 }
 
 /** Breaker status as emitted by getAllCircuitBreakerStatuses() (name+state). */
@@ -234,6 +243,53 @@ export function validatedBaseUrl(providerSpecificData: string | undefined): stri
   return raw;
 }
 
+/** Cap on the validated join-fact base URLs a single provider atom carries —
+ *  protects the snapshot from a pathological key with hundreds of rows. */
+const MAX_PROVIDER_BASE_URLS = 16;
+
+/**
+ * Read the raw opaque `provider_specific_data` blob from a connection row,
+ * accepting BOTH casings (see `OmnirouteProviderConnectionRow`). Returns
+ * undefined when the row carries neither — the join fact stays absent,
+ * never guessed. The blob itself never leaves this module.
+ */
+function providerSpecificDataBlob(row: OmnirouteProviderConnectionRow): string | undefined {
+  if (typeof row.providerSpecificData === "string") return row.providerSpecificData;
+  if (typeof row.provider_specific_data === "string") return row.provider_specific_data;
+  return undefined;
+}
+
+/**
+ * Aggregate the validated JOIN-FACT base URLs of EVERY connection row for
+ * one provider key (OR-ATOM-009.2). A single provider key can front
+ * SEVERAL upstream endpoints (live 2026-10-30: vllm on 3 hosts), so the
+ * provider atom carries the full set, not just the first row's URL.
+ *
+ * - First-seen order preserved; identical URLs deduped.
+ * - Capped at `MAX_PROVIDER_BASE_URLS`; the 17th distinct URL is dropped.
+ * - Invalid rows are skipped silently — a valid row among invalid ones
+ *   still contributes (one malformed row never poisons the set).
+ * - Returns `undefined` when no row yields a valid URL (join facts absent
+ *   → the provider stays unattached; never guessed).
+ * - ONLY validated base URLs leave this helper — no blob content, no
+ *   credential fields (enforced by `validatedBaseUrl`).
+ */
+export function aggregateProviderBaseUrls(
+  rows: OmnirouteProviderConnectionRow[]
+): string[] | undefined {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const row of rows) {
+    if (out.length >= MAX_PROVIDER_BASE_URLS) break;
+    const url = validatedBaseUrl(providerSpecificDataBlob(row));
+    if (url !== null && !seen.has(url)) {
+      seen.add(url);
+      out.push(url);
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 /**
  * Build the OmniRoute-native provider. Every producer is injectable so the
  * unit tests run from fixtures with NO live infrastructure (AC2).
@@ -297,6 +353,19 @@ export function buildOmnirouteTelemetryProvider(
     const resources: FleetResourceObservation[] = [];
     const seen = new Set<string>();
 
+    // JOIN FACTS (OR-ATOM-009.2) need EVERY connection row per provider key
+    // (a key can front several endpoints), so group once up front — the
+    // atom-dedup loop below still skips duplicate keys, but rows excluded
+    // by that dedup contribute to the aggregated baseUrls.
+    const rowsByKey = new Map<string, OmnirouteProviderConnectionRow[]>();
+    for (const row of connections) {
+      const providerKey = toProviderKey(row);
+      if (providerKey == null) continue;
+      const list = rowsByKey.get(providerKey);
+      if (list === undefined) rowsByKey.set(providerKey, [row]);
+      else list.push(row);
+    }
+
     for (const row of connections) {
       const providerKey = toProviderKey(row);
       if (
@@ -314,11 +383,12 @@ export function buildOmnirouteTelemetryProvider(
         providerId: providerKey,
       };
 
-      // Join fact only (OR-ATOM-009.2): the configured upstream base URL,
-      // validated (http/https, parseable). Consumed solely to reconcile
-      // proven provider→runtime edges — never displayed, never credentials.
-      const baseUrl = validatedBaseUrl(row.providerSpecificData);
-      if (baseUrl !== null) resource.baseUrl = baseUrl;
+      // Join facts only (OR-ATOM-009.2): the validated upstream base URLs
+      // of EVERY connection row for this key (deduped, first-seen order,
+      // capped). Consumed solely to reconcile proven provider→runtime
+      // edges — never displayed, never credentials.
+      const baseUrls = aggregateProviderBaseUrls(rowsByKey.get(providerKey) ?? []);
+      if (baseUrls !== undefined) resource.baseUrls = baseUrls;
 
       // Active jobs: process-wide in-flight count (documented, not per-provider).
       resource.activeJobs = observedNumberValue(inflightCount, "omniroute-live", capturedAt, {

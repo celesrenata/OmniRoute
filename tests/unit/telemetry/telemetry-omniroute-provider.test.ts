@@ -23,7 +23,12 @@ const NOW = 1_700_000_000_000;
 type BreakerEntry = { name: string; state: string };
 
 interface FixtureParts {
-  connections?: Array<{ id: string; provider: string; providerSpecificData?: string }>;
+  connections?: Array<{
+    id: string;
+    provider: string;
+    providerSpecificData?: string;
+    provider_specific_data?: string;
+  }>;
   breakers?: BreakerEntry[] | Record<string, { state: string }>;
   rateLimits?: Record<string, { queued: number; running: number; executing: number }>;
   inflight?: number;
@@ -304,7 +309,7 @@ describe("omniroute adapter: probe + abort + identity hygiene", () => {
   });
 });
 
-describe("omniroute adapter: baseUrl join fact (OR-ATOM-009.2)", () => {
+describe("omniroute adapter: baseUrls join fact (OR-ATOM-009.2)", () => {
   async function providerRowFor(
     connections: FixtureParts["connections"]
   ): Promise<FleetResourceObservation> {
@@ -315,44 +320,128 @@ describe("omniroute adapter: baseUrl join fact (OR-ATOM-009.2)", () => {
     return row;
   }
 
-  it("plumbs a validated baseUrl from providerSpecificData JSON", async () => {
+  // REGRESSION (2026-10-30, live pod ~00:32Z): the app DB path
+  // (getProviderConnections → rowToCamel, src/lib/db/providers.ts:324)
+  // delivers the opaque blob as CAMEL CASE `providerSpecificData`. The
+  // adapter once read snake_case `provider_specific_data` only → never
+  // present on app rows → no baseUrls → 0 proven provider_runtime edges
+  // (live: runtime node LIVE with endpointPort, edges=0).
+  it("carries baseUrls from the EXACT app-DB row shape (camelCase providerSpecificData)", async () => {
     const row = await providerRowFor([
+      {
+        id: "c1",
+        provider: "openai",
+        providerSpecificData: JSON.stringify({
+          baseUrl: "http://192.168.133.3:2701/v1",
+          api_key: "[REDACTED:openai_compatible]",
+        }),
+      },
+    ]);
+    assert.deepEqual(row.baseUrls, ["http://192.168.133.3:2701/v1"]);
+    // The raw JSON blob (with its credential fields) never rides on the
+    // observation — exact-string absence of the credential value.
+    assert.ok(
+      !JSON.stringify(row).includes("[REDACTED:openai_compatible]"),
+      "credential value must never leak into the resource"
+    );
+  });
+
+  it("also accepts the legacy snake_case row shape (driver/cache paths)", async () => {
+    // Some driver/cache paths leave snake_case on the row — accept either
+    // casing rather than trusting one shape (precedent:
+    // src/lib/db/quotaSnapshots.ts:60).
+    const row = await providerRowFor([
+      {
+        id: "c1",
+        provider: "openai",
+        provider_specific_data: JSON.stringify({
+          baseUrl: "http://192.168.133.3:2701/v1",
+        }),
+      },
+    ]);
+    assert.deepEqual(row.baseUrls, ["http://192.168.133.3:2701/v1"]);
+  });
+
+  it("aggregates ALL validated baseUrls across every connection row of a provider key (live: vllm on 3 hosts)", async () => {
+    const row = await providerRowFor([
+      // Live mirror: one provider key, three distinct endpoints
+      // (esnixi-5090 / gremlin-4070ti / stabulous-m5max).
       {
         id: "c1",
         provider: "openai",
         providerSpecificData: JSON.stringify({ baseUrl: "http://192.168.133.3:2701/v1" }),
       },
+      {
+        id: "c2",
+        provider: "openai",
+        providerSpecificData: JSON.stringify({ baseUrl: "http://10.1.1.12:2701/v1" }),
+      },
+      {
+        id: "c3",
+        provider: "openai",
+        providerSpecificData: JSON.stringify({ baseUrl: "http://192.168.133.2:7777/v1" }),
+      },
     ]);
-    assert.equal(row.baseUrl, "http://192.168.133.3:2701/v1");
+    // ONE provider atom (dedup by key) carrying the FULL set — first row
+    // wins NOTHING: rows excluded by the dedup still contribute.
+    assert.deepEqual(row.baseUrls, [
+      "http://192.168.133.3:2701/v1",
+      "http://10.1.1.12:2701/v1",
+      "http://192.168.133.2:7777/v1",
+    ]);
   });
 
-  it("omits baseUrl when providerSpecificData is invalid JSON", async () => {
+  it("dedupes identical baseUrls and caps the set at 16 (first-seen order)", async () => {
+    const connections: NonNullable<FixtureParts["connections"]> = [
+      // 17 distinct URLs → 17 unique, cap 16.
+      {
+        id: "c0",
+        provider: "openai",
+        providerSpecificData: JSON.stringify({ baseUrl: "http://10.0.0.1:8000/v1" }),
+      },
+      ...Array.from({ length: 17 }, (_, i) => ({
+        id: `c${i + 1}`,
+        provider: "openai",
+        providerSpecificData: JSON.stringify({ baseUrl: `http://10.0.0.${i + 2}:8000/v1` }),
+      })),
+    ];
+    const row = await providerRowFor(connections);
+    assert.equal(row.baseUrls?.length, 16, "baseUrls capped at 16");
+    assert.deepEqual(row.baseUrls?.[0], "http://10.0.0.1:8000/v1");
+    assert.equal(
+      row.baseUrls?.includes("http://10.0.0.18:8000/v1"),
+      false,
+      "17th distinct URL dropped by the cap"
+    );
+  });
+
+  it("omits baseUrls when providerSpecificData is invalid JSON", async () => {
     const row = await providerRowFor([
       { id: "c1", provider: "openai", providerSpecificData: "{not-json" },
     ]);
-    assert.equal(row.baseUrl, undefined);
+    assert.equal(row.baseUrls, undefined);
   });
 
-  it("omits baseUrl when providerSpecificData is absent", async () => {
+  it("omits baseUrls when providerSpecificData is absent", async () => {
     const row = await providerRowFor([{ id: "c1", provider: "openai" }]);
-    assert.equal(row.baseUrl, undefined);
+    assert.equal(row.baseUrls, undefined);
   });
 
-  it("omits baseUrl when the JSON value is not a string", async () => {
+  it("omits baseUrls when the JSON value is not a string", async () => {
     const row = await providerRowFor([
       { id: "c1", provider: "openai", providerSpecificData: JSON.stringify({ baseUrl: 1234 }) },
     ]);
-    assert.equal(row.baseUrl, undefined);
+    assert.equal(row.baseUrls, undefined);
   });
 
-  it("omits baseUrl when the JSON has no baseUrl key", async () => {
+  it("omits baseUrls when the JSON has no baseUrl key", async () => {
     const row = await providerRowFor([
       { id: "c1", provider: "openai", providerSpecificData: JSON.stringify({ other: "x" }) },
     ]);
-    assert.equal(row.baseUrl, undefined);
+    assert.equal(row.baseUrls, undefined);
   });
 
-  it("omits baseUrl when the value is not a parseable http(s) URL", async () => {
+  it("omits baseUrls when the value is not a parseable http(s) URL", async () => {
     const row = await providerRowFor([
       {
         id: "c1",
@@ -360,10 +449,10 @@ describe("omniroute adapter: baseUrl join fact (OR-ATOM-009.2)", () => {
         providerSpecificData: JSON.stringify({ baseUrl: "not a url" }),
       },
     ]);
-    assert.equal(row.baseUrl, undefined);
+    assert.equal(row.baseUrls, undefined);
   });
 
-  it("omits baseUrl for non-http(s) schemes", async () => {
+  it("omits baseUrls for non-http(s) schemes", async () => {
     const row = await providerRowFor([
       {
         id: "c1",
@@ -371,11 +460,23 @@ describe("omniroute adapter: baseUrl join fact (OR-ATOM-009.2)", () => {
         providerSpecificData: JSON.stringify({ baseUrl: "ftp://h1:21/x" }),
       },
     ]);
-    assert.equal(row.baseUrl, undefined);
+    assert.equal(row.baseUrls, undefined);
   });
 
-  it("carries ONLY the baseUrl — credential values NEVER leave the DB row", async () => {
-    const fakeApiKey = "sk-FAKE-CREDENTIAL-DO-NOT-LEAK";
+  it("skips invalid rows but keeps valid baseUrls from sibling rows", async () => {
+    const row = await providerRowFor([
+      { id: "c1", provider: "openai", providerSpecificData: "{not-json" },
+      {
+        id: "c2",
+        provider: "openai",
+        providerSpecificData: JSON.stringify({ baseUrl: "http://192.168.133.3:2701/v1" }),
+      },
+    ]);
+    assert.deepEqual(row.baseUrls, ["http://192.168.133.3:2701/v1"]);
+  });
+
+  it("carries ONLY validated baseUrls — credential values NEVER leave the DB row", async () => {
+    const fakeApiKey = "[REDACTED:auth_header]";
     const fakeSecret = "sec-FAKE-CREDENTIAL-DO-NOT-LEAK";
     const psd = JSON.stringify({
       baseUrl: "http://192.168.133.3:2701/v1",
@@ -383,10 +484,8 @@ describe("omniroute adapter: baseUrl join fact (OR-ATOM-009.2)", () => {
       secret: fakeSecret,
     });
     const row = await providerRowFor([{ id: "c1", provider: "openai", providerSpecificData: psd }]);
-    assert.equal(row.baseUrl, "http://192.168.133.3:2701/v1");
-    // The raw JSON blob (with its credential fields) never rides on the
-    // observation — only the validated baseUrl string survives. Serialize
-    // the whole resource and assert the credential values are absent.
+    assert.deepEqual(row.baseUrls, ["http://192.168.133.3:2701/v1"]);
+    // Serialize the whole resource; the credential values must be absent.
     const serialized = JSON.stringify(row);
     assert.ok(!serialized.includes(fakeApiKey), "api_key value must never leak");
     assert.ok(!serialized.includes(fakeSecret), "secret value must never leak");

@@ -376,17 +376,17 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
     return result.edges.filter((e) => e.relation === "provider_runtime");
   }
 
-  it("emits exactly one provider_runtime edge when baseUrl host+port match", () => {
+  it("emits exactly one provider_runtime edge when a baseUrls host+port match", () => {
     const result = reconcileSnapshot(
       snapshotOf([
-        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        providerResource("p1", { baseUrls: ["http://h1:2701"] }),
         runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
       ])
     );
-    // Provider nodes carry the join fact through.
+    // Provider nodes carry the join facts through.
     const pNode = result.providerNodes.find((n) => n.resourceId === "provider:p1");
     assert.ok(pNode);
-    assert.equal(pNode.baseUrl, "http://h1:2701");
+    assert.deepEqual(pNode.baseUrls, ["http://h1:2701"]);
     const rNode = runtimeById(result, RT_A);
     assert.equal(rNode.endpointPort, 2701);
 
@@ -401,7 +401,7 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
     });
   });
 
-  it("emits NO edge when the provider has no baseUrl", () => {
+  it("emits NO edge when the provider has no baseUrls", () => {
     const result = reconcileSnapshot(
       snapshotOf([providerResource("p1"), runtimeResource("h1", "rt-0", { endpointPort: 2701 })])
     );
@@ -411,7 +411,7 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
   it("emits NO edge when the runtime has no endpointPort (never guessed)", () => {
     const result = reconcileSnapshot(
       snapshotOf([
-        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        providerResource("p1", { baseUrls: ["http://h1:2701"] }),
         runtimeResource("h1", "rt-0"),
       ])
     );
@@ -421,7 +421,7 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
   it("emits NO edge on a port mismatch", () => {
     const result = reconcileSnapshot(
       snapshotOf([
-        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        providerResource("p1", { baseUrls: ["http://h1:2701"] }),
         runtimeResource("h1", "rt-0", { endpointPort: 8000 }),
       ])
     );
@@ -431,7 +431,7 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
   it("emits NO edge on a host mismatch", () => {
     const result = reconcileSnapshot(
       snapshotOf([
-        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        providerResource("p1", { baseUrls: ["http://h1:2701"] }),
         runtimeResource("h2", "rt-0", { endpointPort: 2701 }),
       ])
     );
@@ -441,7 +441,7 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
   it("emits NO edge for an IPv6 baseUrl (unassigned, never guessed)", () => {
     const result = reconcileSnapshot(
       snapshotOf([
-        providerResource("p1", { baseUrl: "http://[::1]:2701" }),
+        providerResource("p1", { baseUrls: ["http://[::1]:2701"] }),
         runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
       ])
     );
@@ -451,14 +451,14 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
   it("applies protocol defaults (https→443, http→80) when no explicit port", () => {
     const httpsMatch = reconcileSnapshot(
       snapshotOf([
-        providerResource("p1", { baseUrl: "https://h1" }),
+        providerResource("p1", { baseUrls: ["https://h1"] }),
         runtimeResource("h1", "rt-0", { endpointPort: 443 }),
       ])
     );
     assert.equal(edgesFor(httpsMatch).length, 1);
     const httpMatch = reconcileSnapshot(
       snapshotOf([
-        providerResource("p1", { baseUrl: "http://h1" }),
+        providerResource("p1", { baseUrls: ["http://h1"] }),
         runtimeResource("h1", "rt-0", { endpointPort: 80 }),
       ])
     );
@@ -468,8 +468,8 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
   it("emits one edge PER provider for an N:M match (no double counting)", () => {
     const result = reconcileSnapshot(
       snapshotOf([
-        providerResource("pa", { baseUrl: "http://h1:2701" }),
-        providerResource("pb", { baseUrl: "http://h1:2701" }),
+        providerResource("pa", { baseUrls: ["http://h1:2701"] }),
+        providerResource("pb", { baseUrls: ["http://h1:2701"] }),
         runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
       ])
     );
@@ -482,8 +482,8 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
   it("dedupes duplicate observations to a single edge", () => {
     const result = reconcileSnapshot(
       snapshotOf([
-        providerResource("p1", { baseUrl: "http://h1:2701" }),
-        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        providerResource("p1", { baseUrls: ["http://h1:2701"] }),
+        providerResource("p1", { baseUrls: ["http://h1:2701"] }),
         runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
         runtimeResource("h1", "rt-0", { endpointPort: 2701 }),
       ])
@@ -494,7 +494,7 @@ describe("reconcile: provider_runtime join (OR-ATOM-009.2)", () => {
   it("does not disturb runtime_device / runtime_model edges", () => {
     const result = reconcileSnapshot(
       snapshotOf([
-        providerResource("p1", { baseUrl: "http://h1:2701" }),
+        providerResource("p1", { baseUrls: ["http://h1:2701"] }),
         gpuResource("h1", "uuid-0", {
           utilizationPercent: observedValue(50, { source: "prometheus" }),
         }),

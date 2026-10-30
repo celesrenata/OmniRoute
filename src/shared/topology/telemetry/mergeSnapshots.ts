@@ -214,9 +214,28 @@ export function mergeSnapshots(
       merged.providerId = prev.providerId ?? r.providerId;
       merged.runtimeId = prev.runtimeId ?? r.runtimeId;
       merged.modelId = prev.modelId ?? r.modelId;
-      // Join facts (OR-ATOM-009.2): same fill-gap semantics — the most-recent
-      // non-undefined value per resourceId; absent stays absent.
-      merged.baseUrl = prev.baseUrl ?? r.baseUrl;
+      // Join facts (OR-ATOM-009.2): fill-gap semantics — the most-recent
+      // non-undefined value per resourceId; absent stays absent. baseUrls
+      // is a SET of proven facts, so the two snapshots' sets are UNIONED
+      // (deduped, prev order first) — a fact observed by ANY snapshot keeps
+      // its provenance instead of being clobbered by the other.
+      const mergedBaseUrls =
+        prev.baseUrls === undefined
+          ? r.baseUrls
+          : r.baseUrls === undefined
+            ? prev.baseUrls
+            : (() => {
+                const seen = new Set(prev.baseUrls);
+                const mergedUrls = [...prev.baseUrls];
+                for (const u of r.baseUrls) {
+                  if (!seen.has(u)) {
+                    seen.add(u);
+                    mergedUrls.push(u);
+                  }
+                }
+                return mergedUrls;
+              })();
+      if (mergedBaseUrls !== undefined) merged.baseUrls = mergedBaseUrls;
       merged.endpointPort = prev.endpointPort ?? r.endpointPort;
       byId.set(r.resourceId, merged);
     }

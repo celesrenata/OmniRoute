@@ -99,13 +99,16 @@ export interface FleetResourceObservation {
   runtimeId?: string;
   modelId?: string;
   /**
-   * Provider JOIN FACT (provider atoms only, OR-ATOM-009.2): the configured
-   * upstream base URL (http/https only). Used ONLY to reconcile a proven
-   * `provider_runtime` edge (host:port match against a runtime's observed
+   * Provider JOIN FACTS (provider atoms only, OR-ATOM-009.2): the validated
+   * upstream base URLs (http/https only) of EVERY connection row for this
+   * provider key — a single provider key can front several endpoints (live
+   * 2026-10-30: vllm on 3 hosts), so the fact is a SET, not one string.
+   * Deduped, first-seen order, capped at 16. Used ONLY to reconcile proven
+   * `provider_runtime` edges (host:port match against a runtime's observed
    * endpoint) — NEVER rendered as a display label, NEVER parsed for
-   * credentials. Join-only; absent when unconfigured or invalid.
+   * credentials. Join-only; absent when no row carries a valid value.
    */
-  baseUrl?: string;
+  baseUrls?: string[];
   /**
    * Runtime JOIN FACT (runtime atoms only, OR-ATOM-009.2): the port of the
    * runtime's metrics endpoint, derived ONLY from a fully-parsed

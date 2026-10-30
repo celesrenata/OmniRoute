@@ -456,21 +456,27 @@ identity contract); the prometheus + grafana provider suites carry the
 
 Provider atoms are **never** conflated with devices, so a
 `provider → runtime` relationship may only be established from an explicit,
-validated source. This task wires the _configured upstream base URL_ of a
+validated source. This task wires the _configured upstream base URLs_ of a
 provider atom against the _proven host + observed metrics-endpoint port_ of a
 runtime atom. A missing fact on either side leaves the relationship **absent**
 (unattached) — it is never guessed.
 
 **Join facts (both sides must be present):**
 
-- _Provider side_ — `ReconciledProviderNode.baseUrl`: the configured upstream
-  base URL. It is extracted by `validatedBaseUrl()` in
+- _Provider side_ — `ReconciledProviderNode.baseUrls`: the validated upstream
+  base URL **set** for the provider key (one key can front several endpoints —
+  live 2026-10-30: vllm on 3 hosts). Each URL is extracted by
+  `validatedBaseUrl()` in
   [src/shared/topology/telemetry/providers/omniroute.ts](../../src/shared/topology/telemetry/providers/omniroute.ts)
-  from the opaque `provider_specific_data` JSON column. Only a **top-level
-  string** `baseUrl` that parses as an `http(s)` URL survives; malformed JSON,
-  a non-string value, a non-URL string, or a non-http(s) scheme all yield
-  `null` (no join fact). The credential-bearing blob itself **never** rides on
-  the observation — only the validated URL does.
+  from the opaque `provider_specific_data` JSON column (read from either the
+  camelCase `providerSpecificData` field — the app-DB row path — or the raw
+  snake_case `provider_specific_data` column). Only a **top-level string**
+  `baseUrl` that parses as an `http(s)` URL survives; malformed JSON, a
+  non-string value, a non-URL string, or a non-http(s) scheme all yield
+  `null` (no join fact). URLs are aggregated across every connection row for
+  the key (deduped, first-seen order, capped at 16 —
+  `aggregateProviderBaseUrls`). The credential-bearing blob itself **never**
+  rides on the observation — only the validated URLs do.
 - _Runtime side_ — `ReconciledRuntimeNode.endpointPort`: the runtime's metrics
   endpoint port, derived by `endpointPortFromInstanceLabel()` in
   [src/shared/topology/telemetry/providers/prometheus.ts](../../src/shared/topology/telemetry/providers/prometheus.ts)
@@ -481,12 +487,13 @@ runtime atom. A missing fact on either side leaves the relationship **absent**
 
 **Match rule** (in
 [src/shared/topology/telemetry/reconcile.ts](../../src/shared/topology/telemetry/reconcile.ts)):
-parse the provider `baseUrl`; require an `http(s)` protocol; require a
-non-IPv6 hostname; resolve the port (explicit, or the protocol default
-`https→443` / `http→80`). For each runtime, emit one edge only when
-`url.hostname === runtime.hostId` **and** `urlPort === runtime.endpointPort`.
-Each distinct (provider, runtime) pair yields exactly one edge — an N:M match
-is N edges, and duplicate observations dedupe.
+for each URL in the provider's `baseUrls`: parse it; require an `http(s)`
+protocol; require a non-IPv6 hostname; resolve the port (explicit, or the
+protocol default `https→443` / `http→80`). For each runtime, emit one edge
+only when `url.hostname === runtime.hostId` **and**
+`urlPort === runtime.endpointPort`. Each distinct (provider, runtime) pair
+yields exactly one edge regardless of how many URLs matched — an N:M match is
+N edges, and duplicate observations dedupe.
 
 ```jsonc
 {

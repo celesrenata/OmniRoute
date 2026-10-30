@@ -77,8 +77,8 @@ export interface ReconciledRuntimeNode {
 export interface ReconciledProviderNode {
   resourceId: string;
   providerId: string;
-  /** OR-ATOM-009.2 join fact: configured upstream base URL (never displayed). */
-  baseUrl?: string;
+  /** OR-ATOM-009.2 join facts: validated upstream base URLs (never displayed). */
+  baseUrls?: string[];
   outputTokensPerSecond?: Observed<number>;
   queuedJobs?: Observed<number>;
   activeJobs?: Observed<number>;
@@ -197,7 +197,7 @@ export function reconcileSnapshot(snapshot: FleetTelemetrySnapshot): Reconciliat
         };
         providers.set(id, node);
       }
-      if (r.baseUrl != null && node.baseUrl == null) node.baseUrl = r.baseUrl;
+      if (r.baseUrls !== undefined && node.baseUrls === undefined) node.baseUrls = r.baseUrls;
       if (r.outputTokensPerSecond !== undefined)
         node.outputTokensPerSecond = r.outputTokensPerSecond;
       if (r.queuedJobs !== undefined) node.queuedJobs = r.queuedJobs;
@@ -239,39 +239,43 @@ export function reconcileSnapshot(snapshot: FleetTelemetrySnapshot): Reconciliat
   }
 
   // provider→runtime relationships are established ONLY by an explicit source:
-  // the configured upstream base URL of a provider atom, reconciled against a
-  // runtime atom's proven host + observed metrics-endpoint port (OR-ATOM-009.2).
-  // A port-less runtime never matches; an unparseable/IPv6 base URL is skipped.
-  // Absent here means unattached — we never join by display name.
+  // the configured upstream base URLS of a provider atom, reconciled against
+  // runtime atoms' proven host + observed metrics-endpoint port (OR-ATOM-009.2).
+  // A provider key can front several endpoints (live vllm-on-3-hosts), so each
+  // validated base URL is matched independently. A port-less runtime never
+  // matches; an unparseable/IPv6 base URL is skipped. Absent here means
+  // unattached — we never join by display name.
   for (const p of providers.values()) {
-    if (p.baseUrl == null) continue; // no configured join fact → unattached
-    let url: URL;
-    try {
-      url = new URL(p.baseUrl);
-    } catch {
-      continue; // invalid URL (validated upstream, but defensive) → unattached
-    }
-    if (url.protocol !== "http:" && url.protocol !== "https:") continue;
-    // An IPv6 literal hostname is bracketed (`[a:b::1]`) and contains ':' —
-    // matching it would need bracket-aware host equality, exactly the
-    // guessing we refuse to do → unattached.
-    if (url.hostname.includes(":")) continue;
-    const urlHost = url.hostname;
-    const urlPort =
-      url.port !== "" ? Number.parseInt(url.port, 10) : url.protocol === "https:" ? 443 : 80;
-    if (!Number.isFinite(urlPort) || urlPort < 1 || urlPort > 65535) continue;
-    for (const r of runtimes.values()) {
-      if (r.endpointPort == null) continue; // port-less runtime never matches
-      if (urlHost !== r.hostId || urlPort !== r.endpointPort) continue; // no guess
-      const key = `provider_runtime:${p.resourceId}->${r.resourceId}`;
-      if (!edges.has(key)) {
-        edges.set(key, {
-          source: p.resourceId,
-          target: r.resourceId,
-          relation: "provider_runtime",
-          basis: "configured provider baseUrl host:port match",
-          sampledAt: capturedAt,
-        });
+    if (p.baseUrls === undefined) continue; // no configured join facts → unattached
+    for (const baseUrl of p.baseUrls) {
+      let url: URL;
+      try {
+        url = new URL(baseUrl);
+      } catch {
+        continue; // invalid URL (validated upstream, but defensive) → unattached
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      // An IPv6 literal hostname is bracketed (`[a:b::1]`) and contains ':' —
+      // matching it would need bracket-aware host equality, exactly the
+      // guessing we refuse to do → unattached.
+      if (url.hostname.includes(":")) continue;
+      const urlHost = url.hostname;
+      const urlPort =
+        url.port !== "" ? Number.parseInt(url.port, 10) : url.protocol === "https:" ? 443 : 80;
+      if (!Number.isFinite(urlPort) || urlPort < 1 || urlPort > 65535) continue;
+      for (const r of runtimes.values()) {
+        if (r.endpointPort == null) continue; // port-less runtime never matches
+        if (urlHost !== r.hostId || urlPort !== r.endpointPort) continue; // no guess
+        const key = `provider_runtime:${p.resourceId}->${r.resourceId}`;
+        if (!edges.has(key)) {
+          edges.set(key, {
+            source: p.resourceId,
+            target: r.resourceId,
+            relation: "provider_runtime",
+            basis: "configured provider baseUrl host:port match",
+            sampledAt: capturedAt,
+          });
+        }
       }
     }
   }

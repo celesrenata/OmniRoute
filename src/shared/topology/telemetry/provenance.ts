@@ -119,9 +119,10 @@ export const resourceSchema = z
     providerId: z.string().refine(isNonEmptyId).optional(),
     runtimeId: z.string().refine(isNonEmptyId).optional(),
     modelId: z.string().refine(isNonEmptyId).optional(),
-    /** Provider JOIN FACT (OR-ATOM-009.2): configured upstream base URL.
-     * Join-only — never displayed, never credentials (validated on write). */
-    baseUrl: z.string().refine(isNonEmptyId).optional(),
+    /** Provider JOIN FACTS (OR-ATOM-009.2): validated upstream base URLs.
+     * Join-only — never displayed, never credentials (validated on write).
+     * One provider key can front several endpoints, so this is a set. */
+    baseUrls: z.array(z.string().refine(isNonEmptyId)).max(16).optional(),
     /** Runtime JOIN FACT (OR-ATOM-009.2): metrics endpoint port. Join-only. */
     endpointPort: z.number().int().positive().optional(),
     outputTokensPerSecond: observedNumber.optional(),
