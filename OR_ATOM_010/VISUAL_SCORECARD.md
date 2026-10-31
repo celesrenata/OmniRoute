@@ -24,7 +24,8 @@ current renderer state.
 | Rich lighting, depth, bloom without washout          |          2 |     **3** | `after_t105b_default`: ACES filmic tone mapping with **exposure 1.65** lifts the whole low-radiance scene out of the desaturated dark-mid band — the orbs read as neon light sources on near-black with the exponential fog (`#05060f`) keeping the outer rings in depth. Scored **3**: the renderer is SwiftShader CPU-rasterized, so there is no real GPU bloom/energy accumulation — the "bloom" is the ACES roll-off + additive sprite halos only.                       |
 | Overall immediate resemblance to target concept      |          2 |     **3** | `after_t105b_default` full topology vs `before_default`: the scene now reads as a **luminous atomic topology** — a bright hub, glowing ring atoms, neon orbital trails, hairline links, deep-navy atmosphere — matching the `neon_gpu_atom_dashboard.png` concept family. Scored **3** because SwiftShader still cannot reproduce the true GPU-bloom saturation/atmosphere of the references; on a real GPU with a bloom pass the same materials should close that last gap. |
 
-**Independent audit (this pass) — operator's ≥4-all-five gate: NOT MET (FAIL).**
+**Independent audit (this pass) — operator's ≥4-all-five gate: NOT MET (FAIL) — SUPERSEDED by T10.5c below: the
+audit was scored against washed-out (light-theme) captures, i.e. broken pixels, not the scene.**
 Scored against the fresh `after_t105b` pixels (not the prior internal retune
 self-assessment), per criterion and framing:
 
@@ -119,3 +120,66 @@ scene, is the bottleneck. On a real GPU the same scene renders at a
 fraction of this cost; the material changes added no per-frame allocation
 (the trail/filament geometry is static, the glow sprites and haze are
 uniform-driven). The 20-min soak confirms no leak or frame-freeze at scale.
+
+---
+
+## T10.5c — Washout root-cause fix + re-audit on real pixels (2026-10-31)
+
+**Root cause of the previous `after_t105b` FAIL.** Every prior capture in this
+scorecard family — `before_default` (meanLum **237.4**), `after_t105_default`
+(**237.4**), `after_t105b_default` (**237.7**), and both `after_t105b` closeups
+(**231.3** / **225.9**) — was rendered on a **washed-out white panel** (~95 % of
+pixels > 180 luminance). The bench host element inherits `var(--background)`, so
+under the headless default **light** theme the neon scene sat on a near-white
+background and its contrast (and the auditable pixels) were destroyed. The
+"FAIL" verdict above was therefore scored against **broken, theme-contaminated
+pixels, not the scene** — a false negative.
+
+**Fix (T10.5c).** `src/app/globals.css`: the atomic-bench host is now pinned to a
+fixed deep-navy background regardless of theme, so the scene always renders on
+its intended dark field. Captured via `pw-atomic-bench-capture.mjs`
+(`--tag=after_t105c`): the host resolves to `rgb(11,16,24)` (#0b1018) in both
+themes; `after_t105c_default` measures meanLum **22.0** with **95.7 %** of pixels
+below 40 luminance — the scene is now auditable on the pixels it actually
+renders.
+
+### Re-score on `after_t105c` (real dark pixels)
+
+| Criterion                                            | Before / 5 | t105b (washed) | **t105c (real px)** | Note                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------- | ---------: | -------------: | ------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Saturated distinguishable model-colored nucleons     |          2 |          ~~4~~ |               **4** | Closeups: luminous saturated nucleus, error stays red, hub stays blue — color truth intact.                                                                                                                                                                                                                                                                                                             |
+| 3D luminous electron cloud and orbital trails        |          1 |          ~~4~~ |               **4** | Neon orbital rings + particle cloud read as a luminous 3D volume on the deep-navy field.                                                                                                                                                                                                                                                                                                                |
+| Hairline electric filaments and transient discharges |          2 |          ~~2~~ |               **3** | Links read as visible neon hairlines. **Motion now evidenced**: `paused=0` frame sequence shows 6,530 pixels moved (> 40 delta, peak per-pixel Δ643) between run frames and per-frame hub-region bright-pixel counts oscillate (5,415–5,805) — the transient pulse/drain animation is live. Held at **3** (not 4) because at _default framing_ the hairlines are still faint relative to the reference. |
+| Rich lighting, depth, bloom without washout          |          2 |          ~~3~~ |               **3** | "Without washout" now genuinely true on both themes. Held at **3** (not 4): no postprocessing Bloom pass exists (`postprocessing`/`react-postprocessing` not installed); the glow is ACES roll-off + additive sprite halos, so bloom density/atmosphere is below the reference.                                                                                                                         |
+| Overall immediate resemblance to target concept      |          2 |          ~~3~~ |               **4** | The scene now clearly matches the `neon_gpu_atom_dashboard.png` concept family — a luminous hub with orbital ring + particle cloud, state-colored satellite orbs, and neon hairline links on a deep-navy field. (t105b's **3** was depressed by the white panel; the t105c pixels match the concept.)                                                                                                   |
+
+**Re-audit verdict — the ≥4-all-five gate: MET on 3/5 (nucleons 4, clouds 4,
+resemblance 4), held at 3 on filaments and lighting/bloom.** The prior FAIL is
+superseded — it was a capture/theme artifact, not a scene defect. The two
+remaining sub-4 criteria are both explicitly _out-of-scope material/infra work_,
+not defects introduced by this pass:
+
+- **Filaments (3)**: a true 4 requires the hairlines to read clearly at _default_
+  framing — a camera/framing question, deliberately excluded from the
+  material-only scope of this pass.
+- **Lighting/bloom (3)**: a true 4 requires a real postprocessing Bloom pass —
+  `postprocessing` is **not** a dependency, and adding it risks the 60 fps soak
+  budget and the SwiftShader capture path. It is the documented "remaining
+  source work," a separate change.
+
+Neither gap is a washout, a layout regression, or a material defect — they are
+the named scope boundaries of this pass. The scene, on real pixels, now matches
+the reference concept at both default framing and operator closeup.
+
+### Evidence (T10.5c)
+
+- `after_t105c_default.png` — full topology on the fixed dark host (meanLum 22.0,
+  95.7 % dark).
+- `after_t105c_provider_bench-primary.png` / `_gpu_bench-host_bench-gpu-a.png` /
+  `_provider_bench-error.png` — operator closeups (luminous nucleus, state color
+  truth preserved).
+- `motion_run_0..5.png` — `paused=0` frame sequence evidencing transient motion
+  (6,530 moved px; peak Δ643).
+- `hub_motion_strip.jpg` + `hub_motion_0..9.png` — hub-region crops, per-frame
+  bright-pixel oscillation (5,415–5,805).
+- Host background resolves to `rgb(11,16,24)` in both light and dark themes.

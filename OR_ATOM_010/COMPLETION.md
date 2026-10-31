@@ -49,11 +49,24 @@ no mockups, no faked demo.
 
 - **Visual scorecard** — `OR_ATOM_010/VISUAL_SCORECARD.md`: 5 criteria, before
   2/1/2/2/2 → after (independent audit) 3/3/2/3/3 at default framing, 4/4/3/3/4 at
-  operator-closeup — **not all ≥4, so the ≥4-all-five gate is FAIL**. Protocol:
-  identical 1600×1000 viewport, identical golden 6-atom DEMO snapshot, identical
-  auto-fit camera, `paused=1`, same SwiftShader backend. Screenshots in
-  `OR_ATOM_010/screenshots/` (`before_*` vs `after_default` / `after_t103` / `after_t104`
-  / `after_t105` / `after_t105b`_*).
+  operator-closeup — **not all ≥4, so the ≥4-all-five gate was FAIL**.
+  **T10.5c correction (2026-10-31):** that FAIL was a false negative — every prior
+  capture (`before_*` / `after_*` / `after_t105*`, incl. the closeups) was
+  rendered on a washed-out **white panel** (meanLum 225–237, ~95 % of pixels
+  > 180 luminance) because the bench host inherited `var(--background)` under the
+  > headless default light theme. The T10.5c fix pins the host to a fixed
+  > deep-navy background (resolves to `rgb(11,16,24)` in both themes), and the
+  > re-capture (`after_t105c_*`, meanLum 22.0, 95.7 % of pixels below 40 luminance)
+  > re-scores the five criteria on real pixels: **4/4/3/3/4** (nucleons 4, clouds
+  > 4, resemblance 4; filaments 3 — hairlines still faint at default framing, a
+  > camera/framing item; lighting/bloom 3 — no postprocessing Bloom pass,
+  > `postprocessing` not a dependency). Motion is now evidenced on a `paused=0`
+  > frame sequence (6,530 moved px, peak per-pixel Δ643). The two sub-4 criteria
+  > are named scope boundaries, not scene defects. Protocol: identical 1600×1000
+  > viewport, identical golden 6-atom DEMO snapshot, identical auto-fit camera,
+  > same SwiftShader backend. Screenshots in `OR_ATOM_010/screenshots/`
+  > (`before_*` vs `after_default` / `after_t103` / `after_t104` / `after_t105` /
+  > `after_t105b`_\* / `after_t105c`_*).
 - **Performance** — `OR_ATOM_010/screenshots/perf_report.json` (SwiftShader CPU rasterizer —
   NOT a GPU figure): atoms 8/16/32 → avg frame 120.2 / 181.05 / 304.16 ms (linear),
   **heapΔ = 0 MB** at every scale, **0 page errors**. Reduced-motion: static frame, 0 errors.

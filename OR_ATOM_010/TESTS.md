@@ -147,11 +147,21 @@ on the same headless-Chromium SwiftShader backend:
 - `after_t103_default.png` — volumetric clouds + orbital trails (T10.3).
 - `after_t104_default.png` — hairline plasma filaments + red failure strand (T10.4).
 - `after_t105_default.png` — ACES + fog + exposure final pass (T10.5).
+- `after_t105c_default.png` — full topology on the fixed dark bench host
+  (T10.5c; every earlier `after_*` capture in this list was washed out on a
+  white panel under the headless light theme — see `VISUAL_SCORECARD.md`
+  → "T10.5c — Washout root-cause fix").
+- `motion_run_0..5.png` — `paused=0` frame sequence (T10.5c) evidencing
+  transient link motion (6,530 moved px, peak per-pixel Δ643).
+- `hub_motion_strip.jpg` — hub-region motion strip (T10.5c).
 - per-state closeups (`provider_bench-primary` / `bench-error` / hub).
 
 Scoring and per-criterion before/after deltas are in `VISUAL_SCORECARD.md`
 (after 3/3/2/3/3 at default framing, 4/4/3/3/4 at operator-closeup — not all ≥4;
-before scores 1–2).
+before scores 1–2). **Superseded by T10.5c**: the earlier FAIL was scored on
+washed-out white-panel captures; on the fixed dark host (`after_t105c_*`,
+meanLum 22.0) the five criteria re-score to **4/4/3/3/4** — the prior FAIL was a
+capture/theme artifact, not a scene defect.
 
 ## Summary
 

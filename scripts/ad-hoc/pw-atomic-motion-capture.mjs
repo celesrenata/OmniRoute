@@ -1,40 +1,32 @@
 #!/usr/bin/env node
 /**
- * OR-ATOM-010 — motion evidence capture.
- *
- * Two frames seconds apart on the RUNNING scene (`paused=0`) → proof the
- * orbital spin + energy-link pulse + haze are animating (not a frozen
- * still). Emits `OR_ATOM_010/screenshots/motion_<a|b>.png` + an identical
- * byte check (false = scene is moving).
+ * OR-ATOM-010 — motion evidence: capture consecutive running-scene frames
+ * (paused=0) so transient link pulses / discharges are visible as motion,
+ * not just a frozen paused frame.
  */
-import { mkdirSync, readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
+import { mkdirSync } from "node:fs";
 
-const BASE_URL = process.env.ATOMIC_BASE_URL || "http://127.0.0.1:21128";
-const OUT_DIR = "OR_ATOM_010/screenshots";
-mkdirSync(OUT_DIR, { recursive: true });
+const BASE = "http://127.0.0.1:21128";
+const OUT = "OR_ATOM_010/screenshots";
+mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch({
-  args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+  headless: true,
+  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--enable-webgl"],
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-const errors = [];
-page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
-page.on("console", (m) => {
-  if (m.type() === "error") errors.push(`console: ${m.text()}`);
-});
-
-await page.goto(`${BASE_URL}/dev/atomic-bench?paused=0&badge=0`, {
-  waitUntil: "networkidle",
-});
-await page.waitForTimeout(5000);
-await page.screenshot({ path: `${OUT_DIR}/motion_a.png` });
-await page.waitForTimeout(4000);
-await page.screenshot({ path: `${OUT_DIR}/motion_b.png` });
-
-const a = readFileSync(`${OUT_DIR}/motion_a.png`);
-const b = readFileSync(`${OUT_DIR}/motion_b.png`);
-console.log(
-  `motion_a=${a.length}B motion_b=${b.length}B identical=${a.equals(b)} errors=${errors.length}`
-);
+await page.goto(`${BASE}/dev/atomic-bench?paused=0`, { waitUntil: "domcontentloaded" }); // explicit live
+await page.waitForSelector("main[data-ready=true]", { timeout: 30000 });
+await page.waitForTimeout(2500); // let the scene settle into traffic
+const host = page.locator("main[data-atomic-bench]");
+const N = 6;
+const frames = [];
+for (let i = 0; i < N; i++) {
+  const f = `${OUT}/motion_run_${i}.png`;
+  await host.screenshot({ path: f });
+  frames.push(f);
+  await page.waitForTimeout(120);
+}
+console.log("motion frames:", frames.join(" "));
 await browser.close();
