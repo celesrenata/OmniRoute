@@ -9,7 +9,8 @@
 docs/i18n/
 
 # --- Second win: unit test corpus (~6,400 files) ---
-tests/unit/
+tests/unit/*
+!tests/unit/atomic-topology/
 tests/fixtures/
 
 # --- Generated / state blobs ---
