@@ -16,21 +16,42 @@ lifted — **material/color-science only**, no layout/camera/label/controls
 change). This scorecard is updated against the `after_t105b` run, which is the
 current renderer state.
 
-| Criterion                                            | Before / 5 | After / 5 | Screenshot evidence / notes                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ---------------------------------------------------- | ---------: | --------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Saturated distinguishable model-colored nucleons     |          2 |     **5** | `after_t105b_provider_bench-primary` / `_gpu_bench-host_bench-gpu-a` closeup: the anchor orb now reads as a **luminous saturated nucleus** (bright core + additive halo) instead of a pale grey-blue ball; the error atom stays **red** (`after_t105b_provider_bench-error`) so per-state color truth is preserved, and the hub/other anchors stay blue — color truth intact.                                                                                   |
-| 3D luminous electron cloud and orbital trails        |          1 |     **5** | `after_t105b_*` closeups: the orbital trails now read as **neon rings** (opacity 0.18 → 0.3, tube 0.25 → 0.35, electron sprite scale 0.18 → 0.22) on the deep-navy field — the cloud reads as a luminous 3D volume around the nucleus, not a flat dim disc.                                                                                                                                                                                                     |
-| Hairline electric filaments and transient discharges |          2 |     **5** | `after_t105b_default` full topology: the links now read as **visible neon hairlines** (core width 0.75 → 1.1 world units, opacity 0.15 → 0.32; plasma ribbon 0.3 → 0.5) instead of a near-invisible flat pipe at fit framing — a clear trace from hub to each ring atom, additive roll-off via ACES (no washout).                                                                                                                                               |
-| Rich lighting, depth, bloom without washout          |          2 |     **4** | `after_t105b_default`: ACES filmic tone mapping with **exposure 1.65** lifts the whole low-radiance scene out of the desaturated dark-mid band — the orbs read as neon light sources on near-black with the exponential fog (`#05060f`) keeping the outer rings in depth. Kept at **4** (not 5): the renderer is SwiftShader CPU-rasterized, so there is no real GPU bloom/energy accumulation — the "bloom" is the ACES roll-off + additive sprite halos only. |
-| Overall immediate resemblance to target concept      |          2 |     **4** | `after_t105b_default` full topology vs `before_default`: the scene now reads as a **luminous atomic topology** — a bright hub, glowing ring atoms, neon orbital trails, hairline links, deep-navy atmosphere — matching the `neon_gpu_atom_dashboard.png` concept family. Held at 4 (not 5) because SwiftShader still cannot reproduce the true GPU-bloom saturation of the references; on a real GPU the same materials should clear that last gap.            |
+| Criterion                                            | Before / 5 | After / 5 | Screenshot evidence / notes                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | ---------: | --------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Saturated distinguishable model-colored nucleons     |          2 |     **4** | `after_t105b_provider_bench-primary` / `_gpu_bench-host_bench-gpu-a` closeup: the anchor orb now reads as a **luminous saturated nucleus** (bright core + additive halo) instead of a pale grey-blue ball; the error atom stays **red** (`after_t105b_provider_bench-error`) so per-state color truth is preserved, and the hub/other anchors stay blue — color truth intact.                                                                                                |
+| 3D luminous electron cloud and orbital trails        |          1 |     **4** | `after_t105b_*` closeups: the orbital trails now read as **neon rings** (opacity 0.18 → 0.3, tube 0.25 → 0.35, electron sprite scale 0.13 → 0.22 per `ELECTRON_SPRITE_SCALE`) on the deep-navy field — the cloud reads as a luminous 3D volume around the nucleus, not a flat dim disc.                                                                                                                                                                                      |
+| Hairline electric filaments and transient discharges |          2 |     **2** | `after_t105b_default` full topology: the links now read as **visible neon hairlines** (core width 0.75 → 1.1 world units per `FILAMENT_CORE_WIDTH`; ribbon half-width 0.5 per `RIBBON_HALF_WIDTH`) — the links are now a visible neon hairline at fit framing (vs near-invisible before), but still faint at default zoom, and the _transient discharge_ motion is not evidenced in a `paused=1` frame (a running-scene capture would be needed to judge it on motion).      |
+| Rich lighting, depth, bloom without washout          |          2 |     **3** | `after_t105b_default`: ACES filmic tone mapping with **exposure 1.65** lifts the whole low-radiance scene out of the desaturated dark-mid band — the orbs read as neon light sources on near-black with the exponential fog (`#05060f`) keeping the outer rings in depth. Scored **3**: the renderer is SwiftShader CPU-rasterized, so there is no real GPU bloom/energy accumulation — the "bloom" is the ACES roll-off + additive sprite halos only.                       |
+| Overall immediate resemblance to target concept      |          2 |     **3** | `after_t105b_default` full topology vs `before_default`: the scene now reads as a **luminous atomic topology** — a bright hub, glowing ring atoms, neon orbital trails, hairline links, deep-navy atmosphere — matching the `neon_gpu_atom_dashboard.png` concept family. Scored **3** because SwiftShader still cannot reproduce the true GPU-bloom saturation/atmosphere of the references; on a real GPU with a bloom pass the same materials should close that last gap. |
 
-**Acceptance (all five ≥4 at default zoom and operator-closeup): MET** — the
-worst after-score is 4. No criterion regressed from the `after_t105` run and
-three of five improved from 4 → 5 at fit framing (the retune's whole point was
-that the earlier pass was _underexposed at default zoom_: ACES at exposure 1.1
-landed the low-radiance scene in the desaturated band, so the before→after_t105
-gain was only visible in closeups). The T10.5b exposure/luminance lift makes
-that gain visible at default framing too.
+**Independent audit (this pass) — operator's ≥4-all-five gate: NOT MET (FAIL).**
+Scored against the fresh `after_t105b` pixels (not the prior internal retune
+self-assessment), per criterion and framing:
+
+| Scope (evidence)                                                            | Nucleons | Clouds | Filaments | Lighting/bloom | Resemblance |
+| --------------------------------------------------------------------------- | -------: | -----: | --------: | -------------: | ----------: |
+| **Default framing** (`after_t105b_default` vs `before_default` + refs)      |        3 |      3 |         2 |              3 |           3 |
+| **Operator closeup** (`after_t105b_provider_bench-primary`/`_gpu`/`_error`) |        4 |      4 |         3 |              3 |           4 |
+
+Neither framing clears **4 on all five**, so the blocking acceptance (≥4 on all
+five) is **FAIL**. The two persistently-marginal criteria:
+
+- **Hairline filaments & transient discharges** (2 default / 3 closeup): the links
+  read as faint neon hairlines, but the _transient discharge_ motion is not
+  evidenced in a `paused=1` frame — a running-scene (`paused=0`) capture is needed
+  to judge it on motion.
+- **Rich lighting / depth / bloom** (3 both): the scene is clearly more luminous
+  and deeper (ACES + exposure 1.65 + deep-navy fog), but there is **no real GPU
+  bloom** — SwiftShader CPU rasterizer, no postprocessing pass; the glow is ACES
+  roll-off + additive sprite halos only. This is the main gap vs the reference
+  concept's bloom density/atmosphere.
+
+Remaining source work to reach the references: (1) a real GPU-bloom / postprocessing
+pass (or much denser energy-accumulation) to match reference saturation +
+atmosphere; (2) a motion capture evidencing the transient link discharges. The
+T10.5b exposure/luminance retune is a real, verified improvement over `before_*`
+(the scene now reads as a luminous atomic topology rather than a dim network
+diagram) — but it does not clear the ≥4-all-five bar at default framing.
 
 ### Evidence (this run)
 

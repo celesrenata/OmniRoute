@@ -1,7 +1,7 @@
 # OR-ATOM-010 — cinematic atomic scene pass — completion report
 
 Branch worktree: `.claude/worktrees/atomic-010-cinematic` (base
-`origin/release/v3.8.52`). Date: 2026-10-31 (LA).
+`origin/fix/atomic-0092-proven-routing` at `f24d25a8196a`). Date: 2026-10-31 (LA).
 
 ## What this task delivers
 
@@ -47,11 +47,13 @@ no mockups, no faked demo.
 
 ## Evidence
 
-- **Visual scorecard** — `OR_ATOM_010/VISUAL_SCORECARD.md`: 5/5 criteria, before → after
-  scores 2/1/2/2/2 → 5/4/4/4/4 (all ≥ 4). Protocol: identical 1600×1000 viewport,
-  identical golden 6-atom DEMO snapshot, identical auto-fit camera, `paused=1`,
-  same SwiftShader backend. Screenshots in `OR_ATOM_010/screenshots/`
-  (`before_*` vs `after_t102/3/4/5_*`).
+- **Visual scorecard** — `OR_ATOM_010/VISUAL_SCORECARD.md`: 5 criteria, before
+  2/1/2/2/2 → after (independent audit) 3/3/2/3/3 at default framing, 4/4/3/3/4 at
+  operator-closeup — **not all ≥4, so the ≥4-all-five gate is FAIL**. Protocol:
+  identical 1600×1000 viewport, identical golden 6-atom DEMO snapshot, identical
+  auto-fit camera, `paused=1`, same SwiftShader backend. Screenshots in
+  `OR_ATOM_010/screenshots/` (`before_*` vs `after_default` / `after_t103` / `after_t104`
+  / `after_t105` / `after_t105b`_*).
 - **Performance** — `OR_ATOM_010/screenshots/perf_report.json` (SwiftShader CPU rasterizer —
   NOT a GPU figure): atoms 8/16/32 → avg frame 120.2 / 181.05 / 304.16 ms (linear),
   **heapΔ = 0 MB** at every scale, **0 page errors**. Reduced-motion: static frame, 0 errors.

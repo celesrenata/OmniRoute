@@ -2,7 +2,7 @@
 
 All commands run inside the task worktree
 `.claude/worktrees/atomic-010-cinematic` (branch cut from
-`origin/release/v3.8.52`). Evidence is from this session's runs, 2026-10-31
+`origin/fix/atomic-0092-proven-routing` at `f24d25a8196a`). Evidence is from this session's runs, 2026-10-31
 (LA). Every number below is pasted from a real command output.
 
 ## 1. Changed production code (atomic-topology scene)
@@ -55,8 +55,8 @@ $ node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts
 ℹ duration_ms 358.8
 ```
 
-The two new files alone: `56 pass / 0 fail / 1 skipped` (57 files incl.
-`atomicSceneBridge`, `sceneDischarge`, `sceneFilament`).
+The two new files alone (re-run this audit pass): `14 pass / 0 fail / 0 skipped` (35 test files in the
+`tests/unit/atomic-topology/` dir; pre-existing `atomicSceneBridge` / `sceneDischarge` / `sceneFilament` etc. all green).
 
 ### Vitest (MCP / autoCombo / cache — the non-overlapping runner)
 
@@ -114,7 +114,7 @@ Cost scales **linearly** with atom count under the CPU rasterizer
 allocation growth), **0 page errors** at every scale. `atomCount` maps to the
 **exact** total atom count (verified by `goldenSnapshotBench.test.ts`).
 
-Reduced-motion (atoms=8): fps=8, avg 125.3 ms, 0 errors — the scene is fully
+Reduced-motion (atoms=8): fps=8, avg 119.69 ms, 0 errors — the scene is fully
 static under `prefers-reduced-motion` (no clock advance), so it renders a stable
 frame.
 
@@ -143,14 +143,15 @@ Captured via `scripts/ad-hoc/pw-atomic-bench-capture.mjs` (1600×1000,
 on the same headless-Chromium SwiftShader backend:
 
 - `before_default.png` — Step 8/9 baseline (flat/pale).
-- `after_t102_default.png` — glossy nucleons + env-map specular (T10.2).
+- `after_default.png` — glossy nucleons + env-map specular (T10.2; the untagged first-pass capture — no `after_t102_*` file exists).
 - `after_t103_default.png` — volumetric clouds + orbital trails (T10.3).
 - `after_t104_default.png` — hairline plasma filaments + red failure strand (T10.4).
 - `after_t105_default.png` — ACES + fog + exposure final pass (T10.5).
 - per-state closeups (`provider_bench-primary` / `bench-error` / hub).
 
 Scoring and per-criterion before/after deltas are in `VISUAL_SCORECARD.md`
-(all five criteria ≥4/5 after; before scores 1–2).
+(after 3/3/2/3/3 at default framing, 4/4/3/3/4 at operator-closeup — not all ≥4;
+before scores 1–2).
 
 ## Summary
 
