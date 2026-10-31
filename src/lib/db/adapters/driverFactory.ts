@@ -306,7 +306,10 @@ export function tryOpenSync(
   // Try the database driver specified by env. This overrides all automatic selection.
   const specifiedDriver = process.env.DATABASE_DRIVER;
   if (specifiedDriver === "postgres" || specifiedDriver === "pg-native") {
-    // Attempt to create and connect to Postgres adapter
+    // Fail closed: when PostgreSQL is the configured store, a connect failure must
+    // not fall back to a SQLite file under DATA_DIR. Replicas share that volume, so
+    // each pod would otherwise create and serve its own divergent database.
+    let reason = "adapter reported not open";
     try {
       const adapter = createPostgresAdapter({
         connectionString: process.env.POSTGRES_CONNECTION_STRING,
@@ -321,9 +324,11 @@ export function tryOpenSync(
         return adapter;
       }
     } catch (e) {
-      console.warn("[DB] Failed to initialize PostgreSQL adapter.", e);
-      // Falls through to other drivers
+      reason = e instanceof Error ? e.message : String(e);
     }
+    throw new Error(
+      `[DB] PostgreSQL unavailable (${reason}); refusing SQLite fallback under DATABASE_DRIVER=${specifiedDriver}.`
+    );
   } else if (specifiedDriver && specifiedDriver !== "better-sqlite3") {
     // Any other DATABASE_DRIVER is ignored unless it's better-sqlite3
     console.warn(

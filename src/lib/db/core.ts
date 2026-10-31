@@ -927,7 +927,8 @@ function clearDbHealthCheckScheduler() {
 
 function startDbHealthCheckScheduler(db: SqliteDatabase) {
   clearDbHealthCheckScheduler();
-  if (isCloud || isBuildPhase || isAutomatedTestProcess()) return;
+  // The scheduled check repairs a SQLite file on disk; it has no meaning for PostgreSQL.
+  if (isCloud || isBuildPhase || isAutomatedTestProcess() || db.driver === "pg-native") return;
 
   const intervalMs = getDbHealthCheckIntervalMs();
   if (intervalMs <= 0) return;
@@ -1385,7 +1386,7 @@ export function getDbInstance(): SqliteDatabase {
     throw error;
   }
 
-  if (shouldRunStartupDbHealthCheck()) {
+  if (shouldRunStartupDbHealthCheck() && db.driver !== "pg-native") {
     if (isDbHealthcheckStartupDeferredEnabled()) {
       // Opt-in (#13717): defer the check past startup via the bounded/paged,
       // child-process-isolated managed health check. Off by default — see the
@@ -1434,7 +1435,7 @@ export function getDbInstance(): SqliteDatabase {
   }
 
   startDbHealthCheckScheduler(db);
-  startWalMaintenance(db, SQLITE_FILE);
+  startWalMaintenance(db, db.driver === "pg-native" ? null : SQLITE_FILE);
   // Log the resolved absolute DATA_DIR + SQLITE_FILE once at init so a
   // multi-replica / Docker volume-topology mismatch (each replica opening a
   // different on-disk DB → "phantom"/missing combos & connections) is
