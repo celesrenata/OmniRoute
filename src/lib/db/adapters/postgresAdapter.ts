@@ -97,6 +97,41 @@ export function translateParams(sql: string): {
   return { sql: newSql, numParams: paramCount, names };
 }
 
+/**
+ * Extracts `AS alias` names from a SELECT and records how PostgreSQL will return
+ * them: unquoted aliases fold to lowercase, quoted aliases keep their case.
+ */
+function extractAliases(sql: string): Array<{ declared: string; pgFolded: string }> {
+  const aliases: Array<{ declared: string; pgFolded: string }> = [];
+  const aliasRegex = /\bAS\s+((?:")?([a-zA-Z_][a-zA-Z0-9_]*)(?:")?)/gi;
+  let match;
+  while ((match = aliasRegex.exec(sql)) !== null) {
+    const aliasCore = match[2];
+    const isQuoted = match[1].startsWith('"');
+    aliases.push({ declared: aliasCore, pgFolded: isQuoted ? aliasCore : aliasCore.toLowerCase() });
+  }
+  return aliases;
+}
+
+/**
+ * Restores row keys from PostgreSQL's folded form to the case the SQL declared,
+ * so callers reading row.totalRequests get a value instead of undefined.
+ */
+function remapKeys<T extends Record<string, unknown>>(
+  rows: T[],
+  aliases: Array<{ declared: string; pgFolded: string }>
+): T[] {
+  if (aliases.length === 0) return rows;
+  const aliasMap = new Map(aliases.map((a) => [a.pgFolded, a.declared]));
+  return rows.map((row) => {
+    const newRow: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row)) {
+      newRow[aliasMap.get(k) ?? k] = v;
+    }
+    return newRow as T;
+  });
+}
+
 // Cache of primary keys per table, resolved once from information_schema.
 // The upsert translation needs the conflict target; resolving it per call
 // would double the round-trip cost of every INSERT OR REPLACE.
@@ -707,6 +742,7 @@ export function createPostgresAdapter(config: {
       }
 
       const { sql: paramSql, numParams, names } = translateParams(sql);
+      const sqlAliases = extractAliases(sql);
       // Rewrite SQLite dialect (DATETIME/IFNULL/COLLATE NOCASE/AUTOINCREMENT…)
       // to PostgreSQL before the unsupported-construct gate and execution.
       const translatedSql = translateSqliteSql(paramSql);
@@ -816,13 +852,13 @@ export function createPostgresAdapter(config: {
         get(...params: unknown[]): unknown {
           const result = exec1(resolveBind(params));
           if (!Array.isArray(result) || result.length < 1) return undefined;
-          return result[0];
+          return remapKeys([result[0]], sqlAliases)[0];
         },
 
         // all returns all rows
         all(...params: unknown[]): unknown[] {
           const result = exec1(resolveBind(params));
-          return Array.isArray(result) ? result : [];
+          return Array.isArray(result) ? remapKeys(result, sqlAliases) : [];
         },
       };
     },

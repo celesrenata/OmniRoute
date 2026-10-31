@@ -37,6 +37,7 @@ test("postgresAdapter.get() contract: empty SELECT must return undefined (not []
   // Bonus: also verify all() keeps returning [] (it's allowed to)
   const allReturnsEmptyArray =
     src.includes("return Array.isArray(result) ? result : [];") ||
+    src.includes("return Array.isArray(result) ? remapKeys(result, sqlAliases) : [];") ||
     src.includes("return !Array.isArray(result) ? [] : result;") ||
     src.includes("if (!Array.isArray(result)) return [];") ||
     src.includes("return Array.isArray(result) ? n(b,h) : [];");
