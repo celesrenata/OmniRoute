@@ -232,7 +232,15 @@ function ColorScience() {
   useLayoutEffect(() => {
     // eslint-disable-next-line react-hooks/immutability -- the three.js WebGLRenderer is imperative state, not React-managed: tone mapping / exposure / color space are set once on the live renderer (the same R3F contract as the camera mutation above), so mutating `gl` IS the contract
     gl.toneMapping = THREE.ACESFilmicToneMapping;
-    gl.toneMappingExposure = 1.1;
+    // Exposure lift (OR-ATOM-010 T10.5 retune): the scene's per-atom radiance is
+    // low (emissive ≈0.25–1.2, additive glows ≈0.2–0.4 over near-black), so at
+    // exposure 1.1 ACES lands everything in the desaturated dark-mid band — the
+    // "muted, small, washed-blue" look. Lifting to 1.65 pushes the additive
+    // halos + fresnel rims into the luminous ACES roll-off region so the orbs
+    // read as neon light sources on the dark background, while ACES keeps the
+    // highlights controlled (no washout). Renderer-level only: no post-FX pass,
+    // no layout/camera/label change.
+    gl.toneMappingExposure = 1.65;
     gl.outputColorSpace = THREE.SRGBColorSpace;
   }, [gl]);
   return null;

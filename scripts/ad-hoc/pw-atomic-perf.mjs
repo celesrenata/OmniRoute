@@ -26,7 +26,22 @@ import { chromium } from "@playwright/test";
 const OUT_DIR = "OR_ATOM_010/screenshots";
 const SCALES = [8, 16, 32];
 const SAMPLE_FRAMES = 240; // ~4 s at 60fps
-const SOAK_MS = 180_000; // 3 min soak (20-min variant = documented follow-up)
+const DEFAULT_SOAK_MS = 180_000; // 3 min soak by default
+/** OR-ATOM-010: honor `--soak=<ms>` / `ATOMIC_SOAK_MS` so the 20-minute
+ *  acceptance soak (`--soak=1200000`) is reproducible from the command line —
+ *  previously it was hardcoded to 3 min and the documented flag was a no-op. */
+function parseSoakMs() {
+  const arg = process.argv.find((a) => a.startsWith("--soak="));
+  const fromArg = arg ? Number(arg.slice("--soak=".length)) : Number.NaN;
+  const fromEnv = Number(process.env.ATOMIC_SOAK_MS);
+  const v = Number.isFinite(fromArg)
+    ? fromArg
+    : Number.isFinite(fromEnv)
+      ? fromEnv
+      : DEFAULT_SOAK_MS;
+  return Math.max(1000, Math.floor(v));
+}
+const SOAK_MS = parseSoakMs();
 const BASE_URL = process.env.DEV_SERVER_URL || "http://127.0.0.1:21128";
 
 /** rAF + memory sampler injected into the page before app code runs. */

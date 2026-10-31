@@ -105,12 +105,12 @@ imperative renderer-state contract).
 
 | Atoms | fps | avg ms | p95 ms | worst ms | heap Δ MB | errors |
 | ----: | --: | -----: | -----: | -------: | --------: | -----: |
-|     8 |   8 |  123.4 |  133.4 |    133.5 |         0 |      0 |
-|    16 |   5 |  193.3 |  200.1 |    200.1 |         0 |      0 |
-|    32 |   3 |  327.3 |    350 |      350 |         0 |      0 |
+|     8 |   8 |  120.2 |  133.4 |    133.4 |         0 |      0 |
+|    16 |   6 | 181.05 |  183.4 |    200.0 |         0 |      0 |
+|    32 |   3 | 304.16 |  316.7 |    316.7 |         0 |      0 |
 
 Cost scales **linearly** with atom count under the CPU rasterizer
-(≈123 → 193 → 327 ms/frame). **heapΔ = 0 MB at every scale** (no per-frame
+(≈120 → 181 → 304 ms/frame). **heapΔ = 0 MB at every scale** (no per-frame
 allocation growth), **0 page errors** at every scale. `atomCount` maps to the
 **exact** total atom count (verified by `goldenSnapshotBench.test.ts`).
 
@@ -120,21 +120,21 @@ frame.
 
 ## 7. Stability soak (T10.7)
 
+**Real 20-minute soak** (the task's acceptance criterion):
+
 ```
-[soak] 180000ms frozenFrames=0 minGapMs=166.6 contextLost=false heapEndMB=51 errors=0
+[soak] 1200000ms frozenFrames=0 minGapMs=166.5 contextLost=false heapEndMB=57.5 errors=0
 ```
 
-3-minute continuous run: **0 frozen frames** (min inter-frame gap 166.6 ms →
-no frame gap exceeded the freeze threshold), **no WebGL context loss**,
-**heap stable at 51 MB**, **0 errors**.
+20-minute continuous run on the running scene (`paused=0`, atoms=16):
+**0 frozen frames** (min inter-frame gap 166.5 ms → no frame gap exceeded the
+freeze threshold), **no WebGL context loss**, **heap stable at ~57.5 MB**,
+**0 errors** across the full soak.
 
-> **Follow-up (documented, not blocking):** the task's ideal was a 20-minute
-> soak. A 3-minute soak was run in this session; the metrics are flat (0
-> frozen, 0 context loss, zero heap growth — the same signature at every scale
-> in §6), so the 20-minute extension is expected to be flat. A 20-minute
-> background soak can be run with
-> `node scripts/ad-hoc/pw-atomic-perf.mjs --soak=1200000` when a machine is
-> left idle.
+> The perf harness previously hardcoded a 3-min soak and ignored the documented
+> `--soak=` flag; it now honors `--soak=<ms>` / `ATOMIC_SOAK_MS`, so the 20-min
+> acceptance soak is reproducible from
+> `node scripts/ad-hoc/pw-atomic-perf.mjs --soak=1200000`.
 
 ## 8. Golden before/after screenshots (T10.2–T10.5)
 
@@ -154,16 +154,16 @@ Scoring and per-criterion before/after deltas are in `VISUAL_SCORECARD.md`
 
 ## Summary
 
-| Check                      | Result                                               |
-| -------------------------- | ---------------------------------------------------- |
-| atomic-topology unit tests | **410 pass / 0 fail** (+1 pre-existing skip)         |
-| new OR-ATOM-010 tests      | **14/14 pass**                                       |
-| vitest suite               | **493/493 pass**                                     |
-| typecheck (this diff)      | **clean** (45 pre-existing base errors, not in diff) |
-| eslint (this diff)         | **0 errors**                                         |
-| perf ladder 8/16/32        | **linear, heapΔ=0, 0 errors**                        |
-| reduced-motion             | **static frame, 0 errors**                           |
-| 3-min soak                 | **0 frozen / no context loss / heap stable**         |
+| Check                          | Result                                                  |
+| ------------------------------ | ------------------------------------------------------- |
+| atomic-topology unit tests     | **410 pass / 0 fail** (+1 pre-existing skip)            |
+| new OR-ATOM-010 tests          | **14/14 pass**                                          |
+| vitest suite                   | **493/493 pass**                                        |
+| typecheck (this diff)          | **clean** (45 pre-existing base errors, not in diff)    |
+| eslint (this diff)             | **0 errors**                                            |
+| perf ladder 8/16/32            | **linear, heapΔ=0, 0 errors**                           |
+| reduced-motion                 | **static frame, 0 errors**                              |
+| 20-min soak (`--soak=1200000`) | **0 frozen / no context loss / heap stable / 0 errors** |
 
 **No demo is passed off as production** — every screenshot is a real
 headless-Chromium SwiftShader render of the actual production renderer; the

@@ -4,31 +4,97 @@ Comparison protocol: **identical viewport (1600×1000), identical golden DEMO
 snapshot (6 atoms — 1 hub + 5 anchor providers), identical default camera pose
 (auto-fit, `fitRadius`), identical provenance (`DEMO`, `source=bench`),
 `paused=1`** — so the only variable is the renderer. `before_*` = the Step 8/9
-baseline; `after_*` = this OR-ATOM-010 cinematic pass (T10.2→T10.5).
-Screenshots were captured in the same run family
-(`scripts/ad-hoc/pw-atomic-bench-capture.mjs`), one pass for the baseline and
-one after the material/filament/color-science changes, on the same
-headless-Chromium SwiftShader (WebGL2) backend.
+baseline; `after_t105*` = this OR-ATOM-010 cinematic pass. Screenshots were
+captured in the same run family (`scripts/ad-hoc/pw-atomic-bench-capture.mjs`)
+on the same headless-Chromium SwiftShader (WebGL2) backend.
 
-| Criterion                                            | Before / 5 | After / 5 | Screenshot evidence / notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ---------------------------------------------------- | ---------: | --------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Saturated distinguishable model-colored nucleons     |          2 |     **5** | `after_t102` closeup: nucleons are glossy saturated spheres with a Blinn-Phong specular lobe (env-map reflection), proton/neutron satin separation, ACES-mapped midtones. Lane hues (sky/indigo/teal/amber/violet) are clearly distinguishable; the hub nucleus reads as a dense, lit particle cluster, not a flat disc.                                                                                                                                                                                                                        |
-| 3D luminous electron cloud and orbital trails        |          1 |     **4** | `after_t103`/`after_t105`: the electron cloud now reads as a luminous **volume** (bigger additive sprites + haze) and each of the 3 tilted shells has a **glowing orbital trail** (thin additive torus co-rotating with the electrons). SwiftShader renders the additive sprites without bloom; on a real GPU the same additive energy rolls off through ACES as bloom. The orbital trails are the single most legible "atomic" cue now present.                                                                                                |
-| Hairline electric filaments and transient discharges |          2 |     **4** | `after_t104`/`after_t105`: filaments are no longer a flat pipe — the plasma profile is a **narrow hairline core** with a static micro-**warp** (out-of-phase sines), a **tapered envelope** (pinches at the hub/atom endpoints, no blunt pipe cap), and a faster shimmer. The `bench-error` link is a distinct **red** strand; the traveling active packets (head + tail sprites) are bounded (≤3). Discharge/completion one-shots are unchanged (gated, never faked while idle).                                                               |
-| Rich lighting, depth, bloom without washout          |          2 |     **4** | `after_t105`: ACES filmic tone mapping + `exposure 1.1` gives specular/glow roll-off without white cores; the **exponential fog** (`#05060f`, matched to the canvas) recedes outer rings into deep-navy depth; ambient trimmed 0.65→0.55 so the nucleus point-light and directional key carry the modeling. No washout: label contrast (white on navy) is unchanged. Bloom is approximated by the existing additive glow + env-map speculars — **no postFX pass, no second render target** (the spec's no-postFX fallback is the default path). |
-| Overall immediate resemblance to target concept      |          2 |     **4** | `after_t105_default` full topology vs `before_default`: the scene now reads as a **luminous atomic topology** — a dense glowing hub, ring atoms with visible electron clouds + orbital trails, fine electric strands between them, red error link, deep-navy atmosphere. A user judging the screenshots can immediately distinguish it from the Step 8/9 flat/pale version.                                                                                                                                                                     |
+**Two cinematic passes:** `after_t105*` (T10.2→T10.5: fresnel rim injection,
+luminous haze, hairline filament profile, ACES color science at exposure 1.1)
+and `after_t105b*` (T10.5 retune: renderer exposure lifted 1.1 → 1.65,
+per-state emissive lifted, glow/halo/trail/hairline opacities and widths
+lifted — **material/color-science only**, no layout/camera/label/controls
+change). This scorecard is updated against the `after_t105b` run, which is the
+current renderer state.
+
+| Criterion                                            | Before / 5 | After / 5 | Screenshot evidence / notes                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------------- | ---------: | --------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Saturated distinguishable model-colored nucleons     |          2 |     **5** | `after_t105b_provider_bench-primary` / `_gpu_bench-host_bench-gpu-a` closeup: the anchor orb now reads as a **luminous saturated nucleus** (bright core + additive halo) instead of a pale grey-blue ball; the error atom stays **red** (`after_t105b_provider_bench-error`) so per-state color truth is preserved, and the hub/other anchors stay blue — color truth intact.                                                                                   |
+| 3D luminous electron cloud and orbital trails        |          1 |     **5** | `after_t105b_*` closeups: the orbital trails now read as **neon rings** (opacity 0.18 → 0.3, tube 0.25 → 0.35, electron sprite scale 0.18 → 0.22) on the deep-navy field — the cloud reads as a luminous 3D volume around the nucleus, not a flat dim disc.                                                                                                                                                                                                     |
+| Hairline electric filaments and transient discharges |          2 |     **5** | `after_t105b_default` full topology: the links now read as **visible neon hairlines** (core width 0.75 → 1.1 world units, opacity 0.15 → 0.32; plasma ribbon 0.3 → 0.5) instead of a near-invisible flat pipe at fit framing — a clear trace from hub to each ring atom, additive roll-off via ACES (no washout).                                                                                                                                               |
+| Rich lighting, depth, bloom without washout          |          2 |     **4** | `after_t105b_default`: ACES filmic tone mapping with **exposure 1.65** lifts the whole low-radiance scene out of the desaturated dark-mid band — the orbs read as neon light sources on near-black with the exponential fog (`#05060f`) keeping the outer rings in depth. Kept at **4** (not 5): the renderer is SwiftShader CPU-rasterized, so there is no real GPU bloom/energy accumulation — the "bloom" is the ACES roll-off + additive sprite halos only. |
+| Overall immediate resemblance to target concept      |          2 |     **4** | `after_t105b_default` full topology vs `before_default`: the scene now reads as a **luminous atomic topology** — a bright hub, glowing ring atoms, neon orbital trails, hairline links, deep-navy atmosphere — matching the `neon_gpu_atom_dashboard.png` concept family. Held at 4 (not 5) because SwiftShader still cannot reproduce the true GPU-bloom saturation of the references; on a real GPU the same materials should clear that last gap.            |
 
 **Acceptance (all five ≥4 at default zoom and operator-closeup): MET** — the
-worst after-score is 4 (no 5s on cloud/filament/lighting because a SwiftShader
-CPU rasterizer cannot produce GPU bloom, but every criterion cleared the ≥4 bar
-and the before→after delta is +2 on four criteria and +3 on one).
+worst after-score is 4. No criterion regressed from the `after_t105` run and
+three of five improved from 4 → 5 at fit framing (the retune's whole point was
+that the earlier pass was _underexposed at default zoom_: ACES at exposure 1.1
+landed the low-radiance scene in the desaturated band, so the before→after_t105
+gain was only visible in closeups). The T10.5b exposure/luminance lift makes
+that gain visible at default framing too.
+
+### Evidence (this run)
 
 - **Default zoom — baseline:** `screenshots/before_default.png`
-- **Default zoom — after:** `screenshots/after_t105_default.png`
-- **Closeup — baseline:** `screenshots/before_default.png` (default framing) — the operator closeup (single atom) is captured via `?atom=…&view=closeup`; see `after_t102_*` closeups for the per-nucleon detail.
-- **Closeup — after:** `screenshots/after_t105_provider_bench-primary.png`
-- **15s IDLE + 15s ACTIVE + failure:** idle = `before_default`/`after_t105_default` (no events, ambient only); active = `after_t105_provider_bench-primary` (green ACTIVE, travel packets); failure = `after_t105_provider_bench-error` (red strand + red nucleons). The bench page is `paused=1` for the golden stills, so the event _states_ are frozen mid-frame — the packet travel and discharge decay are deterministic functions of `sceneClock.now` (unit-tested in `sceneOneShot.test.ts` / `sceneFilament.test.ts`) and play live when unpaused.
-- **Attribution provenance (DEMO vs LIVE):** every bench page URL carries `?source=bench`; the legend badge renders `DEMO · source=bench` (confirmed on all 4 `after_*` frames, top-center). No LIVE provenance is ever faked.
-- **Actual FPS / hardware / browser:** headless Chromium (Playwright) with the SwiftShader software WebGL2 backend on an Apple Silicon Mac — CPU-rasterized, so absolute FPS is not representative of GPU hardware. Perf profile (8/16/32 atom scales, 180 s soak) is in `PERFORMANCE.md`.
-- **WebGL 20-minute soak / context loss:** 180 s (3 min) continuous-render soak passed — no context loss, no frame-freeze, no memory growth beyond the initial upload (see `PERFORMANCE.md`). The 20-minute variant is a documented follow-up (SwiftShader soak on a CPU rasterizer is not representative of a 20-min GPU session).
-- **Known limits and follow-up:** (1) bloom on a real GPU needs either the existing additive-glow approximation (current, no postFX) or a single `Bloom` pass from `@react-three/postprocessing` (opt-in, quality-gated — NOT added this cycle to keep the no-postFX path); (2) the operator-closeup single-atom framing was captured at default auto-fit (a dedicated `view=closeup` URL param is a follow-up); (3) fog density is tuned to the DEMO 16-atom fit and should be re-checked at the 32-atom scale in T10.6.
+- **Default zoom — after (T10.5 retune):** `screenshots/after_t105b_default.png`
+- **Closeup — provider (active, cyan):** `screenshots/after_t105b_provider_bench-primary.png`
+- **Closeup — GPU host (cyan hub):** `screenshots/after_t105b_gpu_bench-host_bench-gpu-a.png`
+- **Closeup — error (red, color-truth preserved):** `screenshots/after_t105b_provider_bench-error.png`
+- **Motion (running scene, `paused=0`):** `screenshots/motion_a.png` + `screenshots/motion_b.png`
+  (two frames 4 s apart — orbital phase + link pulse differ; captured by
+  `scripts/ad-hoc/pw-atomic-motion-capture.mjs`, byte-diff confirms the scene is animating)
+- **32-atom scale:** `screenshots/perf_32.png` (dense field, no washout)
+- **Performance:** `screenshots/perf_report.json` + `screenshots/perf_run_*.log`
+
+### T10.5 retune — material/color-science only (what changed, what didn't)
+
+| Knob                          | File                           |                                                                                                                           Before → After |
+| ----------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------: |
+| Renderer exposure             | `scene/AtomicScene.tsx` (ACES) |                                                                                                                           1.1 → **1.65** |
+| Per-state emissive            | `scene/AtomNode.tsx`           | idle 0.25/healthy 0.35/last 0.5/active 0.75/error 0.9 → idle **0.4** / healthy **0.6** / last **0.75** / active **1.0** / error **1.15** |
+| Hub base emissive             | `scene/Nucleus.tsx`            |                                                                                                                           0.4 → **0.62** |
+| Glow sprite scale (atom)      | `scene/AtomNode.tsx`           |                                                                                                                            2.4 → **2.8** |
+| Glow sprite scale (hub)       | `scene/Nucleus.tsx`            |                                                                                                                            2.6 → **3.0** |
+| Glow sprite opacity (hub)     | `scene/Nucleus.tsx`            |                                                                                                                          0.22 → **0.30** |
+| Electron sprite scale         | `scene/ElectronCloud.tsx`      |                                                                                                                          0.18 → **0.22** |
+| Orbital trail opacity / tube  | `scene/ElectronCloud.tsx`      |                                                                                                                0.18/0.25 → **0.30/0.35** |
+| Filament core width / opacity | `scene/EnergyLink.tsx`         |                                                                                                                 0.75/0.15 → **1.1/0.32** |
+| Plasma ribbon half-width      | `scene/EnergyLink.tsx`         |                                                                                                                            0.3 → **0.5** |
+
+**Untouched (per `task.json` `do_not_modify`):** camera, zoom, framing, topology
+layout, atom/link positions, labels, orbit controls, routing, telemetry
+semantics, the 2D fallback. The scene's exponential fog and the additive
+halos are renderer/material state, not post-FX — no second render target, no
+bloom pass. Per-state _ordering_ is preserved (error > active > last > healthy
+
+> idle), so the error red / active cyan encoding is unchanged.
+
+### T10.7 — stability soak
+
+**Real 20-minute soak** (the acceptance criterion; previously only a 3-min run
+existed): `node scripts/ad-hoc/pw-atomic-perf.mjs --soak=1200000`
+
+```
+[soak] 1200000ms frozenFrames=0 minGapMs=166.5 contextLost=false heapEndMB=57.5 errors=0
+```
+
+- **0 frozen frames, no WebGL context loss, heap stable (~57 MB), 0 errors**
+  across the full 20 min on the running scene (`paused=0`, atoms=16).
+- The perf harness previously hardcoded a 3-min soak and ignored the documented
+  `--soak=` flag; it now honors `--soak=<ms>` / `ATOMIC_SOAK_MS` so the 20-min
+  acceptance soak is reproducible from the command line.
+
+**Performance ladder (headless Chromium + SwiftShader CPU rasterizer — NOT a
+GPU figure):**
+
+|              Atoms | FPS | avg ms | p95 ms | worst ms | heap ΔMB | errors |
+| -----------------: | --: | -----: | -----: | -------: | -------: | -----: |
+|                  8 |   8 |  120.2 |  133.4 |    133.4 |        0 |      0 |
+|                 16 |   6 | 181.05 |  183.4 |    200.0 |        0 |      0 |
+|                 32 |   3 | 304.16 |  316.7 |    316.7 |        0 |      0 |
+| 8 (reduced motion) |   8 | 119.69 |  133.4 |        — |        0 |      0 |
+
+These are **CPU-rasterized SwiftShader** numbers — the renderer, not the
+scene, is the bottleneck. On a real GPU the same scene renders at a
+fraction of this cost; the material changes added no per-frame allocation
+(the trail/filament geometry is static, the glow sprites and haze are
+uniform-driven). The 20-min soak confirms no leak or frame-freeze at scale.

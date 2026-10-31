@@ -58,13 +58,13 @@ import { sceneClock, sceneState } from "./sceneState";
 
 /** Electron sprite size, in atom-relative units (tuned soft — OR-ATOM-010:
  *  bumped 0.13→0.18 so the cloud reads as a luminous volume, not a dot). */
-const ELECTRON_SPRITE_SCALE = 0.18;
+const ELECTRON_SPRITE_SCALE = 0.22;
 
 /** Additive opacity of the glowing orbital trail ring (OR-ATOM-010 T10.3). */
-const ORBITAL_TRAIL_OPACITY = 0.18;
+const ORBITAL_TRAIL_OPACITY = 0.3;
 
 /** Torus tube radius for the orbital trail (world units). */
-const ORBITAL_TRAIL_TUBE = 0.25;
+const ORBITAL_TRAIL_TUBE = 0.35;
 
 /** The haze noise texture's edge size (px) and blob-grid resolution. */
 const HAZE_NOISE_SIZE = 64;

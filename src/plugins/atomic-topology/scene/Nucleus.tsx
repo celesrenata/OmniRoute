@@ -78,12 +78,17 @@ const BREATH_PERIOD: Record<AtomicVisualState, number> = {
   healthy: 3,
   idle: 3.5,
 };
-/** Outer glow sprite diameter, nucleus-relative. */
-const GLOW_SPRITE_SCALE = 2.6;
+/** Outer glow sprite diameter, nucleus-relative.
+ *  OR-ATOM-010 T10.5 retune: widened so the additive halo reads as a light
+ *  source on the dark background (material scale — not a layout/position
+ *  change; the nucleus sphere itself is untouched). */
+const GLOW_SPRITE_SCALE = 3.0;
 /** Focused emphasis (readable, not orbit — unchanged behavior). */
 const FOCUSED_RIM_BOOST = 1.0;
-/** Base emissive of the hub anchor/cluster (uniform across states, as today). */
-const HUB_BASE_EMISSIVE = 0.4;
+/** Base emissive of the hub anchor/cluster (uniform across states).
+ *  OR-ATOM-010 T10.5 retune: lifted so the hub's fresnel rim carries a clear
+ *  neon halo even at fit framing (luminance only). */
+const HUB_BASE_EMISSIVE = 0.62;
 
 /** World-space radius of the central anchor sphere (small dense core). */
 const ANCHOR_WORLD_RADIUS = NUCLEUS_RADIUS * NUCLEUS_SHELL_RADIUS * ANCHOR_RADIUS_FRACTION;
@@ -257,7 +262,7 @@ export function Nucleus({
             map={glowTexture}
             color={coreColor}
             transparent
-            opacity={0.22}
+            opacity={0.3}
             depthWrite={false}
             blending={THREE.AdditiveBlending}
           />

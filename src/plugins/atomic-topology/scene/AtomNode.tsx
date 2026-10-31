@@ -77,19 +77,26 @@ const ATOM_RADIUS = 22;
 /** How much a focused atom grows (readable emphasis, not orbit — unchanged). */
 const FOCUS_SCALE = 1.18;
 
-/** Per-state emissive boost (a focused/error atom glows brighter — unchanged). */
+/** Per-state emissive boost (a focused/error atom glows brighter).
+ *  OR-ATOM-010 T10.5 retune: lifted across the board so the fresnel rim +
+ *  nucleon emissive carry a clear neon halo at fit framing (luminance only —
+ *  the per-state *ordering* is preserved: error > active > last > healthy >
+ *  idle). */
 const STATE_EMISSIVE: Record<AtomVisualDescriptor["visualState"]["state"], number> = {
-  error: 0.9,
-  active: 0.75,
-  last: 0.5,
-  healthy: 0.35,
-  idle: 0.25,
+  error: 1.15,
+  active: 1.0,
+  last: 0.75,
+  healthy: 0.6,
+  idle: 0.4,
 };
 
 /** Breathing amplitude: ±2 % (design spec). */
 const BREATH_AMPLITUDE = 0.02;
-/** Outer glow sprite diameter, atom-relative. */
-const GLOW_SPRITE_SCALE = 2.4;
+/** Outer glow sprite diameter, atom-relative.
+ *  OR-ATOM-010 T10.5 retune: widened so the additive halo reads as a light
+ *  source on the dark background (material scale — not a layout/position
+ *  change; the atom anchor sphere is untouched). */
+const GLOW_SPRITE_SCALE = 2.8;
 
 /** World-space radius of the central anchor sphere (small dense core). */
 const ANCHOR_WORLD_RADIUS = ATOM_RADIUS * NUCLEUS_SHELL_RADIUS * ANCHOR_RADIUS_FRACTION;

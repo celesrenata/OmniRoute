@@ -100,10 +100,15 @@ import { sceneClock, sceneState } from "./sceneState";
 const ARC_FACTOR = 0.25;
 /** Bézier sampling resolution (pre-computed point list, no per-frame work). */
 const CURVE_SEGMENTS = 24;
-/** Hairline core width (world units) — ~1–2 CSS px at normal framing (S8.1). */
-const FILAMENT_CORE_WIDTH = 0.75;
-/** Ribbon quad-strip half-width (world units) → ~0.6 wide halo strip. */
-const RIBBON_HALF_WIDTH = 0.3;
+/** Hairline core width (world units) — thin neon line at fit framing (S8.1).
+ *  OR-ATOM-010 T10.5 retune: widened slightly so the hairline is actually
+ *  visible at auto-fit distance (still a line, never a tube — the plasma
+ *  ribbon + glow sprite carry the halo). */
+const FILAMENT_CORE_WIDTH = 1.1;
+/** Ribbon quad-strip half-width (world units) → ~1.1 wide halo strip.
+ *  OR-ATOM-010 T10.5 retune: widened so the plasma halo reads at fit framing
+ *  (material width only — the curve path/positions are unchanged). */
+const RIBBON_HALF_WIDTH = 0.5;
 /** Ribbon segment count (memoized geometry — not per-frame work). */
 const RIBBON_SEGMENTS = 32;
 /** Active pulse hop period (s) — spec: ~2.5 s per hop, per packet. */
@@ -180,7 +185,10 @@ export function EnergyLink({
         color: new THREE.Color(descriptor.laneHue),
         linewidth: FILAMENT_CORE_WIDTH, // world units (LineMaterial worldUnits)
         transparent: true,
-        opacity: 0.15,
+        // OR-ATOM-010 T10.5 retune: opacity lifted so the additive hairline
+        // carries a clear neon trace at fit framing (additive stacking across
+        // lanes still rolls off via ACES, so no washout).
+        opacity: 0.32,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
