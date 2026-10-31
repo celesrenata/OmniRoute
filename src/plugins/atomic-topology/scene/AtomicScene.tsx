@@ -43,8 +43,9 @@
  * `@react-three/drei` to keep the 3D dependency surface at just `three` +
  * `@react-three/fiber`.
  */
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import * as THREE from "three";
 import type { PerspectiveCamera } from "three";
 
 import type { AtomicSceneProps } from "../AtomicTopologyRenderer";
@@ -105,6 +106,8 @@ export function AtomicScene({
         {/* OR-ATOM-007: pause-aware shared clock. Mounted FIRST so its useFrame
             advances sceneClock before every scene component reads it. */}
         <SceneClockDriver paused={effectivePaused} />
+        {/* OR-ATOM-010 T10.5: renderer-level color science (ACES tone map). */}
+        <ColorScience />
         {/* OR-ATOM-007: freeze the shared clock on WebGL2 context loss.
             Complements ContextGuard (which re-invalidates the renderer on
             restore) — together the scene holds a static frame and resumes. */}
@@ -214,6 +217,28 @@ function CameraStateWriter({ context }: { context: AtomicSceneContextValue }) {
 }
 
 /**
+/**
+ * OR-ATOM-010 T10.5 — renderer-level color science (NO postprocessing pass).
+ *
+ * Filmic ACES tone mapping + sRGB output + a modest exposure lift. This
+ * gives the additive glow / env-map speculars the "bloom" roll-off the
+ * spec asks for WITHOUT a second render target — the no-postFX path of the
+ * quality ladder. One-time renderer state: zero per-frame cost, no effect
+ * targets, no render-target leaks. Must sit INSIDE the `<Canvas>` so it
+ * can read the live WebGL renderer via `useThree`.
+ */
+function ColorScience() {
+  const gl = useThree((s) => s.gl);
+  useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability -- the three.js WebGLRenderer is imperative state, not React-managed: tone mapping / exposure / color space are set once on the live renderer (the same R3F contract as the camera mutation above), so mutating `gl` IS the contract
+    gl.toneMapping = THREE.ACESFilmicToneMapping;
+    gl.toneMappingExposure = 1.1;
+    gl.outputColorSpace = THREE.SRGBColorSpace;
+  }, [gl]);
+  return null;
+}
+
+/**
  * The scene body: lighting + the hub nucleus + the provider/gpu atoms + the
  * route energy links + the orbit controls. Rendered inside the
  * `<AtomicSceneContext.Provider>` so the scene primitives read the ambient
@@ -238,7 +263,7 @@ function SceneContent({
 
   return (
     <>
-      <ambientLight intensity={0.65} />
+      <ambientLight intensity={0.55} />
       {/* A point light at the nucleus gives the atoms a soft core highlight. */}
       <pointLight
         position={[0, 0, 0]}
@@ -248,6 +273,18 @@ function SceneContent({
         color="#dbeafe"
       />
       <directionalLight position={[400, 600, 400]} intensity={0.5} />
+      {/* OR-ATOM-010 T10.5 — depth cue: exponential fog matched to the host
+       *  canvas background (#05060f) so outer-ring atoms recede into a
+       *  deep-navy atmosphere instead of floating on flat black. Dense
+       *  enough to read as "depth" at the default camera distance
+       *  (~1500–2500 world units from the nucleus) but light enough that
+       *  the hub nucleus and first two rings stay crisp. Fog is a
+       *  scene-level state (three `scene.fog`), not a post pass — zero
+       *  render-target cost, SSR-safe (the fog element is a no-op outside
+       *  a Canvas), and frozen automatically under pause/reduced-motion
+       *  because it is a static material parameter, not a per-frame
+       *  animation. */}
+      <fogExp2 attach="fog" args={["#05060f", 0.00018]} />
 
       {/* Interactive orbit/zoom/pan around the nucleus. SSR-safe: renders no
        *  R3F primitive; the three OrbitControls attach to gl.domElement in an

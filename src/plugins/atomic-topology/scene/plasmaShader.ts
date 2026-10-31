@@ -49,19 +49,40 @@
  * `three/src/renderers/shaders/ShaderLib/meshbasic.glsl.js` for r186) — the
  * same value the stock shader then tone-maps, color-space-converts and
  * writes. Adds the tinted plasma contribution to `outgoingLight`.
+ *
+ * OR-ATOM-010 T10.4: the profile was retuned from "flat ribbon" to "fine
+ * electric strand": a narrower core (gaussian σ 0.055 → 0.030) with a steeper
+ * highlight (×1.35 → ×1.55) so the filament reads as a sub-pixel-to-few-pixel
+ * electric wire, a static micro-warp (two out-of-phase sines displace the
+ * side coordinate — the strand wiggles instead of being a straight pipe),
+ * a tapered envelope (pinches toward zero at the hub/atom endpoints — no
+ * blunt "pipe" caps), and a faster shimmer (62.8 → 96 rad/unit) for the
+ * fine crackle. All terms are STATIC spatial functions of the ribbon UVs —
+ * no time uniform, deterministic, zero per-frame cost, static under
+ * `prefers-reduced-motion` by construction (the traveling packets carry
+ * all the motion evidence).
  */
 export const PLASMA_FRAG_INJECTION = /* glsl */ `
 {
+	float plasmaUvX = vPlasmaUv.x;
 	float plasmaSide = vPlasmaUv.y - 0.5;
-	// Hairline core: narrow gaussian ridge centered on the ribbon.
-	float plasmaCore = exp( -pow( plasmaSide / 0.055, 2.0 ) );
+	// Static micro-warp: out-of-phase sines displace the side coordinate so
+	// the strand reads as a fine wiggling wire, not a straight ribbon.
+	// Amplitude bounded to 0.12 (inside the ribbon's [-0.5, 0.5] band).
+	float plasmaWarp = 0.12 * sin( plasmaUvX * 89.0 ) + 0.08 * sin( plasmaUvX * 210.0 );
+	float plasmaWarpSide = plasmaSide + plasmaWarp * 0.25;
+	// Narrow hairline core (σ 0.030 — sub-pixel-to-few-pixel at framing).
+	float plasmaCore = exp( -pow( plasmaWarpSide / 0.030, 2.0 ) );
 	// Gentle halo: wide, low-contrast gaussian on both sides.
-	float plasmaHalo = 0.28 * exp( -pow( plasmaSide / 0.30, 2.0 ) );
+	float plasmaHalo = 0.22 * exp( -pow( plasmaWarpSide / 0.30, 2.0 ) );
+	// Tapered envelope: pinches toward zero at the hub/atom endpoints so
+	// the strand does not read as a blunt pipe cap.
+	float plasmaTaper = smoothstep( 0.0, 0.12, plasmaUvX ) * smoothstep( 0.0, 0.12, 1.0 - plasmaUvX );
 	// Static spatial shimmer along the arc (deterministic — no time uniform,
 	// no motion under reduced motion by construction).
-	float plasmaShimmer = 0.92 + 0.08 * sin( vPlasmaUv.x * 62.8319 );
+	float plasmaShimmer = 0.90 + 0.10 * sin( plasmaUvX * 96.0 );
 	// Tinted by the material's own diffuse color (per-link lane hue).
-	outgoingLight += ( plasmaCore * 1.35 + plasmaHalo ) * plasmaShimmer * diffuse * opacity;
+	outgoingLight += ( plasmaCore * 1.55 + plasmaHalo ) * plasmaShimmer * plasmaTaper * diffuse * opacity;
 }
 `;
 

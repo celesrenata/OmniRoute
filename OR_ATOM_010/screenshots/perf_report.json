@@ -1,0 +1,74 @@
+{
+  "serverUrl": "http://127.0.0.1:21128",
+  "swiftshader": true,
+  "results": [
+    {
+      "scale": "8",
+      "atoms": 8,
+      "reduced": false,
+      "fps": 8,
+      "avgMs": 123.43,
+      "p95Ms": 133.4,
+      "worstMs": 133.5,
+      "sampled": 32,
+      "heapMB": 40.1,
+      "heapDeltaMB": 0,
+      "gpuMB": null,
+      "shot": "OR_ATOM_010/screenshots/perf_8.png",
+      "errors": []
+    },
+    {
+      "scale": "16",
+      "atoms": 16,
+      "reduced": false,
+      "fps": 5,
+      "avgMs": 193.32,
+      "p95Ms": 200.1,
+      "worstMs": 200.1,
+      "sampled": 20,
+      "heapMB": 57.5,
+      "heapDeltaMB": 0,
+      "gpuMB": null,
+      "shot": "OR_ATOM_010/screenshots/perf_16.png",
+      "errors": []
+    },
+    {
+      "scale": "32",
+      "atoms": 32,
+      "reduced": false,
+      "fps": 3,
+      "avgMs": 327.26,
+      "p95Ms": 350,
+      "worstMs": 350,
+      "sampled": 11,
+      "heapMB": 68.9,
+      "heapDeltaMB": 0,
+      "gpuMB": null,
+      "shot": "OR_ATOM_010/screenshots/perf_32.png",
+      "errors": []
+    },
+    {
+      "scale": "reduced",
+      "atoms": 8,
+      "reduced": true,
+      "fps": 8,
+      "avgMs": 125.26,
+      "p95Ms": 133.4,
+      "worstMs": 133.4,
+      "sampled": 31,
+      "heapMB": 45.2,
+      "heapDeltaMB": 0,
+      "gpuMB": null,
+      "shot": "OR_ATOM_010/screenshots/perf_reduced.png",
+      "errors": []
+    }
+  ],
+  "soak": {
+    "soakMs": 180000,
+    "frozenFrames": 0,
+    "minGapMs": 166.6,
+    "heapEndMB": 51,
+    "contextLost": false,
+    "errors": []
+  }
+}

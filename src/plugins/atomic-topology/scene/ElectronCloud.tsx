@@ -56,8 +56,15 @@ import {
 import { getSharedGlowTexture } from "./sceneResources";
 import { sceneClock, sceneState } from "./sceneState";
 
-/** Electron sprite size, in atom-relative units (tuned soft). */
-const ELECTRON_SPRITE_SCALE = 0.13;
+/** Electron sprite size, in atom-relative units (tuned soft — OR-ATOM-010:
+ *  bumped 0.13→0.18 so the cloud reads as a luminous volume, not a dot). */
+const ELECTRON_SPRITE_SCALE = 0.18;
+
+/** Additive opacity of the glowing orbital trail ring (OR-ATOM-010 T10.3). */
+const ORBITAL_TRAIL_OPACITY = 0.18;
+
+/** Torus tube radius for the orbital trail (world units). */
+const ORBITAL_TRAIL_TUBE = 0.25;
 
 /** The haze noise texture's edge size (px) and blob-grid resolution. */
 const HAZE_NOISE_SIZE = 64;
@@ -283,6 +290,27 @@ export function ElectronCloud({
                 spinRefs.current[i] = g;
               }}
             >
+              {/*
+               * Glowing orbital trail (OR-ATOM-010 T10.3): a thin additive
+               * torus in the shell's XZ plane — the visible path the electrons
+               * travel. Co-rotates with the spin group (zero per-frame
+               * allocation: static geometry). `depthWrite:false` so it never
+               * occludes; low opacity so the crisp sprites stay legible on
+               * top of the trail.
+               */}
+              <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={0}>
+                <torusGeometry
+                  args={[radius * shell.radiusMultiplier, ORBITAL_TRAIL_TUBE, 8, 96]}
+                />
+                <meshBasicMaterial
+                  color={color}
+                  transparent
+                  opacity={ORBITAL_TRAIL_OPACITY}
+                  depthWrite={false}
+                  blending={THREE.AdditiveBlending}
+                  side={THREE.DoubleSide}
+                />
+              </mesh>
               {electronOffsets[i].map((p, j) => (
                 <sprite key={j} position={p} scale={[spriteScale, spriteScale, 1]}>
                   <spriteMaterial
@@ -304,6 +332,18 @@ export function ElectronCloud({
               spinRefs.current[0] = g;
             }}
           >
+            {/* Glowing orbital trail (OR-ATOM-010 T10.3) — single-shell hub. */}
+            <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={0}>
+              <torusGeometry args={[radius, ORBITAL_TRAIL_TUBE, 8, 96]} />
+              <meshBasicMaterial
+                color={color}
+                transparent
+                opacity={ORBITAL_TRAIL_OPACITY}
+                depthWrite={false}
+                blending={THREE.AdditiveBlending}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
             {Array.from({ length: Math.max(1, Math.floor(electronCount ?? 5)) }, (_, i) => {
               const a = (i / Math.max(1, Math.floor(electronCount ?? 5))) * Math.PI * 2;
               return (
