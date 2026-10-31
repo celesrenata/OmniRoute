@@ -66,6 +66,9 @@ const PUBLIC_READONLY_CORS_API_ROUTES = [
   "/api/health/ping",
   "/api/monitoring/health",
   "/api/settings/require-login",
+  // Kubernetes liveness/readiness probes: must be public and fast.
+  "/livez",
+  "/healthz",
 ];
 
 // Read-only routes public by EXACT path, WITHOUT the CORS relaxation.

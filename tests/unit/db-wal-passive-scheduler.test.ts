@@ -38,7 +38,14 @@ test("a frequent PASSIVE checkpoint scheduler boots with the DB instance", () =>
     "startWalMaintenance() must start the PASSIVE scheduler"
   );
   const core = readSource(CORE_PATH);
-  assert.match(core, /startWalMaintenance\(db, SQLITE_FILE\)/);
+  assert.match(core, /startWalMaintenance\(db, db\.driver === "pg-native" \? null : SQLITE_FILE\)/);
+});
+
+test("the Postgres handle skips the SQLite-only startup health check and periodic scheduler", () => {
+  const core = readSource(CORE_PATH);
+  assert.match(core, /shouldRunStartupDbHealthCheck\(\) && db\.driver !== "pg-native"/);
+  const scheduler = fnBody(core, "startDbHealthCheckScheduler");
+  assert.match(scheduler, /db\.driver === "pg-native"\) return;/);
 });
 
 test("the passive scheduler runs wal_checkpoint(PASSIVE), never a live TRUNCATE", () => {

@@ -1,64 +1,64 @@
 /**
- * @file Tests for postgresAdapter alias-remap fix (PG folds unquoted aliases to lowercase).
- * Verifies that row keys are remapped to match the SQL-declared alias case.
+ * @file Regression test for the analytics blank-page incident: PostgreSQL folds
+ * unquoted SELECT aliases to lowercase (AS totalRequests -> totalrequests), so
+ * analytics reads of camelCase fields came back undefined and the dashboard
+ * rendered empty. The adapter must return keys in the case the SQL declared.
  *
  * @group db/postgres-adapter
  */
 
 import { test } from "node:test";
-import assert from "assert";
+import assert from "node:assert/strict";
+import { createPostgresAdapter } from "@/lib/db/adapters/postgresAdapter";
 
-test("postgresAdapter alias remap: unquoted alias case preservation", () => {
-  // This test documents the expected behavior. The fix is in postgresAdapter.ts:
-  // - extractAliases() parses AS aliases from SQL
-  // - remapKeys() remaps PG-folded keys back to declared case
-  //
-  // When PG returns rows with keys { totalcount, message, createdat }
-  // from `SELECT 1 AS TotalCount, 'test' AS Message, NOW() AS CreatedAt`,
-  // remapKeys should transform them to { TotalCount, Message, CreatedAt }.
+function makeAdapter(rows: Record<string, unknown>[]) {
+  const client = {
+    querySync: (_sql: string, _values?: unknown[]) => rows,
+    pq: { cmdTuples: () => "0" },
+  };
+  return createPostgresAdapter({ client } as never);
+}
 
-  // Simulated PG result (lowercase keys)
-  const pgRows: Record<string, unknown>[] = [
-    { totalcount: 123, message: "test", createdat: "2026-01-01T00:00:00Z" },
-  ];
+const SUMMARY_SQL = `
+  SELECT
+    COALESCE(SUM(requests), 0) as totalRequests,
+    COALESCE(SUM(tokens_input), 0) as promptTokens
+  FROM usage_history AS _u
+`;
 
-  // Remap function (mirrors the adapter's remapKeys)
-  function remapKeys(
-    rows: Record<string, unknown>[],
-    aliases: Array<{ declared: string; pgFolded: string }>
-  ) {
-    if (aliases.length === 0) return rows;
-    const aliasMap = new Map(aliases.map((a) => [a.pgFolded, a.declared]));
-    return rows.map((row) => {
-      const newRow: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(row)) {
-        newRow[aliasMap.get(k) ?? k] = v;
-      }
-      return newRow;
-    });
-  }
-
-  const sqlAliases = [
-    { declared: "TotalCount", pgFolded: "totalcount" },
-    { declared: "Message", pgFolded: "message" },
-    { declared: "CreatedAt", pgFolded: "createdat" },
-  ];
-
-  const remapped = remapKeys(pgRows, sqlAliases);
-
-  // Verify keys match declared aliases
-  assert.strictEqual(remapped[0].TotalCount, 123);
-  assert.strictEqual(remapped[0].Message, "test");
-  assert.strictEqual(remapped[0].CreatedAt, "2026-01-01T00:00:00Z");
+test("get() restores the declared camelCase alias case", () => {
+  const adapter = makeAdapter([{ totalrequests: 42, prompttokens: 7 }]);
+  const row = adapter.prepare(SUMMARY_SQL).get() as Record<string, unknown>;
+  assert.equal(row.totalRequests, 42);
+  assert.equal(row.promptTokens, 7);
+  assert.equal(row.totalrequests, undefined);
 });
 
-test("postgresAdapter quoted alias case preservation (no remap needed)", () => {
-  // When SQL uses double quotes (AS "MyAlias"), PG preserves case.
-  // No remap needed — keys match as-is.
+test("all() restores the declared camelCase alias case on every row", () => {
+  const adapter = makeAdapter([
+    { accountkey: "a", promptTokens: undefined, prompttokens: 1 },
+    { accountkey: "b", prompttokens: 2 },
+  ]);
+  const rows = adapter
+    .prepare(
+      "SELECT account_key as accountKey, SUM(tokens_input) as promptTokens FROM usage_history GROUP BY account_key"
+    )
+    .all() as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    rows.map((r) => [r.accountKey, r.promptTokens]),
+    [
+      ["a", 1],
+      ["b", 2],
+    ]
+  );
+});
 
-  // Simulate PG returning quoted alias keys
-  const pgRows = [{ MyAlias: "quoted" }];
-
-  // With quoted identifiers, the PG result already has MyAlias (not myalias)
-  assert.strictEqual(pgRows[0].MyAlias, "quoted");
+test("quoted aliases and columns without AS pass through unchanged", () => {
+  const adapter = makeAdapter([{ MyAlias: "quoted", plaincol: 3 }]);
+  const row = adapter.prepare('SELECT x AS "MyAlias", plaincol FROM usage_history').get() as Record<
+    string,
+    unknown
+  >;
+  assert.equal(row.MyAlias, "quoted");
+  assert.equal(row.plaincol, 3);
 });

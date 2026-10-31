@@ -662,8 +662,17 @@ export function createPostgresAdapter(config: {
   database?: string;
   user?: string;
   password?: string;
+  /**
+   * Test-only seam: supply an already-constructed (or stubbed) pg-native
+   * client instead of connecting. Production callers never set this, so the
+   * eager connect path is unchanged. Lets unit tests drive prepare()/get()/all()
+   * without a reachable PostgreSQL (and without the native addon loaded).
+   */
+  client?: unknown;
 }): SqliteAdapter {
-  const clientHolder = getClientForConnection(config);
+  const clientHolder = config.client
+    ? { client: config.client, cleanup: () => undefined }
+    : getClientForConnection(config);
   const client = clientHolder.client;
   // close() must be idempotent: shutdown, reset and backup paths can all ask the
   // same adapter to close, and a second libpq teardown on an already-finished
@@ -959,13 +968,21 @@ export function createPostgresAdapter(config: {
           };
         },
 
-        // get is for single-row results (e.g., SELECT *)
+        // get is for single-row results (e.g., SELECT *).
+        // MUST mirror better-sqlite3 semantics: a no-row SELECT returns
+        // `undefined` (falsy), never `[]`. pg-native's querySync() returns an
+        // *empty array* for a zero-row result, and callers use the idiom
+        // `(prepare(...).get(...) as T | undefined) || null` — returning `[]`
+        // (truthy) makes them treat "no row" as "found a row with no columns",
+        // e.g. createProviderConnection's api-key dedup then hits
+        // `if (!existingId) return null;` and the whole POST /api/providers
+        // 500s with "Failed to create provider" for every new connection.
+        // (See sqlite_master branch above, which already returns undefined.)
         get(...params: unknown[]): unknown {
           const result = exec1(resolveBind(params));
           if (!Array.isArray(result) || result.length < 1) return undefined;
           // Remap keys to match the declared alias case (fixes PG's lowercase folding).
-          const remapped = remapKeys([result[0]], sqlAliases);
-          return remapped[0];
+          return remapKeys([result[0]], sqlAliases)[0];
         },
 
         // all returns all rows
