@@ -74,7 +74,10 @@ export const PLASMA_FRAG_INJECTION = /* glsl */ `
 	// Narrow hairline core (σ 0.030 — sub-pixel-to-few-pixel at framing).
 	float plasmaCore = exp( -pow( plasmaWarpSide / 0.030, 2.0 ) );
 	// Gentle halo: wide, low-contrast gaussian on both sides.
-	float plasmaHalo = 0.22 * exp( -pow( plasmaWarpSide / 0.30, 2.0 ) );
+	// OR-ATOM-010 T10.5d iteration-d: halo gain 0.22 → 0.34 so the bounded
+	// glow reads at fit framing (the core stays the high-contrast trace; the
+	// halo stays "low-contrast" relative to it — never a broad wash).
+	float plasmaHalo = 0.34 * exp( -pow( plasmaWarpSide / 0.30, 2.0 ) );
 	// Tapered envelope: pinches toward zero at the hub/atom endpoints so
 	// the strand does not read as a blunt pipe cap.
 	float plasmaTaper = smoothstep( 0.0, 0.12, plasmaUvX ) * smoothstep( 0.0, 0.12, 1.0 - plasmaUvX );
@@ -82,7 +85,7 @@ export const PLASMA_FRAG_INJECTION = /* glsl */ `
 	// no motion under reduced motion by construction).
 	float plasmaShimmer = 0.90 + 0.10 * sin( plasmaUvX * 96.0 );
 	// Tinted by the material's own diffuse color (per-link lane hue).
-	outgoingLight += ( plasmaCore * 1.55 + plasmaHalo ) * plasmaShimmer * plasmaTaper * diffuse * opacity;
+	outgoingLight += ( plasmaCore * 2.0 + plasmaHalo ) * plasmaShimmer * plasmaTaper * diffuse * opacity;
 }
 `;
 

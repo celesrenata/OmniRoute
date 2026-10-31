@@ -82,24 +82,28 @@ test("QUALITY_BUDGETS: the ladder is monotonic and bounded", () => {
     antialias: true,
     tubeSegments: 24,
     cloudParticles: 12,
+    bloom: { enabled: true, strength: 1.05, radius: 0.55, threshold: 0.75 },
   });
   assert.deepEqual(QUALITY_BUDGETS.medium, {
     dprMax: 1.5,
     antialias: true,
     tubeSegments: 14,
     cloudParticles: 8,
+    bloom: { enabled: true, strength: 0.8, radius: 0.45, threshold: 0.85 },
   });
   assert.deepEqual(QUALITY_BUDGETS.low, {
     dprMax: 1,
     antialias: false,
     tubeSegments: 8,
     cloudParticles: 5,
+    bloom: { enabled: false, strength: 0, radius: 0, threshold: 1 },
   });
   assert.deepEqual(QUALITY_BUDGETS.none, {
     dprMax: 1,
     antialias: false,
     tubeSegments: 0,
     cloudParticles: 0,
+    bloom: { enabled: false, strength: 0, radius: 0, threshold: 1 },
   });
 
   // Strictly monotonic down the ladder.
@@ -112,4 +116,15 @@ test("QUALITY_BUDGETS: the ladder is monotonic and bounded", () => {
   // 'none' renders nothing.
   assert.equal(QUALITY_BUDGETS.none.tubeSegments, 0);
   assert.equal(QUALITY_BUDGETS.none.cloudParticles, 0);
+
+  // OR-ATOM-010 T10.5e: bloom only at high/medium, and stronger at high.
+  assert.equal(QUALITY_BUDGETS.high.bloom.enabled, true);
+  assert.equal(QUALITY_BUDGETS.medium.bloom.enabled, true);
+  assert.equal(QUALITY_BUDGETS.low.bloom.enabled, false);
+  assert.equal(QUALITY_BUDGETS.none.bloom.enabled, false);
+  assert.ok(QUALITY_BUDGETS.high.bloom.strength > QUALITY_BUDGETS.medium.bloom.strength);
+  // Disabled tiers: zero strength/radius + threshold at the radiance ceiling
+  // (a disabled pass is never constructed, but the budget stays sane).
+  assert.equal(QUALITY_BUDGETS.low.bloom.strength, 0);
+  assert.equal(QUALITY_BUDGETS.none.bloom.strength, 0);
 });

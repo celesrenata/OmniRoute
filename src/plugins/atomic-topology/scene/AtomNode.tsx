@@ -351,7 +351,7 @@ export function AtomNode({
             map={glowTexture}
             color={descriptor.color}
             transparent
-            opacity={0.18}
+            opacity={0.26}
             depthWrite={false}
             blending={THREE.AdditiveBlending}
           />

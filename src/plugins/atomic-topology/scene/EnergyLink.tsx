@@ -100,15 +100,35 @@ import { sceneClock, sceneState } from "./sceneState";
 const ARC_FACTOR = 0.25;
 /** Bézier sampling resolution (pre-computed point list, no per-frame work). */
 const CURVE_SEGMENTS = 24;
-/** Hairline core width (world units) — thin neon line at fit framing (S8.1).
- *  OR-ATOM-010 T10.5 retune: widened slightly so the hairline is actually
- *  visible at auto-fit distance (still a line, never a tube — the plasma
- *  ribbon + glow sprite carry the halo). */
-const FILAMENT_CORE_WIDTH = 1.1;
-/** Ribbon quad-strip half-width (world units) → ~1.1 wide halo strip.
- *  OR-ATOM-010 T10.5 retune: widened so the plasma halo reads at fit framing
+/** Core line width in CSS pixels — `LineMaterial.worldUnits` is false
+ *  (three r186 default; the r186 LineMaterial exposes `worldUnits` as a
+ *  getter that reads `defines.WORLD_UNITS`, which this material never sets,
+ *  so `linewidth` is in PIXEL units — the pre-T10.5d comment claiming "world
+ *  units" was wrong). 2px read as a sub-pixel hairline at auto-fit framing
+ *  (measured 0.16 % saturated pixel coverage on active links, T10.5c).
+ *  OR-ATOM-010 T10.5d iteration-d: 2 → 5 px so the electrically-active core
+ *  reads as a clear neon trace at the default camera distance; still a line
+ *  (the plasma ribbon + packet sprites carry the halo), not a tube.
+ *  The per-frame loop keeps overwriting `linewidth` each frame — this
+ *  constant is the source of truth. */
+const FILAMENT_CORE_WIDTH = 6;
+/**
+ * How far the core line color is lerped toward white (0 = pure lane hue,
+ * 1 = white). OR-ATOM-010 T10.5d iteration-e: a real neon filament is a HOT
+ * near-white core inside a colored halo — pure saturated `laneHue` has low
+ * luminance, which is why the line body measured only ~40 p50 vs ~15-28
+ * background at fit framing (iteration-d). The lane hue stays on the plasma
+ * ribbon + packet sprites (the halo), so per-state color truth is preserved.
+ * Error state is NOT whitened — the failure core stays pure `FAILURE_COLOR`.
+ */
+const FILAMENT_CORE_HOTNESS = 0.72;
+/** Pre-computed hot core color (shared scratch, set per lane hue below). */
+const HOT_CORE_TARGET = new THREE.Color("#ffffff");
+/** Ribbon quad-strip half-width (world units) → ~3.2 wide halo strip.
+ *  OR-ATOM-010 T10.5d iteration-d: 0.9 → 1.6 so the plasma halo reads as a
+ *  controlled, bounded glow around the 5 px core at fit framing
  *  (material width only — the curve path/positions are unchanged). */
-const RIBBON_HALF_WIDTH = 0.5;
+const RIBBON_HALF_WIDTH = 1.6;
 /** Ribbon segment count (memoized geometry — not per-frame work). */
 const RIBBON_SEGMENTS = 32;
 /** Active pulse hop period (s) — spec: ~2.5 s per hop, per packet. */
@@ -121,10 +141,14 @@ const FAILURE_COLOR = "#ef4444";
 const ERROR_STATIC_OPACITY = 0.25;
 /** Max perpendicular bolt jitter (world units) — bounded, reads as arcing. */
 const BOLT_MAX_JITTER = 26;
-/** Pulse head sprite diameter (world units). */
-const PULSE_SIZE = 36;
-/** Pulse tail sprite diameter (world units) (scaled further by `packetTailScale`). */
-const PULSE_TAIL_SIZE = 24;
+/** Pulse head sprite diameter (world units).
+ *  OR-ATOM-010 T10.5d iteration-d: widened 36 → 46 so the packet marker reads
+ *  as a clear traveling glow at the default fit framing (material scale only —
+ *  travel path/speed/ease are unchanged, so measured event semantics hold). */
+const PULSE_SIZE = 46;
+/** Pulse tail sprite diameter (world units) (scaled further by `packetTailScale`).
+ *  OR-ATOM-010 T10.5d iteration-d: widened 24 → 34 (comet trail). */
+const PULSE_TAIL_SIZE = 34;
 /** Completion flash sprite diameter (world units). */
 const FLASH_SIZE = 150;
 
@@ -182,16 +206,26 @@ export function EnergyLink({
   const filamentMaterial = useMemo(
     () =>
       new LineMaterial({
-        color: new THREE.Color(descriptor.laneHue),
-        linewidth: FILAMENT_CORE_WIDTH, // world units (LineMaterial worldUnits)
+        // OR-ATOM-010 T10.5d iteration-e: hot near-white core (the lane hue
+        // stays on the ribbon halo + packet sprites below — color truth).
+        color: new THREE.Color(descriptor.laneHue).lerp(HOT_CORE_TARGET, FILAMENT_CORE_HOTNESS),
+        linewidth: FILAMENT_CORE_WIDTH, // CSS pixels (worldUnits=false default)
         transparent: true,
-        // OR-ATOM-010 T10.5 retune: opacity lifted so the additive hairline
-        // carries a clear neon trace at fit framing (additive stacking across
-        // lanes still rolls off via ACES, so no washout).
-        opacity: 0.32,
+        // OR-ATOM-010 T10.5d iteration-d: 0.32 → 0.7 base (the per-frame
+        // loop then writes state.opacity × 0.95 for active lanes). Additive
+        // stacking across lanes still rolls off via ACES, so no washout.
+        opacity: 0.7,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
+    [descriptor.laneHue]
+  );
+  /** Pre-allocated per-state core colors (no per-frame allocation). */
+  const coreColors = useMemo(
+    () => ({
+      hot: new THREE.Color(descriptor.laneHue).lerp(HOT_CORE_TARGET, FILAMENT_CORE_HOTNESS),
+      failure: new THREE.Color(FAILURE_COLOR),
+    }),
     [descriptor.laneHue]
   );
   useEffect(() => () => filamentMaterial.dispose(), [filamentMaterial]);
@@ -414,12 +448,22 @@ export function EnergyLink({
     // core — the halo must stay "low-contrast").
     const filamentMat = filamentMaterialRef.current;
     if (filamentMat) {
-      filamentMat.opacity = state === "error" ? ERROR_STATIC_OPACITY : style.opacity * 0.5;
+      // OR-ATOM-010 T10.5d iteration-d: the core is the HIGH-CONTRAST emissive
+      // trace (active ≈ full opacity), the ribbon behind it is the CONTROLED
+      // halo (fainter than the core — never a broad wash). T10.5c used ×0.5 /
+      // ×0.45 which measured 0.16 % saturated coverage at fit framing.
+      filamentMat.opacity =
+        state === "error" ? ERROR_STATIC_OPACITY : Math.min(1, style.opacity * 0.95);
+      // OR-ATOM-010 T10.5d iteration-e: hot near-white core for active/idle
+      // (pre-allocated `coreColors` — no per-frame allocation); the failure
+      // state keeps the pure red core so error color truth is preserved
+      // (scorecard criterion: per-state color truth).
+      filamentMat.color.copy(state === "error" ? coreColors.failure : coreColors.hot);
       filamentMat.linewidth = FILAMENT_CORE_WIDTH;
     }
     const ribbonMat = ribbonMaterialRef.current;
     if (ribbonMat) {
-      ribbonMat.opacity = state === "error" ? ERROR_STATIC_OPACITY * 0.8 : style.opacity * 0.45;
+      ribbonMat.opacity = state === "error" ? ERROR_STATIC_OPACITY * 0.8 : style.opacity * 0.4;
     }
 
     // (b) active packets — bounded pool, arc-length travel, ease-in-out.
@@ -451,8 +495,10 @@ export function EnergyLink({
       sprite.position.copy(lerpTmp);
       sprite.visible = true;
       const mat = sprite.material as THREE.SpriteMaterial;
-      mat.opacity =
-        tail === 0 ? 0.85 * packetHeadOpacity(progress) : packetTailOpacity(progress, tail);
+      // OR-ATOM-010 T10.5d iteration-d: head at full sprite opacity so the
+      // traveling packet marker is clearly visible at fit framing (additive
+      // over the dark background; tails still decay via `packetTailOpacity`).
+      mat.opacity = tail === 0 ? packetHeadOpacity(progress) : packetTailOpacity(progress, tail);
       const scale = tail === 0 ? 1 : packetTailScale(tail);
       const size = tail === 0 ? PULSE_SIZE : PULSE_TAIL_SIZE;
       sprite.scale.set(size * scale, size * scale, 1);

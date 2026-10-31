@@ -43,10 +43,14 @@
  * `@react-three/drei` to keep the 3D dependency surface at just `three` +
  * `@react-three/fiber`.
  */
-import { useLayoutEffect, useEffect, useState } from "react";
+import { useLayoutEffect, useEffect, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { PerspectiveCamera } from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 import type { AtomicSceneProps } from "../AtomicTopologyRenderer";
 import { computeCameraFit, computeCameraFocus, isUsableCameraFit } from "../cameraFit";
@@ -108,6 +112,17 @@ export function AtomicScene({
         <SceneClockDriver paused={effectivePaused} />
         {/* OR-ATOM-010 T10.5: renderer-level color science (ACES tone map). */}
         <ColorScience />
+        {/* OR-ATOM-010 T10.5e: quality-gated GPU bloom (RenderPass →
+            UnrealBloomPass → OutputPass). The parent gates the mount on the
+            live tier (disabled tiers keep the direct renderer path); the
+            tier-level numbers are passed as stable props. */}
+        {budget.bloom.enabled && (
+          <BloomComposer
+            strength={budget.bloom.strength}
+            radius={budget.bloom.radius}
+            threshold={budget.bloom.threshold}
+          />
+        )}
         {/* OR-ATOM-007: freeze the shared clock on WebGL2 context loss.
             Complements ContextGuard (which re-invalidates the renderer on
             restore) — together the scene holds a static frame and resumes. */}
@@ -240,7 +255,13 @@ function ColorScience() {
     // read as neon light sources on the dark background, while ACES keeps the
     // highlights controlled (no washout). Renderer-level only: no post-FX pass,
     // no layout/camera/label change.
-    gl.toneMappingExposure = 1.65;
+    // OR-ATOM-010 T10.5d iteration-d: 1.65 → 1.9. The filament core + plasma
+    // ribbon now carry higher opacity/width (EnergyLink), and the atoms'
+    // emissive rims are unchanged — lifting the global exposure a notch
+    // pushes the additive halos into the ACES roll-off so the scene reads as
+    // luminous on the dark background without washing out (ACES keeps the
+    // highlight shoulder controlled). Renderer-level only.
+    gl.toneMappingExposure = 1.9;
     gl.outputColorSpace = THREE.SRGBColorSpace;
   }, [gl]);
   return null;
@@ -255,6 +276,137 @@ function ColorScience() {
  * Pure with respect to props — R3F diffs the tree, so re-rendering with the
  * same descriptors is a no-op visually.
  */
+/**
+ * GPU bloom postprocessing chain — OR-ATOM-010 T10.5e.
+ *
+ * The per-tier `bloom` budget from {@link QUALITY_BUDGETS} drives a three-pass
+ * `EffectComposer` (`RenderPass → UnrealBloomPass → OutputPass`). Disabled
+ * tiers (`low` / `none`) keep the direct renderer path: the ACES tone map is
+ * applied by the renderer itself on the canvas render (r186
+ * `WebGLPrograms.js` tone-maps only when `currentRenderTarget === null`), so
+ * `enabled: false` is the cheapest possible path — no composer allocation.
+ *
+ * **Render takeover (single pass).** The composer renders *instead of* R3F's
+ * internal `gl.render()`: the `useFrame(..., 1)` positive render priority
+ * increments the canvas store's `internal.priority` counter (r9.8.1
+ * `events…esm.js:1159`), which suppresses the auto-render gate at
+ * `…esm.js:17419` (`if (!state.internal.priority && state.gl.render)`).
+ * Registering a positive-priority subscription is the documented R3F way to
+ * "take rendering into your own hands" — so `composer.render()` is the sole
+ * render per frame and the scene is never drawn twice. The positive priority
+ * also *defends* the contract: any other positive-priority `useFrame` added
+ * later to the scene would also take over rendering and double-render unless
+ * it renders through the same composer.
+ *
+ * **Sizing / lifecycle.** `EffectComposer` is NOT auto-resized by R3F's
+ * `Canvas` dpr / resize handling, so a `ResizeObserver` on the canvas syncs
+ * the internal render-target buffers (DPR-aware: the canvas *drawing*
+ * buffer is the physical size; logical width/height = physical / DPR).
+ * Disposal mirrors the three r186 pass API: `EffectComposer.dispose()`
+ * frees only `renderTarget1/2` + `copyPass`, so the `bloom` and `output`
+ * passes are disposed explicitly (their `renderTargetBright` / mips /
+ * materials leak otherwise).
+ *
+ * **Color pipeline.** `OutputPass` is the composer's last pass (the r186
+ * tone-map/encoding equivalent of the renderer's built-in tone map) — it
+ * re-reads `gl.toneMapping` (ACES), `gl.toneMappingExposure` (1.9) and
+ * `gl.outputColorSpace` (sRGB) every frame, so the `ColorScience` retune is
+ * honored through the postFX chain instead of being skipped (the renderer
+ * tone-maps only on the direct canvas render, never on the composer's
+ * HalfFloat render-target passes).
+ *
+ * **Pause.** `frameloop="always"` drives this `useFrame` regardless of the
+ * scene's pause state — the same clock-advancing `SceneClockDriver`
+ * subscription contract. The clock accumulates 0 while paused, so the scene
+ * holds a static (but bloom-lit) frame, identical to the no-postFX pause
+ * behavior.
+ */
+function BloomComposer({
+  strength,
+  radius,
+  threshold,
+}: {
+  strength: number;
+  radius: number;
+  threshold: number;
+}) {
+  // Stable object references via selectors — each `useThree` subscription keys
+  // off one slice of the R3F store, so this component does NOT re-render on
+  // per-frame camera writes or unrelated state changes (a full `useThree()`
+  // destructure would). The tier-level numbers arrive as stable props, so the
+  // composer is built exactly once per mount (a quality-tier flip remounts the
+  // scene, which unmounts / remounts this component).
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  const composerRef = useRef<EffectComposer | null>(null);
+  // Reusable temp for `getSize` / `getDrawingBufferSize` (avoids per-resize
+  // allocation). Kept in a ref so a second mounted instance cannot mutate it.
+  const tmpVec2Ref = useRef(new THREE.Vector2());
+  useEffect(() => {
+    const composer = new EffectComposer(gl);
+    composer.addPass(new RenderPass(scene, camera));
+    const initSize = gl.getSize(tmpVec2Ref.current);
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(Math.max(1, initSize.x), Math.max(1, initSize.y)),
+      strength,
+      radius,
+      threshold
+    );
+    composer.addPass(bloomPass);
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
+    composerRef.current = composer;
+    return () => {
+      // Dispose the passes explicitly — the composer's own `dispose()`
+      // only frees its buffers and the built-in `copyPass`.
+      bloomPass.dispose();
+      outputPass.dispose();
+      composer.dispose();
+      composerRef.current = null;
+    };
+    // The pass parameters are tier-level constants (a
+    // quality change remounts
+    // this component, not this effect).
+  }, [gl, scene, camera, strength, radius, threshold]);
+  // Keep the composer buffers in step with the canvas drawing buffer
+  // (R3F manages the canvas size / DPR, not the composer — see the module
+  // doc above). The canvas *drawing* buffer is the physical size;
+  // `getPixelRatio` is the canvas DPR R3F sets from the `dpr` prop.
+  useEffect(() => {
+    const canvas = gl.domElement;
+    if (!canvas || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const observer = new ResizeObserver(() => {
+      // Defer to the next frame so the canvas `width` / `height` attributes
+      // (which R3F sets via the resize event) are current.
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const composer = composerRef.current;
+        if (!composer) return;
+        const physical = gl.getDrawingBufferSize(tmpVec2Ref.current);
+        const dpr = Math.max(0.0001, gl.getPixelRatio());
+        const w = Math.max(1, Math.floor(physical.x / dpr));
+        const h = Math.max(1, Math.floor(physical.y / dpr));
+        composer.setPixelRatio(dpr);
+        composer.setSize(w, h);
+      });
+    });
+    observer.observe(canvas);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [gl]);
+  // Sole render path (see the render-takeover note above).
+  useFrame((_, delta) => {
+    const composer = composerRef.current;
+    if (!composer) return;
+    composer.render(delta);
+  }, 1);
+  return null;
+}
+
 function SceneContent({
   descriptors,
   linkDescriptors,
@@ -271,7 +423,7 @@ function SceneContent({
 
   return (
     <>
-      <ambientLight intensity={0.55} />
+      <ambientLight intensity={0.4} />
       {/* A point light at the nucleus gives the atoms a soft core highlight. */}
       <pointLight
         position={[0, 0, 0]}
@@ -281,6 +433,14 @@ function SceneContent({
         color="#dbeafe"
       />
       <directionalLight position={[400, 600, 400]} intensity={0.5} />
+      {/* OR-ATOM-010 T10.5d iteration-d — cinematic rim/backlight: a cool
+       *  directional from behind-and-above the nucleus reads as an in-scene
+       *  rim/atmosphere term (lighting only — no post pass, screen-space
+       *  independent, zero render-target cost). It gives the nucleon shells
+       *  and orbital trails a directional falloff the flat ambient key
+       *  cannot, so the scene reads as "lit from behind" like the neon
+       *  references without claiming unavailable bloom postprocessing. */}
+      <directionalLight position={[-380, 260, -420]} intensity={0.7} color="#4f7cff" />
       {/* OR-ATOM-010 T10.5 — depth cue: exponential fog matched to the host
        *  canvas background (#05060f) so outer-ring atoms recede into a
        *  deep-navy atmosphere instead of floating on flat black. Dense

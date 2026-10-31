@@ -80,16 +80,71 @@ export function resolveSceneQuality(probe: QualityProbe = {}): AtomicSceneQualit
 }
 
 /**
+ * Per-tier GPU bloom (postprocessing) budget — OR-ATOM-010 T10.5e.
+ *
+ * `enabled` gates the `EffectComposer` chain (`RenderPass →
+ * UnrealBloomPass → OutputPass`) inside the scene. Disabled tiers keep the
+ * no-postFX path: the renderer applies the ACES tone map directly to the
+ * canvas (the cheapest path — verified against r186 `WebGLPrograms.js`,
+ * which tone-maps only when `currentRenderTarget === null`, i.e. only on the
+ * direct canvas render, never on render-target passes).
+ *
+ * `threshold` is in LINEAR radiance (the composer's HalfFloat buffer), not
+ * sRGB: the emissive atom cores (radiance ≫ 1 after the exposure lift)
+ * clear the threshold, the dark topology background (≈ 0) never does.
+ */
+export interface BloomBudget {
+  /** False → no postFX chain at all (the tier keeps the direct render path). */
+  enabled: boolean;
+  /** UnrealBloomPass strength (0–~3; > 1 starts to wash out thin links). */
+  strength: number;
+  /** UnrealBloomPass radius (bloom spread, in screen fraction). */
+  radius: number;
+  /** UnrealBloomPass threshold (linear-radiance floor that blooms). */
+  threshold: number;
+}
+
+/**
  * Per-quality render budgets the scene consumes. Pure constants — the scene
  * reads these instead of hard-coding segment counts, so a quality downgrade
  * is a single value change, not a refactor.
  */
 export const QUALITY_BUDGETS: Record<
   AtomicSceneQuality,
-  { dprMax: number; antialias: boolean; tubeSegments: number; cloudParticles: number }
+  {
+    dprMax: number;
+    antialias: boolean;
+    tubeSegments: number;
+    cloudParticles: number;
+    bloom: BloomBudget;
+  }
 > = {
-  high: { dprMax: 2, antialias: true, tubeSegments: 24, cloudParticles: 12 },
-  medium: { dprMax: 1.5, antialias: true, tubeSegments: 14, cloudParticles: 8 },
-  low: { dprMax: 1, antialias: false, tubeSegments: 8, cloudParticles: 5 },
-  none: { dprMax: 1, antialias: false, tubeSegments: 0, cloudParticles: 0 },
+  high: {
+    dprMax: 2,
+    antialias: true,
+    tubeSegments: 24,
+    cloudParticles: 12,
+    bloom: { enabled: true, strength: 1.05, radius: 0.55, threshold: 0.75 },
+  },
+  medium: {
+    dprMax: 1.5,
+    antialias: true,
+    tubeSegments: 14,
+    cloudParticles: 8,
+    bloom: { enabled: true, strength: 0.8, radius: 0.45, threshold: 0.85 },
+  },
+  low: {
+    dprMax: 1,
+    antialias: false,
+    tubeSegments: 8,
+    cloudParticles: 5,
+    bloom: { enabled: false, strength: 0, radius: 0, threshold: 1 },
+  },
+  none: {
+    dprMax: 1,
+    antialias: false,
+    tubeSegments: 0,
+    cloudParticles: 0,
+    bloom: { enabled: false, strength: 0, radius: 0, threshold: 1 },
+  },
 };
