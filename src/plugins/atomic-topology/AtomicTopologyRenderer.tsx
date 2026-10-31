@@ -93,7 +93,12 @@ import {
   type AtomicEventPool,
   type AtomicEventKind,
 } from "./eventPool";
-import { resolveSceneQuality, type QualityProbe } from "./quality";
+import {
+  resolveSceneQuality,
+  type AtomicSceneQuality,
+  type BloomBudget,
+  type QualityProbe,
+} from "./quality";
 import {
   admitPulseEvents,
   canonicalRouteLinkId,
@@ -686,6 +691,12 @@ export interface AtomicSceneProps {
    * `AtomicSceneContext` provider.
    */
   sceneContext: AtomicSceneContextValue;
+  /**
+   * Dev-probe override for the tier's bloom budget (OR-ATOM-010 iteration-e
+   * washout isolation). `undefined` → the resolved quality budget. Only the
+   * dev-only bench page wires it; the production host never passes it.
+   */
+  bloomOverride?: BloomBudget;
 }
 
 /** Props for the client-only scene host component. */
@@ -717,6 +728,20 @@ export interface AtomicTopologyRendererProps {
    * tree. Wired by the imperative instance to update its own focus state.
    */
   onFocusRequest?: (nodeId: string) => void;
+  /**
+   * Dev-probe override for the per-tier bloom budget (OR-ATOM-010
+   * iteration-e washout isolation). `undefined` → the resolved quality
+   * budget (the production path); a full budget (or `{ enabled: false }`)
+   * → a tuned / bloom-free capture. Only the dev-only bench page wires it;
+   * the production host never passes it, so the render path is unchanged.
+   */
+  bloomOverride?: BloomBudget;
+  /**
+   * Dev-probe override for the resolved scene quality tier (iteration-e:
+   * forces a tier so headless captures are comparable regardless of the
+   * probe's hardware signals). `undefined` → the resolved tier.
+   */
+  qualityOverride?: AtomicSceneQuality;
 }
 
 /**
@@ -739,6 +764,8 @@ export function AtomicTopologyRenderer({
   onFocusRequest,
   eventPool,
   size,
+  bloomOverride,
+  qualityOverride,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
 
@@ -793,9 +820,9 @@ export function AtomicTopologyRenderer({
     };
     return {
       reducedMotion: caps.reducedMotion,
-      quality: resolveSceneQuality(probe),
+      quality: qualityOverride ?? resolveSceneQuality(probe),
     };
-  }, []);
+  }, [qualityOverride]);
 
   // The stable per-frame camera snapshot the DOM label overlay reads
   // (UX correction — projected labels). Created once; the scene writes to it
@@ -901,6 +928,7 @@ export function AtomicTopologyRenderer({
             focusNodeId={focusNodeId}
             emptyStateLabel={options.emptyStateLabel}
             sceneContext={sceneContext}
+            bloomOverride={bloomOverride}
           />
         ) : (
           <div

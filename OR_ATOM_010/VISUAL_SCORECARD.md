@@ -183,3 +183,47 @@ the reference concept at both default framing and operator closeup.
 - `hub_motion_strip.jpg` + `hub_motion_0..9.png` — hub-region crops, per-frame
   bright-pixel oscillation (5,415–5,805).
 - Host background resolves to `rgb(11,16,24)` in both light and dark themes.
+
+## T10.5e — GPU bloom retune: washout root cause fixed on real pixels (2026-10-31)
+
+The T10.5e bloom pass shipped washing the whole scene out (frame mean luminance
+~136 vs ~28 for an unlit scene). A headless A/B probe
+(`scripts/ad-hoc/pw-atomic-bloom-probe.mjs`, `OR_ATOM_010/screenshots/probe_bloom_*.png`)
+isolated the cause: the `UnrealBloomPass` **threshold** (0.75) sat inside the
+ACES output band of ordinary non-emissive pixels, so nearly the whole scene
+was the bloom source — a low threshold blooms everything, and strength alone
+could not fix it (raising strength at 0.75 only whitened more).
+
+**Retune** (committed in `src/plugins/atomic-topology/quality.ts` →
+`QUALITY_BUDGETS`):
+
+| tier   | before (s / r / t) | after (s / r / t)     | frame mean          | scene mean | saturated-neon cov |
+| ------ | ------------------ | --------------------- | ------------------- | ---------- | ------------------ |
+| high   | 1.05 / 0.55 / 0.75 | **0.35 / 0.30 / 3.0** | 136 → 45            | 136 → 47   | 0.01% → ~9%        |
+| medium | 0.8 / 0.45 / 0.85  | **0.28 / 0.30 / 2.5** | (same defect class) | —          | —                  |
+
+High-tier evidence (headless, `quality=high` forced):
+
+- `after_iterE_default.png` — full topology, scene meanLum **47.3** (was ~136
+  pre-retune), saturated-neon coverage **9%** with meanChroma ~52 (chroma
+  preserved, not washed white); halos lock to the emissive cores.
+- `after_iterE_closeup.png` — focused provider node, scene meanLum 65.2.
+- `after_iterE_error.png` — error atom renders in red, scene meanLum 38.5,
+  state color truth intact under the bloom pass.
+- `after_iterE_reduced.png` — reduced-motion static frame, scene meanLum 46.9.
+- `motion_iterE_0..5.png` — live frame strip; per-frame scene meanLum 45.8–46.8,
+  saturated coverage 8.8–9.2% (stable, no frame-to-frame washout).
+
+Sweep detail (high tier, `quality=high`, forced): threshold is the spatial
+lever, strength the brightness lever. Raising the threshold at a fixed low
+strength (0.35) monotonically darkened the frame _and_ increased
+saturated-neon coverage: t0.75→mean136/0.01%, t0.90→83/2.6%, t1.10→79/2.9%,
+t1.30→77/3.2%, t1.60→72/3.4%, t2.0→60/6.2%, t2.5→49/8.8%, **t3.0→45/9.0%**.
+Strength 0.25 at t1.6 (mean 63) confirmed the threshold, not strength, is what
+localizes the halo. `t30 = 0.35 / 0.30 / 3.0` was chosen as the best
+brightness/coverage/clipping point (≥255 clip only 0.12%).
+
+Regressions guarded by `tests/unit/atomic-topology/quality.test.ts` → the new
+washout guard asserts the enabled tiers keep `threshold >= 2.5` (high) /
+`>= 2.0` (medium) and `strength <= 0.5`, so a low-threshold bloom cannot
+regress.

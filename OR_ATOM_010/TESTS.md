@@ -7,12 +7,14 @@ All commands run inside the task worktree
 
 ## 1. Changed production code (atomic-topology scene)
 
-| File                                                  | Change                                                                   |
-| ----------------------------------------------------- | ------------------------------------------------------------------------ |
-| `src/plugins/atomic-topology/scene/sceneResources.ts` | shared `RoomEnvironment`-based env map for glossy nucleons (T10.2)       |
-| `src/plugins/atomic-topology/scene/ElectronCloud.tsx` | luminous volumetric cloud + glowing orbital trails (T10.3)               |
-| `src/plugins/atomic-topology/scene/plasmaShader.ts`   | hairline plasma filament GLSL injection + `applyPlasmaInjection` (T10.4) |
-| `src/plugins/atomic-topology/scene/AtomicScene.tsx`   | `ColorScience` renderer pass (ACES + exposure + sRGB) (T10.5)            |
+| File                                                  | Change                                                                                                                                                                                                         |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/plugins/atomic-topology/scene/sceneResources.ts` | shared `RoomEnvironment`-based env map for glossy nucleons (T10.2)                                                                                                                                             |
+| `src/plugins/atomic-topology/scene/ElectronCloud.tsx` | luminous volumetric cloud + glowing orbital trails (T10.3)                                                                                                                                                     |
+| `src/plugins/atomic-topology/scene/plasmaShader.ts`   | hairline plasma filament GLSL injection + `applyPlasmaInjection` (T10.4)                                                                                                                                       |
+| `src/plugins/atomic-topology/scene/AtomicScene.tsx`   | `ColorScience` renderer pass (ACES + exposure + sRGB) (T10.5) + quality-gated `BloomComposer` (RenderPass → UnrealBloomPass → OutputPass) with frame-loop takeover, live-DPR resize and pass disposal (T10.5e) |
+| `src/plugins/atomic-topology/quality.ts`              | `QUALITY_BUDGETS` bloom budgets; iteration-e washout retune (high `0.35/0.30/3.0`, medium `0.28/0.30/2.5`) + `BloomBudget` threshold/strength docs                                                             |
+| `src/app/dev/atomic-bench/page.tsx`                   | dev-only `?quality=` tier override + `?bloom=off/current/strict/t20/t25/t30/…` washout-isolation overrides (iteration-e A/B probe plumbing)                                                                    |
 
 Bench harness (dev-only):
 
@@ -41,6 +43,13 @@ throws on missing vertex anchor; `customProgramCacheKey` pinned to a stable
 constant (one shared program slot); injected GLSL has balanced braces.
 
 Both files: **14/14 pass** (verified with `node --import tsx/esm --test`).
+
+**`tests/unit/atomic-topology/quality.test.ts`** — 8 tests: the full
+`QUALITY_BUDGETS` table (deepEqual per tier), the monotonic ladder, bloom only
+at high/medium, and the **iteration-e washout guard** — the enabled tiers keep
+`threshold >= 2.5` (high) / `>= 2.0` (medium) and `strength <= 0.5`, so the
+low-threshold whole-scene bloom (frame mean luminance 28 → 136 on the
+headless A/B) cannot regress. **8/8 pass.**
 
 ## 3. Full test suites (both runners green)
 

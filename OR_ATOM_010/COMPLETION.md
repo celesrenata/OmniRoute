@@ -22,6 +22,16 @@ no mockups, no faked demo.
   tapered envelope, shimmer) via `applyPlasmaInjection` + `customProgramCacheKey` (T10.4)
 - `AtomicScene.tsx` — `ColorScience` renderer pass: ACES filmic tone mapping,
   exposure 1.1 → **1.65** (T10.5b retune), sRGB output; deep-navy fog depth (T10.5)
+- `AtomicScene.tsx` — quality-gated GPU bloom (T10.5e): `BloomComposer`
+  (RenderPass → UnrealBloomPass → OutputPass) mounts only on bloom-enabled
+  tiers (high/medium), takes over the frame loop with positive-priority
+  `useFrame`, resizes the composer at the live canvas DPR and disposes the
+  passes on unmount. Washout root cause (2026-10-31): the pass threshold
+  (0.75) sat inside the ACES output band, so nearly the whole scene was the
+  bloom source (frame mean luminance 136 vs 28 unlit). Retuned from a headless
+  A/B sweep — high `0.35 / 0.30 / 3.0`, medium `0.28 / 0.30 / 2.5` (frame mean
+  136 → 45; saturated-neon coverage 0.01% → ~9%, chroma preserved; ≥255 clip
+  0.12%). Budgets in `quality.ts`; washout guard in `quality.test.ts`.
 - `AtomNode.tsx` / `Nucleus.tsx` — per-state emissive + hub emissive lifted,
   glow halo sprite scale/opacity widened (T10.5b)
 - `ElectronCloud.tsx` — orbital trail opacity/tube + electron sprite scale
@@ -94,10 +104,12 @@ node scripts/ad-hoc/pw-atomic-perf.mjs --soak=1200000                # perf ladd
 
 ## Known limitations / follow-ups
 
-1. **Bloom** is approximated by additive glow + env-map speculars; the spec's
-   no-postFX fallback is the default path (no second render target). A real GPU
-   will render the same additive energy with ACES roll-off; a postFX bloom pass
-   is a possible later opt-in.
+1. **Bloom** is now a real quality-gated postFX pass (T10.5e, high/medium tiers;
+   low/none keep the direct render path). The iteration-e washout (whole-scene
+   bloom) is fixed by the threshold retune — see
+   `OR_ATOM_010/VISUAL_SCORECARD.md` → "T10.5e" for the A/B numbers. Remaining:
+   the perf evidence is still SwiftShader CPU-rasterized; a real-GPU run would
+   confirm the composer's frame-time delta.
 2. **Real-GPU perf pass** — the `perf_report.json` numbers are SwiftShader
    CPU-rasterized (not a GPU figure). A run on the operator's GPU (or
    `pw-webgl-probe.mjs`) would confirm the real-GPU frame times. The **20-minute

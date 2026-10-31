@@ -96,11 +96,24 @@ export function resolveSceneQuality(probe: QualityProbe = {}): AtomicSceneQualit
 export interface BloomBudget {
   /** False → no postFX chain at all (the tier keeps the direct render path). */
   enabled: boolean;
-  /** UnrealBloomPass strength (0–~3; > 1 starts to wash out thin links). */
+  /**
+   * UnrealBloomPass strength (0–~3; > 1 starts to wash out thin links).
+   * With ACES tone-mapping the scene stays dim, so the high tier uses a
+   * deliberately low strength — the halo is carried by the threshold
+   * instead of the intensity.
+   */
   strength: number;
   /** UnrealBloomPass radius (bloom spread, in screen fraction). */
   radius: number;
-  /** UnrealBloomPass threshold (linear-radiance floor that blooms). */
+  /**
+   * UnrealBloomPass threshold (linear-radiance floor that blooms).
+   * Must sit ABOVE the ACES output band of ordinary (non-emissive) pixels,
+   * otherwise the whole scene blooms and the frame washes out (iteration-e:
+   * threshold 0.75 raised the scene mean luminance 4.8× and erased the
+   * neon palette). True emissives sit well above 1.0 in the HDR buffer, so
+   * a high threshold localizes the halo to the neon cores and keeps their
+   * chroma.
+   */
   threshold: number;
 }
 
@@ -124,14 +137,22 @@ export const QUALITY_BUDGETS: Record<
     antialias: true,
     tubeSegments: 24,
     cloudParticles: 12,
-    bloom: { enabled: true, strength: 1.05, radius: 0.55, threshold: 0.75 },
+    // iteration-e retune (headless A/B, OR_ATOM_010/screenshots/probe_bloom_*):
+    // 1.05 / 0.55 / 0.75 washed the whole scene out (mean luminance 28 → 136,
+    // neon palette erased). 0.35 / 0.30 / 3.00 keeps a localized, chroma-
+    // preserving halo on the true emissives (mean 45 vs 28 unlit; saturated
+    // coverage 9.0% vs 0.2%).
+    bloom: { enabled: true, strength: 0.35, radius: 0.3, threshold: 3.0 },
   },
   medium: {
     dprMax: 1.5,
     antialias: true,
     tubeSegments: 14,
     cloudParticles: 8,
-    bloom: { enabled: true, strength: 0.8, radius: 0.45, threshold: 0.85 },
+    // iteration-e retune: same washout failure as the high tier; weaker
+    // strength and a slightly lower threshold (fewer emissive cores render at
+    // lower detail, so the source band narrows naturally).
+    bloom: { enabled: true, strength: 0.28, radius: 0.3, threshold: 2.5 },
   },
   low: {
     dprMax: 1,

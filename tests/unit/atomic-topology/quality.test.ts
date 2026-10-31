@@ -82,14 +82,14 @@ test("QUALITY_BUDGETS: the ladder is monotonic and bounded", () => {
     antialias: true,
     tubeSegments: 24,
     cloudParticles: 12,
-    bloom: { enabled: true, strength: 1.05, radius: 0.55, threshold: 0.75 },
+    bloom: { enabled: true, strength: 0.35, radius: 0.3, threshold: 3.0 },
   });
   assert.deepEqual(QUALITY_BUDGETS.medium, {
     dprMax: 1.5,
     antialias: true,
     tubeSegments: 14,
     cloudParticles: 8,
-    bloom: { enabled: true, strength: 0.8, radius: 0.45, threshold: 0.85 },
+    bloom: { enabled: true, strength: 0.28, radius: 0.3, threshold: 2.5 },
   });
   assert.deepEqual(QUALITY_BUDGETS.low, {
     dprMax: 1,
@@ -123,6 +123,16 @@ test("QUALITY_BUDGETS: the ladder is monotonic and bounded", () => {
   assert.equal(QUALITY_BUDGETS.low.bloom.enabled, false);
   assert.equal(QUALITY_BUDGETS.none.bloom.enabled, false);
   assert.ok(QUALITY_BUDGETS.high.bloom.strength > QUALITY_BUDGETS.medium.bloom.strength);
+  // iteration-e washout guard: with ACES tone-mapping a low threshold makes
+  // the whole scene the bloom source (headless A/B: threshold 0.75 raised
+  // scene mean luminance 28 → 136 and erased the neon palette). The enabled
+  // tiers must keep the threshold above the non-emissive output band and
+  // the strength low (the halo is carried by the threshold, not the
+  // intensity). See src/plugins/atomic-topology/quality.ts → BloomBudget.
+  assert.ok(QUALITY_BUDGETS.high.bloom.threshold >= 2.5);
+  assert.ok(QUALITY_BUDGETS.medium.bloom.threshold >= 2.0);
+  assert.ok(QUALITY_BUDGETS.high.bloom.strength <= 0.5);
+  assert.ok(QUALITY_BUDGETS.medium.bloom.strength <= 0.5);
   // Disabled tiers: zero strength/radius + threshold at the radiance ceiling
   // (a disabled pass is never constructed, but the budget stays sane).
   assert.equal(QUALITY_BUDGETS.low.bloom.strength, 0);

@@ -80,6 +80,7 @@ export function AtomicScene({
   paused,
   focusNodeId,
   sceneContext,
+  bloomOverride,
 }: AtomicSceneProps) {
   // A document-hidden pause: the scene freezes when the tab/page is hidden
   // (bounded work, no GPU spend) and resumes when it is visible again.
@@ -99,7 +100,12 @@ export function AtomicScene({
 
   const effectivePaused = paused || documentHidden;
   const context = sceneContext;
-  const budget = QUALITY_BUDGETS[context.quality];
+  const tier = QUALITY_BUDGETS[context.quality];
+  // Dev-probe override (iteration-e washout isolation): the bench page may
+  // force a bloom config independent of the tier. Production hosts never
+  // pass `bloomOverride`, so `bloom` here is the tier budget in production.
+  const budget = { ...tier, bloom: bloomOverride ?? tier.bloom };
+  const bloomBudget = budget.bloom;
 
   return (
     <Canvas
@@ -115,12 +121,14 @@ export function AtomicScene({
         {/* OR-ATOM-010 T10.5e: quality-gated GPU bloom (RenderPass →
             UnrealBloomPass → OutputPass). The parent gates the mount on the
             live tier (disabled tiers keep the direct renderer path); the
-            tier-level numbers are passed as stable props. */}
-        {budget.bloom.enabled && (
+            tier-level numbers are passed as stable props. A dev-probe
+            override (`bloomOverride`) can replace the tier budget or disable
+            the chain entirely. */}
+        {bloomBudget.enabled && (
           <BloomComposer
-            strength={budget.bloom.strength}
-            radius={budget.bloom.radius}
-            threshold={budget.bloom.threshold}
+            strength={bloomBudget.strength}
+            radius={bloomBudget.radius}
+            threshold={bloomBudget.threshold}
           />
         )}
         {/* OR-ATOM-007: freeze the shared clock on WebGL2 context loss.
