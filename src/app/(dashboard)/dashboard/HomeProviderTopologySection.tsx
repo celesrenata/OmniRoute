@@ -71,6 +71,7 @@ export function HomeProviderTopologySection({
         lifecycleEvents={lifecycleEvents}
         lastProvider={lastProvider}
         errorProvider={errorProvider}
+        enabled={enabled}
       />
     </Card>
   );

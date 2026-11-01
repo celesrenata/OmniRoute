@@ -18,7 +18,12 @@
  */
 
 import { filterResourcesByQuery, mergeSnapshots } from "./mergeSnapshots";
-import { MAX_SNAPSHOT_RESOURCES, parseProviderSnapshot, parseQuery } from "./provenance";
+import {
+  FUTURE_TOLERANCE_MS_DEFAULT,
+  MAX_SNAPSHOT_RESOURCES,
+  parseProviderSnapshot,
+  parseQuery,
+} from "./provenance";
 import type {
   FleetTelemetryProvider,
   FleetTelemetryQuery,
@@ -63,6 +68,11 @@ export interface FleetTelemetryGatewayOptions {
   providerTimeoutMs?: number;
   /** Max registered providers. Default 16. */
   maxProviders?: number;
+  /**
+   * Bounded clock-skew tolerance for future-stamped samples at merge, in ms
+   * (default FUTURE_TOLERANCE_MS_DEFAULT). Injectable for tests.
+   */
+  futureToleranceMs?: number;
   /** Injectable clock (tests). */
   now?: () => number;
   /** Injectable warning sink (server logs; must not receive bodies). */
@@ -117,6 +127,7 @@ export class FleetTelemetryGateway {
   private readonly cacheMaxEntries: number;
   private readonly providerTimeoutMs: number;
   private readonly maxProviders: number;
+  private readonly futureToleranceMs: number;
   private readonly nowFn: () => number;
   private readonly warn: (w: string) => void;
   lastDiagnostics: GatewayRunDiagnostics | null = null;
@@ -126,6 +137,7 @@ export class FleetTelemetryGateway {
     this.cacheMaxEntries = opts.cacheMaxEntries ?? GATEWAY_CACHE_MAX_ENTRIES_DEFAULT;
     this.providerTimeoutMs = opts.providerTimeoutMs ?? GATEWAY_PROVIDER_TIMEOUT_MS_DEFAULT;
     this.maxProviders = opts.maxProviders ?? GATEWAY_MAX_PROVIDERS_DEFAULT;
+    this.futureToleranceMs = opts.futureToleranceMs ?? FUTURE_TOLERANCE_MS_DEFAULT;
     this.nowFn = opts.now ?? (() => Date.now());
     this.warn = opts.onWarning ?? (() => {});
   }
@@ -252,7 +264,9 @@ export class FleetTelemetryGateway {
     // half-collected snapshot (AC: cancellation).
     this.throwIfAborted(signal);
 
-    const merged = mergeSnapshots(rawSnapshots, now);
+    const merged = mergeSnapshots(rawSnapshots, now, {
+      futureToleranceMs: this.futureToleranceMs,
+    });
     const resources = filterResourcesByQuery(merged.snapshot.resources, parsed);
     const snapshot: FleetTelemetrySnapshot = {
       schemaVersion: 1,

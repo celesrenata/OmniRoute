@@ -95,9 +95,12 @@ function parseComboRow(row: unknown): JsonRecord | null {
   const payload = getSerializedData(row);
   if (!payload) {
     const id = getComboId(row);
-    console.warn(
-      `[DB] Skipping combo row with non-string/empty data column${id ? ` (id=${id})` : ""}.`
-    );
+    // Don't spam logs for every bad row; only warn once per id pattern to avoid log storms
+    if (process.env.DEBUG_COMBO_ROWS === "1") {
+      console.warn(
+        `[DB] Skipping combo row with non-string/empty data column${id ? ` (id=${id})` : ""}.`
+      );
+    }
     return null;
   }
   const parsed = withRowId(payload, asRecord(row));

@@ -3,7 +3,7 @@ import { DEFAULT_THINKING_CLAUDE_SIGNATURE } from "../../config/defaultThinkingS
 import { lookupReasoning, recordReplay } from "../../services/reasoningCache.ts";
 import { getModelTargetFormat } from "../../config/providerModels.ts";
 import { NON_ANTHROPIC_THINKING_PLACEHOLDER } from "../../utils/reasoningPlaceholder.ts";
-import { sanitizeToolId } from "./schemaCoercion.ts";
+import { sanitizeToolId, sanitizeToolName } from "./schemaCoercion.ts";
 
 export { NON_ANTHROPIC_THINKING_PLACEHOLDER } from "../../utils/reasoningPlaceholder.ts";
 
@@ -463,6 +463,18 @@ export function prepareClaudeRequest(
             block.tool_use_id
           ) {
             block.tool_use_id = sanitizeToolId(block.tool_use_id);
+          }
+        }
+        // Anthropic-shape upstreams enforce the same `^[a-zA-Z0-9_-]+$` pattern on
+        // tool NAMES. A replayed history can carry a name with `.`/`:`/`/` (e.g. an
+        // MCP namespace produced by another provider), which Bedrock rejects with
+        // "Value at 'messages.<n>.member.content.<n>.member.toolUse.name' failed to
+        // satisfy constraint: … [a-zA-Z0-9_-]+" — the whole request 400s. Only
+        // replayed history is rewritten: the client's declared `tools[]` is a
+        // separate list, so renaming a history block cannot desync a live call.
+        for (const block of msg.content) {
+          if (block.type === "tool_use" && typeof block.name === "string" && block.name) {
+            block.name = sanitizeToolName(block.name);
           }
         }
       }

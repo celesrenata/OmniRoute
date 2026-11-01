@@ -1,0 +1,25 @@
+[2026-10-27T23:53:13.377Z] soak start base=http://127.0.0.1:20141 duration=1200s
+[2026-10-27T23:54:00.004Z] BEFORE {"at":"2026-10-27T23:54:00.001Z","rendererInfo":null,"liveCanvases":null,"peakCanvases":null,"contextLost":0,"contextRestored":0,"remounts":0,"canvases":[{"w":702,"h":420}]}
+[2026-10-27T23:55:00.085Z] min 1: pixelVar=5622 fps=119 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=8
+[2026-10-27T23:56:00.209Z] min 2: pixelVar=5665 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=10
+[2026-10-27T23:57:00.297Z] min 3: pixelVar=5693 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=12
+[2026-10-27T23:58:00.358Z] min 4: pixelVar=5686 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=14
+[2026-10-27T23:59:00.421Z] min 5: pixelVar=5643 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=16
+[2026-10-28T00:00:00.524Z] min 6: pixelVar=5614 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=18
+[2026-10-28T00:01:00.642Z] min 7: pixelVar=5625 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=20
+[2026-10-28T00:01:05.612Z] mid-soak traffic: [{"model":"kiro/claude-haiku-4.5","status":200},{"model":"kiro/claude-haiku-4.5","status":200}]
+[2026-10-28T00:02:05.663Z] min 8: pixelVar=5662 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=22
+[2026-10-28T00:03:05.715Z] min 9: pixelVar=5625 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=24
+[2026-10-28T00:04:05.846Z] min 10: pixelVar=5613 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=26
+[2026-10-28T00:04:09.401Z] remount: pre live=undefined peak=undefined | post live=undefined peak=undefined remounts=undefined geoms=undefined tex=undefined calls=undefined
+[2026-10-28T00:05:09.525Z] min 11: pixelVar=5651 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=28
+[2026-10-28T00:06:09.612Z] min 12: pixelVar=5690 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=30
+[2026-10-28T00:07:09.677Z] min 13: pixelVar=5691 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=32
+[2026-10-28T00:08:09.744Z] min 14: pixelVar=5658 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=34
+[2026-10-28T00:09:09.806Z] min 15: pixelVar=5620 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=36
+[2026-10-28T00:10:09.861Z] min 16: pixelVar=5616 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=38
+[2026-10-28T00:11:09.909Z] min 17: pixelVar=5642 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=40
+[2026-10-28T00:12:09.959Z] min 18: pixelVar=5682 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=42
+[2026-10-28T00:13:10.012Z] min 19: pixelVar=5699 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=44
+[2026-10-28T00:14:10.082Z] min 20: pixelVar=5670 fps=120 liveCanvases=null ctxLost=0 geoms=undefined tex=undefined calls=undefined consoleErrors=46
+[2026-10-28T00:14:10.086Z] AFTER {"at":"2026-10-28T00:14:10.085Z","rendererInfo":null,"liveCanvases":null,"peakCanvases":null,"contextLost":0,"contextRestored":0,"remounts":0,"canvases":[{"w":702,"h":420}]}

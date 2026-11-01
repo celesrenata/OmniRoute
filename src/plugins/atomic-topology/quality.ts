@@ -80,16 +80,92 @@ export function resolveSceneQuality(probe: QualityProbe = {}): AtomicSceneQualit
 }
 
 /**
+ * Per-tier GPU bloom (postprocessing) budget — OR-ATOM-010 T10.5e.
+ *
+ * `enabled` gates the `EffectComposer` chain (`RenderPass →
+ * UnrealBloomPass → OutputPass`) inside the scene. Disabled tiers keep the
+ * no-postFX path: the renderer applies the ACES tone map directly to the
+ * canvas (the cheapest path — verified against r186 `WebGLPrograms.js`,
+ * which tone-maps only when `currentRenderTarget === null`, i.e. only on the
+ * direct canvas render, never on render-target passes).
+ *
+ * `threshold` is in LINEAR radiance (the composer's HalfFloat buffer), not
+ * sRGB: the emissive atom cores (radiance ≫ 1 after the exposure lift)
+ * clear the threshold, the dark topology background (≈ 0) never does.
+ */
+export interface BloomBudget {
+  /** False → no postFX chain at all (the tier keeps the direct render path). */
+  enabled: boolean;
+  /**
+   * UnrealBloomPass strength (0–~3; > 1 starts to wash out thin links).
+   * With ACES tone-mapping the scene stays dim, so the high tier uses a
+   * deliberately low strength — the halo is carried by the threshold
+   * instead of the intensity.
+   */
+  strength: number;
+  /** UnrealBloomPass radius (bloom spread, in screen fraction). */
+  radius: number;
+  /**
+   * UnrealBloomPass threshold (linear-radiance floor that blooms).
+   * Must sit ABOVE the ACES output band of ordinary (non-emissive) pixels,
+   * otherwise the whole scene blooms and the frame washes out (iteration-e:
+   * threshold 0.75 raised the scene mean luminance 4.8× and erased the
+   * neon palette). True emissives sit well above 1.0 in the HDR buffer, so
+   * a high threshold localizes the halo to the neon cores and keeps their
+   * chroma.
+   */
+  threshold: number;
+}
+
+/**
  * Per-quality render budgets the scene consumes. Pure constants — the scene
  * reads these instead of hard-coding segment counts, so a quality downgrade
  * is a single value change, not a refactor.
  */
 export const QUALITY_BUDGETS: Record<
   AtomicSceneQuality,
-  { dprMax: number; antialias: boolean; tubeSegments: number; cloudParticles: number }
+  {
+    dprMax: number;
+    antialias: boolean;
+    tubeSegments: number;
+    cloudParticles: number;
+    bloom: BloomBudget;
+  }
 > = {
-  high: { dprMax: 2, antialias: true, tubeSegments: 24, cloudParticles: 12 },
-  medium: { dprMax: 1.5, antialias: true, tubeSegments: 14, cloudParticles: 8 },
-  low: { dprMax: 1, antialias: false, tubeSegments: 8, cloudParticles: 5 },
-  none: { dprMax: 1, antialias: false, tubeSegments: 0, cloudParticles: 0 },
+  high: {
+    dprMax: 2,
+    antialias: true,
+    tubeSegments: 24,
+    cloudParticles: 12,
+    // iteration-e retune (headless A/B, OR_ATOM_010/screenshots/probe_bloom_*):
+    // 1.05 / 0.55 / 0.75 washed the whole scene out (mean luminance 28 → 136,
+    // neon palette erased). 0.35 / 0.30 / 3.00 keeps a localized, chroma-
+    // preserving halo on the true emissives (mean 45 vs 28 unlit; saturated
+    // coverage 9.0% vs 0.2%).
+    bloom: { enabled: true, strength: 0.35, radius: 0.3, threshold: 3.0 },
+  },
+  medium: {
+    dprMax: 1.5,
+    antialias: true,
+    tubeSegments: 14,
+    cloudParticles: 8,
+    // iteration-e retune: same washout failure as the high tier; weaker
+    // strength and a slightly lower threshold (fewer emissive cores render at
+    // lower detail, so the source band narrows naturally).
+    bloom: { enabled: true, strength: 0.28, radius: 0.3, threshold: 2.5 },
+  },
+  low: {
+    dprMax: 1,
+    antialias: false,
+    tubeSegments: 8,
+    cloudParticles: 5,
+    bloom: { enabled: false, strength: 0, radius: 0, threshold: 1 },
+  },
+  none: {
+    dprMax: 1,
+    antialias: false,
+    tubeSegments: 0,
+    cloudParticles: 0,
+    bloom: { enabled: false, strength: 0, radius: 0, threshold: 1 },
+  },
 };

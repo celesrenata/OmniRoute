@@ -51,6 +51,7 @@ export type {
 } from "./visualEncoding";
 export {
   computeAtomicLayout,
+  computeDeviceBandLayout,
   atomicMembershipSignature,
   RING_CAPACITIES,
   RING_RADII,
@@ -62,6 +63,10 @@ export type {
   AtomicLayoutNode,
   AtomicLayoutOptions,
   AtomicLayoutPlacement,
+  DeviceBandNode,
+  DeviceBandLayout,
+  DeviceBandLayoutOptions,
+  DeviceBandPlacement,
 } from "./layout";
 export {
   ATOMIC_EVENT_POOL_CAPACITY,

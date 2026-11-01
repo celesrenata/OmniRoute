@@ -1,0 +1,26 @@
+{
+  "task_id": "OR-ATOM-008",
+  "task_description": "Use OmniRoute Skill Hub MCP to implement the next Atomic Topology visual-fidelity phase: fine plasma route filaments, event-driven electric discharges, translucent orbital clouds, and improved model-colored particle nucleus shading. Preserve current camera, zoom, layout, labels and controls.",
+  "status": "complete",
+  "feature_order": ["S8.0", "S8.1", "S8.2", "S8.3", "S8.4", "S8.5"],
+  "blocked_reason": null,
+  "project": "celesrenata/OmniRoute",
+  "documents": [
+    "OR_ATOM_008_CONTEXT.md",
+    "OR_ATOM_008_KICKOFF_PROMPT.md",
+    "SKILL_AUDIT_TEMPLATE.md",
+    "SKILL_APPLICATION_REPORT_TEMPLATE.md"
+  ],
+  "hard_constraints": [
+    "Do not alter camera/zoom/fit",
+    "Do not alter layout or positions",
+    "Do not alter labels or controls",
+    "Preserve 2D fallback",
+    "No fabricated telemetry",
+    "Load/apply actual skill instructions, not just search",
+    "Visual validation required"
+  ],
+  "done_when": "Measured visual fidelity and stability gates in OR_ATOM_008_CONTEXT.md pass; exact loaded skill IDs and application evidence recorded.",
+  "s85_gate_verdict": "PASS with documented limitations — 20-min headed after-soak all verdicts true (stableContexts/disposeOk/noUnboundedGrowth/allFramesNonBlank, FPS 118-121, renderer.info collected); 74 screenshots + 8/16/32 stress + scoped tests (136 tests, 0 fail) green; before-side probe-gated verdicts UNVERIFIED by construction (window.__atomic absent in pre-S8 baseline and excluded from the shipping patch). See S85_BEFORE_MEASUREMENTS.md, S85_AFTER_MEASUREMENTS.md, COMPLETION.md.",
+  "completion_report": "COMPLETION.md"
+}

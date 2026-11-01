@@ -124,7 +124,8 @@ test("skills by-id DELETE removes existing skills, returns 404 for missing ones,
     const failedBody = (await failed.json()) as any;
 
     assert.equal(deleted.status, 200);
-    assert.deepEqual(deletedBody, { success: true });
+    assert.equal(deletedBody.success, true);
+    assert.ok(typeof deletedBody.snapshotId === "string" && deletedBody.snapshotId.length > 0);
     assert.equal(missing.status, 404);
     assert.equal(missingBody.error, "Skill not found");
     assert.equal(failed.status, 500);
@@ -177,7 +178,9 @@ test("skills by-id PUT updates enabled state, validates input, and surfaces pars
   const isEnabled = loadedSkillRow ? (loadedSkillRow as any).enabled === 1 : false;
 
   assert.equal(updated.status, 200);
-  assert.deepEqual(updatedBody, { success: true, enabled: true });
+  assert.equal(updatedBody.success, true);
+  assert.equal(updatedBody.enabled, true);
+  assert.ok(typeof updatedBody.snapshotId === "string" && updatedBody.snapshotId.length > 0);
   assert.equal(isEnabled, true);
 
   assert.equal(invalid.status, 400);

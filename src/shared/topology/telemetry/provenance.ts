@@ -119,6 +119,12 @@ export const resourceSchema = z
     providerId: z.string().refine(isNonEmptyId).optional(),
     runtimeId: z.string().refine(isNonEmptyId).optional(),
     modelId: z.string().refine(isNonEmptyId).optional(),
+    /** Provider JOIN FACTS (OR-ATOM-009.2): validated upstream base URLs.
+     * Join-only — never displayed, never credentials (validated on write).
+     * One provider key can front several endpoints, so this is a set. */
+    baseUrls: z.array(z.string().refine(isNonEmptyId)).max(16).optional(),
+    /** Runtime JOIN FACT (OR-ATOM-009.2): metrics endpoint port. Join-only. */
+    endpointPort: z.number().int().positive().optional(),
     outputTokensPerSecond: observedNumber.optional(),
     queuedJobs: observedNumber.optional(),
     activeJobs: observedNumber.optional(),
@@ -179,9 +185,27 @@ export const querySchema = z
 /** Hard cap on resources per merged snapshot (bounded result sizes). */
 export const MAX_SNAPSHOT_RESOURCES = 512;
 
-/** True when `sampledAt` is strictly after the snapshot's `capturedAt`. */
-export function isFutureSampled(sampledAt: number, capturedAt: number): boolean {
-  return isFiniteNumber(sampledAt) && isFiniteNumber(capturedAt) && sampledAt > capturedAt;
+/**
+ * Bounded clock-skew tolerance for future-stamped samples at snapshot merge
+ * (OR-ATOM-005 T5.6c). Metrics backends run on a different machine than the
+ * OmniRoute host: the Prometheus instant-query tuple carries the REAL wire
+ * timestamp, which in the live k3s cluster runs ~20ms AHEAD of the host's
+ * clock (NTP skew between the cluster node and the host). Small positive
+ * skew is legitimate, not a spoofed timestamp. Tolerating it keeps the real
+ * wire timestamp — samples are NEVER re-stamped with `capturedAt` (that
+ * would fabricate freshness). 5s is generous without accepting real clock
+ * faults (e.g. samples seconds ahead), which are still rejected.
+ */
+export const FUTURE_TOLERANCE_MS_DEFAULT = 5_000;
+
+/**
+ * True when `sampledAt` is after the snapshot's `capturedAt` by more than
+ * `toleranceMs` (default 0 — strictly future only, backward compatible).
+ */
+export function isFutureSampled(sampledAt: number, capturedAt: number, toleranceMs = 0): boolean {
+  return (
+    isFiniteNumber(sampledAt) && isFiniteNumber(capturedAt) && sampledAt > capturedAt + toleranceMs
+  );
 }
 
 /** Parse a raw provider snapshot, dropping the whole snapshot on failure. */

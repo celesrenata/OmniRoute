@@ -1,0 +1,106 @@
+{
+  "snapshot": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180694521,
+    "resources": [
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "kind": "runtime",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "outputTokensPerSecond": {
+          "value": null,
+          "source": "runtime",
+          "sampledAt": 1793180679521,
+          "windowMs": 10000,
+          "stale": true,
+          "basis": "demo: stale sample aged out — value decayed to unknown (null)"
+        },
+        "queuedJobs": {
+          "value": null,
+          "source": "runtime",
+          "sampledAt": 1793180679521,
+          "windowMs": 10000,
+          "stale": true,
+          "basis": "demo: stale sample aged out — value decayed to unknown (null)"
+        }
+      },
+      {
+        "resourceId": "provider:demo-provider",
+        "kind": "provider",
+        "providerId": "demo-provider",
+        "outputTokensPerSecond": {
+          "value": null,
+          "source": "omniroute-live",
+          "sampledAt": 1793180679521,
+          "windowMs": 10000,
+          "stale": true,
+          "basis": "demo: stale sample aged out — value decayed to unknown (null)"
+        },
+        "queuedJobs": {
+          "value": null,
+          "source": "omniroute-live",
+          "sampledAt": 1793180679521,
+          "windowMs": 10000,
+          "stale": true,
+          "basis": "demo: stale sample aged out — value decayed to unknown (null)"
+        }
+      }
+    ]
+  },
+  "reconciliation": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180694521,
+    "gpuNodes": [],
+    "runtimeNodes": [
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "attributedGpuIds": [],
+        "stale": true,
+        "outputTokensPerSecond": {
+          "value": null,
+          "source": "runtime",
+          "sampledAt": 1793180679521,
+          "windowMs": 10000,
+          "stale": true,
+          "basis": "demo: stale sample aged out — value decayed to unknown (null)"
+        },
+        "queuedJobs": {
+          "value": null,
+          "source": "runtime",
+          "sampledAt": 1793180679521,
+          "windowMs": 10000,
+          "stale": true,
+          "basis": "demo: stale sample aged out — value decayed to unknown (null)"
+        }
+      }
+    ],
+    "providerNodes": [
+      {
+        "resourceId": "provider:demo-provider",
+        "providerId": "demo-provider",
+        "stale": true,
+        "outputTokensPerSecond": {
+          "value": null,
+          "source": "omniroute-live",
+          "sampledAt": 1793180679521,
+          "windowMs": 10000,
+          "stale": true,
+          "basis": "demo: stale sample aged out — value decayed to unknown (null)"
+        },
+        "queuedJobs": {
+          "value": null,
+          "source": "omniroute-live",
+          "sampledAt": 1793180679521,
+          "windowMs": 10000,
+          "stale": true,
+          "basis": "demo: stale sample aged out — value decayed to unknown (null)"
+        }
+      }
+    ],
+    "edges": [],
+    "providerCentricFallback": true
+  }
+}

@@ -352,11 +352,14 @@ export function migrateUsageJsonToSqlite() {
               tokensReasoning: entry.tokens?.reasoning ?? entry.tokens?.reasoning_tokens ?? 0,
               status: entry.status || null,
               success: entry.success === false ? 0 : 1,
-              latencyMs: Number.isFinite(Number(entry.latencyMs)) ? Number(entry.latencyMs) : 0,
+              // BIGINT columns reject floats — round to integer for PG compatibility.
+              latencyMs: Number.isFinite(Number(entry.latencyMs))
+                ? Math.round(Number(entry.latencyMs))
+                : 0,
               ttftMs: Number.isFinite(Number(entry.timeToFirstTokenMs))
-                ? Number(entry.timeToFirstTokenMs)
+                ? Math.round(Number(entry.timeToFirstTokenMs))
                 : Number.isFinite(Number(entry.latencyMs))
-                  ? Number(entry.latencyMs)
+                  ? Math.round(Number(entry.latencyMs))
                   : 0,
               errorCode: entry.errorCode || null,
               comboStrategy: entry.comboStrategy || entry.combo_strategy || "direct",

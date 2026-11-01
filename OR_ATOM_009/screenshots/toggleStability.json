@@ -1,0 +1,615 @@
+{
+  "base": "http://127.0.0.1:21011",
+  "scenario": "tps-80",
+  "toggles": 12,
+  "startedAt": "2026-10-29T07:25:15.168Z",
+  "endPerf": {
+    "at": 1793258684456,
+    "fps": null,
+    "dtMs": null,
+    "dtMaxMs": 900,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 0,
+      "restored": 0
+    },
+    "demo": {
+      "id": "tps-80",
+      "active": true,
+      "capturedAt": 1793258615588,
+      "ageMs": 68868
+    },
+    "panel": {
+      "demoScenario": "none"
+    }
+  },
+  "pageErrors": [],
+  "servedTotal": 28,
+  "cycles": [
+    {
+      "n": 1,
+      "to2d": {
+        "ms": 141,
+        "at": 1793258628726,
+        "fps": 31,
+        "dtMs": 32.4,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 0,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 13138
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 644,
+        "at": 1793258633372,
+        "fps": 24,
+        "dtMs": 42,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 17784
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 2,
+      "to2d": {
+        "ms": 241,
+        "at": 1793258633615,
+        "fps": 15,
+        "dtMs": 66.7,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 18027
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 115,
+        "at": 1793258637733,
+        "fps": 24,
+        "dtMs": 42.3,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 22145
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 3,
+      "to2d": {
+        "ms": 229,
+        "at": 1793258637963,
+        "fps": 16,
+        "dtMs": 62.5,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 22375
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 271,
+        "at": 1793258642238,
+        "fps": 24,
+        "dtMs": 42.2,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 26650
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 4,
+      "to2d": {
+        "ms": 231,
+        "at": 1793258642470,
+        "fps": 16,
+        "dtMs": 62.5,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 26882
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 104,
+        "at": 1793258646577,
+        "fps": 23,
+        "dtMs": 43.6,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 30989
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 5,
+      "to2d": {
+        "ms": 180,
+        "at": 1793258646758,
+        "fps": 22,
+        "dtMs": 45.8,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 31170
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 593,
+        "at": 1793258651354,
+        "fps": 24,
+        "dtMs": 41.7,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 35766
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 6,
+      "to2d": {
+        "ms": 215,
+        "at": 1793258651569,
+        "fps": 15,
+        "dtMs": 66.7,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 35981
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 580,
+        "at": 1793258656153,
+        "fps": 23,
+        "dtMs": 42.9,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 40565
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 7,
+      "to2d": {
+        "ms": 230,
+        "at": 1793258656383,
+        "fps": 16,
+        "dtMs": 62.5,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 40795
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 589,
+        "at": 1793258660975,
+        "fps": 24,
+        "dtMs": 41.7,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 45387
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 8,
+      "to2d": {
+        "ms": 226,
+        "at": 1793258661201,
+        "fps": 17,
+        "dtMs": 58.3,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 45613
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 622,
+        "at": 1793258665825,
+        "fps": 23,
+        "dtMs": 43.6,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 50237
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 9,
+      "to2d": {
+        "ms": 225,
+        "at": 1793258666050,
+        "fps": 17,
+        "dtMs": 58.4,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 50462
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 589,
+        "at": 1793258670643,
+        "fps": 24,
+        "dtMs": 41.5,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 55055
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 10,
+      "to2d": {
+        "ms": 216,
+        "at": 1793258670861,
+        "fps": 16,
+        "dtMs": 62.5,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 55273
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 572,
+        "at": 1793258675436,
+        "fps": 24,
+        "dtMs": 41.4,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 59848
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 11,
+      "to2d": {
+        "ms": 228,
+        "at": 1793258675664,
+        "fps": 16,
+        "dtMs": 62.5,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 60076
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 274,
+        "at": 1793258679941,
+        "fps": 23,
+        "dtMs": 42.8,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 64353
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    },
+    {
+      "n": 12,
+      "to2d": {
+        "ms": 237,
+        "at": 1793258680179,
+        "fps": 17,
+        "dtMs": 58.3,
+        "dtMaxMs": 900,
+        "liveCanvases": 0,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 64591
+        },
+        "panel": null
+      },
+      "check2d": true,
+      "toAtomic": {
+        "ms": 273,
+        "at": 1793258684455,
+        "fps": 24,
+        "dtMs": 41.4,
+        "dtMaxMs": 900,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258615588,
+          "ageMs": 68867
+        },
+        "panel": {
+          "demoScenario": "none"
+        },
+        "servedDelta": 2
+      },
+      "checkAtomic": true
+    }
+  ],
+  "gates": {
+    "T-1 all toggles completed": true,
+    "T-2 every 2D switch verified": true,
+    "T-3 every Atomic switch verified (remount + poller re-ran)": true,
+    "T-4 zero page errors": true,
+    "T-5 no canvas growth (end <= peak)": true
+  },
+  "verdict": "PASS"
+}

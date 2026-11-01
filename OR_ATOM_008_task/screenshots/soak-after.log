@@ -1,0 +1,25 @@
+[2026-10-27T23:09:20.864Z] soak start base=http://127.0.0.1:20140 duration=1200s
+[2026-10-27T23:09:29.921Z] BEFORE {"at":"2026-10-27T23:09:29.919Z","rendererInfo":{"calls":272,"triangles":107862,"geometries":43,"textures":3,"programs":6},"liveCanvases":1,"peakCanvases":1,"contextLost":0,"contextRestored":0,"remounts":0,"canvases":[{"w":702,"h":420}]}
+[2026-10-27T23:10:30.100Z] min 1: pixelVar=4758 fps=118 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=7
+[2026-10-27T23:11:30.192Z] min 2: pixelVar=4857 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=9
+[2026-10-27T23:12:30.273Z] min 3: pixelVar=4859 fps=121 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=11
+[2026-10-27T23:13:30.355Z] min 4: pixelVar=4861 fps=121 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=13
+[2026-10-27T23:14:30.473Z] min 5: pixelVar=4861 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=15
+[2026-10-27T23:15:30.545Z] min 6: pixelVar=4860 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=17
+[2026-10-27T23:16:30.622Z] min 7: pixelVar=4753 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=19
+[2026-10-27T23:16:35.671Z] mid-soak traffic: [{"model":"kiro/claude-haiku-4.5","status":200},{"model":"kiro/claude-haiku-4.5","status":200}]
+[2026-10-27T23:17:35.795Z] min 8: pixelVar=4753 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=21
+[2026-10-27T23:18:35.868Z] min 9: pixelVar=4759 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=23
+[2026-10-27T23:19:35.932Z] min 10: pixelVar=4754 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=25
+[2026-10-27T23:19:39.495Z] remount: pre live=1 peak=1 | post live=1 peak=1 remounts=1 geoms=43 tex=3 calls=272
+[2026-10-27T23:20:39.557Z] min 11: pixelVar=4753 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=27
+[2026-10-27T23:21:39.695Z] min 12: pixelVar=4747 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=29
+[2026-10-27T23:22:39.858Z] min 13: pixelVar=4750 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=31
+[2026-10-27T23:23:39.954Z] min 14: pixelVar=4750 fps=119 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=33
+[2026-10-27T23:24:40.018Z] min 15: pixelVar=4750 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=35
+[2026-10-27T23:25:40.080Z] min 16: pixelVar=4753 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=37
+[2026-10-27T23:26:40.141Z] min 17: pixelVar=4752 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=39
+[2026-10-27T23:27:40.253Z] min 18: pixelVar=4747 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=41
+[2026-10-27T23:28:40.352Z] min 19: pixelVar=4748 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=43
+[2026-10-27T23:29:40.491Z] min 20: pixelVar=4751 fps=120 liveCanvases=1 ctxLost=0 geoms=43 tex=3 calls=272 consoleErrors=45
+[2026-10-27T23:29:40.495Z] AFTER {"at":"2026-10-27T23:29:40.494Z","rendererInfo":{"calls":272,"triangles":107862,"geometries":43,"textures":3,"programs":6},"liveCanvases":1,"peakCanvases":1,"contextLost":0,"contextRestored":0,"remounts":1,"canvases":[{"w":702,"h":420}]}

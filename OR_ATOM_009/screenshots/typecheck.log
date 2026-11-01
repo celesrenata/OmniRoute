@@ -1,0 +1,65 @@
+npm warn Unknown project config "onnxruntime-node-install". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> omniroute@3.8.52 typecheck:core
+> tsc --pretty false -p tsconfig.typecheck-core.json
+
+open-sse/services/bottleneckPatch.ts(134,51): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+open-sse/services/bottleneckPatch.ts(136,26): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+open-sse/services/rateLimitManager.ts(688,15): error TS2339: Property 'aborted' does not exist on type 'never'.
+open-sse/services/rateLimitManager.ts(689,27): error TS2339: Property 'reason' does not exist on type 'never'.
+open-sse/services/rateLimitManager.ts(754,5): error TS2345: Argument of type 'Bottleneck | undefined' is not assignable to parameter of type 'Bottleneck'.
+  Type 'undefined' is not assignable to type 'Bottleneck'.
+open-sse/services/rateLimitManager.ts(763,5): error TS18048: 'limiter' is possibly 'undefined'.
+open-sse/services/rateLimitManager.ts(809,21): error TS18048: 'limiter' is possibly 'undefined'.
+open-sse/services/rateLimitManager.ts(821,31): error TS2339: Property 'reason' does not exist on type 'never'.
+open-sse/services/rateLimitManager.ts(835,18): error TS2339: Property 'aborted' does not exist on type 'never'.
+open-sse/services/rateLimitManager.ts(839,16): error TS2339: Property 'addEventListener' does not exist on type 'never'.
+open-sse/services/rateLimitManager.ts(851,18): error TS2339: Property 'removeEventListener' does not exist on type 'never'.
+open-sse/services/rateLimitManager.ts(891,51): error TS2345: Argument of type 'Bottleneck | undefined' is not assignable to parameter of type 'Bottleneck'.
+  Type 'undefined' is not assignable to type 'Bottleneck'.
+open-sse/services/rateLimitManager.ts(941,26): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+open-sse/services/rateLimitManager.ts(942,30): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+open-sse/services/rateLimitManager.ts(950,20): error TS18048: 'limiter' is possibly 'undefined'.
+open-sse/services/rateLimitManager.ts(966,30): error TS2345: Argument of type 'Bottleneck | undefined' is not assignable to parameter of type 'Bottleneck'.
+  Type 'undefined' is not assignable to type 'Bottleneck'.
+open-sse/services/rateLimitManager.ts(975,27): error TS2345: Argument of type 'Bottleneck | undefined' is not assignable to parameter of type 'Bottleneck'.
+  Type 'undefined' is not assignable to type 'Bottleneck'.
+open-sse/services/rateLimitManager.ts(1008,27): error TS2345: Argument of type 'Bottleneck | undefined' is not assignable to parameter of type 'Bottleneck'.
+  Type 'undefined' is not assignable to type 'Bottleneck'.
+open-sse/services/rateLimitManager.ts(1091,53): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'null | undefined'.
+  Type 'string' is not assignable to type 'null | undefined'.
+open-sse/services/rateLimitManager.ts(1280,27): error TS2345: Argument of type 'Bottleneck | undefined' is not assignable to parameter of type 'Bottleneck'.
+  Type 'undefined' is not assignable to type 'Bottleneck'.
+open-sse/services/rateLimitManager.ts(1320,27): error TS2345: Argument of type 'Bottleneck | undefined' is not assignable to parameter of type 'Bottleneck'.
+  Type 'undefined' is not assignable to type 'Bottleneck'.
+open-sse/services/rateLimitManager.ts(1326,25): error TS2345: Argument of type 'Bottleneck | undefined' is not assignable to parameter of type 'Bottleneck'.
+  Type 'undefined' is not assignable to type 'Bottleneck'.
+src/lib/db/quotaPools.ts(585,33): error TS2339: Property 'driver' does not exist on type 'DbLike'.
+src/lib/db/scripts.ts(91,60): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/db/scripts.ts(131,16): error TS2339: Property 'installCount' does not exist on type '{ id: string; name: string; version: string; description: string; scriptContent: string; hash: string; metadata: string; createdBy: string; tags: string; status: "deprecated" | "active" | "archived"; }'.
+src/lib/db/scripts.ts(151,43): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/db/scripts.ts(173,45): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/db/scripts.ts(195,45): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/db/scripts.ts(250,42): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/db/scripts.ts(275,44): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/db/scripts.ts(315,43): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/db/scripts.ts(337,43): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/db/scripts.ts(360,60): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/embeddings/service.ts(276,11): error TS2322: Type 'string | false' is not assignable to type 'boolean'.
+  Type 'string' is not assignable to type 'boolean'.
+src/lib/scripts/scriptVault.ts(44,55): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/scripts/scriptVault.ts(98,54): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/scripts/scriptVault.ts(111,48): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/scripts/scriptVault.ts(124,53): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/scripts/scriptVault.ts(143,44): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/scripts/scriptVault.ts(156,46): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/scripts/scriptVault.ts(172,45): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/scripts/scriptVault.ts(185,45): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/scripts/scriptVault.ts(198,55): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/lib/scripts/scriptVault.ts(254,47): error TS2345: Argument of type 'string' is not assignable to parameter of type 'LogMetadata'.
+src/plugins/atomic-topology/scene/AtomicScene.tsx(269,10): error TS2741: Property 'paused' is missing in type '{ key: string; descriptor: LinkVisualDescriptor; atoms: AtomVisualDescriptor[]; }' but required in type '{ descriptor: LinkVisualDescriptor; atoms: AtomVisualDescriptor[]; paused: boolean; }'.
+src/shared/components/flow/FlowCanvas.tsx(14,8): error TS2882: Cannot find module or type declarations for side-effect import of '@xyflow/react/dist/style.css'.

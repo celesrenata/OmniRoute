@@ -1,0 +1,39 @@
+{
+  "at": "2026-10-29T07:21:01.466Z",
+  "base": "http://127.0.0.1:21011",
+  "checks": {
+    "P-1 admit_then_deduped": true,
+    "P-2 kinds_admitted_after_window": true,
+    "P-3 unproven_rejected": true,
+    "D-1 multi_runtime_atoms": true,
+    "D-2 fleet_basis_proven": true,
+    "D-3 stale_badge": true
+  },
+  "rows": [
+    {
+      "scenario": "tps-80",
+      "served": 4,
+      "pageErrors": [],
+      "verdict": true
+    },
+    {
+      "scenario": "multi-runtime-gpu",
+      "served": 4,
+      "pageErrors": [],
+      "verdict": true
+    },
+    {
+      "scenario": "mixed-lanes",
+      "served": 4,
+      "pageErrors": [],
+      "verdict": true
+    },
+    {
+      "scenario": "unknown-stale",
+      "served": 4,
+      "pageErrors": [],
+      "verdict": true
+    }
+  ],
+  "verdict": true
+}

@@ -1,0 +1,109 @@
+{
+  "scenario": "mixed-lanes",
+  "capturedAt": 1793258519310,
+  "bodyHash": "42e2f1278eab6bd80044881a862d23c4a57de1c0df124a3b314752f78404ecf6",
+  "base": "http://127.0.0.1:21011",
+  "startedAt": "2026-10-29T07:23:25.598Z",
+  "settle": {
+    "at": 1793258551500,
+    "fps": 44,
+    "dtMs": 22.5,
+    "dtMaxMs": 367,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 0,
+      "restored": 0
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793258519310,
+      "ageMs": 32190
+    },
+    "panel": {
+      "demoScenario": "none"
+    },
+    "fleetServed": 10
+  },
+  "lost": {
+    "at": 1793258571982,
+    "fps": 60,
+    "dtMs": 16.8,
+    "dtMaxMs": 367,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 1,
+      "restored": 0
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793258519310,
+      "ageMs": 52672
+    },
+    "panel": {
+      "demoScenario": "none"
+    },
+    "fleetServed": 16
+  },
+  "restored": {
+    "at": 1793258602072,
+    "fps": 44,
+    "dtMs": 22.6,
+    "dtMaxMs": 367,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 1,
+      "restored": 1
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793258519310,
+      "ageMs": 82762
+    },
+    "panel": {
+      "demoScenario": "none"
+    },
+    "fleetServed": 24
+  },
+  "tick": {
+    "samplerFramesDelta": 135,
+    "after": {
+      "frames": 157,
+      "last": 85119.1
+    }
+  },
+  "forceLoss": {
+    "ok": true,
+    "api": "webgl2"
+  },
+  "verdicts": {
+    "GATE-1 demo body served to the real poller before loss": "PASS",
+    "GATE-2 forced context loss observed (lost ≥ 1)": "PASS",
+    "GATE-3 context restore observed (restored ≥ 1)": "PASS",
+    "GATE-4 scene re-animates after restore (rAF frames advanced)": "PASS",
+    "GATE-5 zero uncaught page errors": "PASS",
+    "GATE-6 no canvas growth after loss+restore (live ≤ peak)": "PASS"
+  },
+  "consoleErrors": [
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+  ],
+  "pageErrors": [],
+  "demoHandle": {
+    "id": "mixed-lanes",
+    "active": true,
+    "capturedAt": 1793258519310,
+    "ageMs": 82762
+  },
+  "panelScenario": "none"
+}

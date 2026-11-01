@@ -58,9 +58,14 @@ import type {
   TopologyRendererOptions,
 } from "@/shared/topology/renderer/types";
 import type { TopologySceneSnapshot } from "@/shared/topology/domain/types";
+import type {
+  ReconciledProviderNode,
+  ReconciledRuntimeNode,
+} from "@/shared/topology/telemetry/reconcile";
+import { deriveLaneForProvider } from "@/shared/topology/domain/lane";
 
-import { detectTopologyCapabilities } from "./capabilities";
-import { computeAtomicLayout, type AtomicLayoutNode } from "./layout";
+import { detectTopologyCapabilities, webgl2Available } from "./capabilities";
+import { computeAtomicLayout, computeDeviceBandLayout, type AtomicLayoutNode } from "./layout";
 import { computeFitRadiusFromPositions } from "./cameraFit";
 import {
   asJobLane,
@@ -86,14 +91,44 @@ import {
   createAtomicEventPool,
   mapLifecycleToAtomicEvents,
   type AtomicEventPool,
+  type AtomicEventKind,
 } from "./eventPool";
-import { resolveSceneQuality, type QualityProbe } from "./quality";
+import {
+  resolveSceneQuality,
+  type AtomicSceneQuality,
+  type BloomBudget,
+  type QualityProbe,
+} from "./quality";
+import {
+  admitPulseEvents,
+  canonicalRouteLinkId,
+  computeProvenRouteLinks,
+  createProvenPulseGate,
+  type ProvenPulseGate,
+} from "./scene/provenPulse";
 import { createAtomicCameraState, type AtomicSceneContextValue } from "./scene/sceneContext";
 
 // Re-export the pure visual-encoding types so the scene/overlay subtree has a
 // single import point (this adapter) rather than reaching into `visualEncoding`
 // directly.
 export type { JobLane, SpinResult, VibrationResult, AtomicVisualState, AtomicVisualStateInput };
+
+/**
+ * Dev/test-only pulse trigger (OR-ATOM-009 S9.4 / S9.5). Present on `window`
+ * ONLY outside production and while an Atomic renderer instance is mounted
+ * (the imperative instance assigns it on create and `delete`s it on
+ * `dispose`). It injects ONE deterministic pulse onto a proven route link
+ * through the same proven gate + event pool — it never fabricates telemetry
+ * into real snapshot data.
+ */
+declare global {
+  interface Window {
+    __atomicPulse?: (
+      providerId: string,
+      kind?: "request-started" | "request-completed" | "request-failed"
+    ) => { ok: boolean; reason: string; linkId?: string };
+  }
+}
 
 /**
  * The snapshot-feed freshness window (ms) the telemetry badge keys off: a
@@ -153,11 +188,19 @@ export interface AtomVisualDescriptor {
   /** Canonical atom id (`hub`, `provider:<id>`, `gpu:<id>`). */
   id: string;
   /** Atom kind. */
-  kind: "hub" | "provider" | "gpu";
+  kind: "hub" | "provider" | "gpu" | "runtime";
   /** Human label (from the snapshot node). */
   label: string;
   /** Provider id the atom represents (absent for the hub / gpu atoms). */
   providerId?: string;
+  /**
+   * Observed in-flight model ids (S8.3 nucleus model identity). Present on
+   * device atoms (GPU / runtime) from the PROVEN runtime model residency
+   * (OR-ATOM-009 S9.1/W2 — canonicalized, deduped, ≤3); absent on hub/provider
+   * atoms, where the snapshot still exposes no per-node model ids → the
+   * nucleus renders the honest neutral two-tone.
+   */
+  observedModelIds?: string[];
   /** World-space position (from {@link computeAtomicLayout}; hub = origin). */
   position: { x: number; y: number; z: number };
   /**
@@ -181,6 +224,20 @@ export interface AtomVisualDescriptor {
   spin: SpinResult;
   /** Queue vibration + provenance (from `queueVibration`; "unavailable" in M1). */
   vibration: VibrationResult;
+  /**
+   * Raw measured output throughput (tokens/sec) backing {@link spin}
+   * (OR-ATOM-009 / S9.2 — nucleus rotation binding): the fresh measured TPS
+   * this atom spins from, or `null` when nothing fresh is attributable
+   * (stale / missing / unattached / no reconciliation). The nucleus cluster
+   * smooths this per frame (`nucleusMotion.ts` `createRotationSmoothing`) —
+   * a fresh sample adopts instantly, subsequent samples ease in, and
+   * `null` decays the smoothed rate toward 0, so the nucleus spins down
+   * smoothly instead of holding a fake speed. The smoothing runs in the
+   * scene (per-frame), so this descriptor stays pure + deterministic.
+   * `spin` keeps its value/mode contract for the electron cloud, the
+   * tooltip and the breathing gate — those are unchanged by S9.2.
+   */
+  measuredTps: number | null;
   /** Composed health/traffic state + stroke style (from `resolveVisualState`). */
   visualState: {
     state: AtomicVisualState;
@@ -190,6 +247,37 @@ export interface AtomVisualDescriptor {
   activeRequests: number | null;
   /** 0-based ring index; the hub is `-1` (the nucleus, not on a ring). */
   ringIndex: number;
+  /**
+   * Proven device facts (OR-ATOM-005 — T5.4), present ONLY on device atoms
+   * (`kind: "gpu" | "runtime"`). Every field is a real measured value; `null`
+   * means "not observed" (the overlay says "no data", it never shows `0`).
+   */
+  deviceFacts?: {
+    /** `"gpu"` or `"runtime"` — the device atom kind. */
+    kind: "gpu" | "runtime";
+    utilizationPercent?: number | null;
+    vramUsedBytes?: number | null;
+    vramTotalBytes?: number | null;
+    temperatureC?: number | null;
+    powerWatts?: number | null;
+    /** Scheduler pending queue depth (NOT the OmniRoute rate-limit queue). */
+    queuedJobs?: number | null;
+    activeJobs?: number | null;
+    /**
+     * Served model id. Runtime atoms: their own observed model. GPU atoms
+     * (OR-ATOM-009 S9.1/W2): the first proven on-GPU runtime model (union of
+     * the runtimes proven on the GPU via `runtime_device` edges). `null` when
+     * no model is proven — never a guess.
+     */
+    modelId?: string | null;
+  };
+  /**
+   * Fleet-telemetry sample anchor (OR-ATOM-005 — T5.4): the reconciliation's
+   * `capturedAt`, shown by the tooltip's "Fleet sample" row. Present on every
+   * descriptor when a reconciliation is in the snapshot (device + provider
+   * atoms); absent without one.
+   */
+  fleetSampledAt?: number | null;
 }
 
 /**
@@ -207,6 +295,22 @@ export interface LinkVisualDescriptor {
   lane: JobLane;
   /** Lane hue for the edge color. */
   laneHue: string;
+  /**
+   * Proven pulse gate (OR-ATOM-009 S9.4): whether this link may carry bounded
+   * pulses. A route link is proven when its target provider atom is present
+   * in the snapshot's node set (call-log / active-request route evidence).
+   * The scene's packet layer rides only proven links; the thin filament,
+   * completion impulse and failure discharge are unaffected (event-level,
+   * never suppressed). See `scene/provenPulse.ts` for the provenance rule.
+   */
+  proven: boolean;
+  /**
+   * Provenance basis for {@link proven} (shown by the dev diagnostics panel,
+   * OR-ATOM-009 S9.5): the call-log route basis, optionally corroborated by
+   * a fleet-telemetry provider sample; "unproven (no target provider atom)"
+   * when the target atom is absent.
+   */
+  provenBasis: string;
   /** Composed health/traffic state + stroke style. */
   visualState: {
     state: AtomicVisualState;
@@ -225,8 +329,15 @@ export const SPIN_REFERENCE_TPS = 24;
  * to its deterministic layout position.
  *
  * Pure: same snapshot + same options → same descriptors; no clock, no DOM, no
- * WebGL. The hub is always present (nucleus at the origin); provider/gpu atoms
- * are placed by {@link computeAtomicLayout}.
+ * WebGL. The hub is always present (nucleus at the origin); provider atoms are
+ * placed by {@link computeAtomicLayout}, and — when the snapshot carries a
+ * fleet-telemetry reconciliation (OR-ATOM-005, T5.4) — proven GPU /
+ * inference-runtime device atoms are placed in the OUTER device band by
+ * {@link computeDeviceBandLayout} (rings beyond the provider rings, so no
+ * provider atom moves). Provider spin/vibration are then bound to the
+ * *measured* fleet values (`ReconciliationResult.providerNodes`) instead of
+ * the honest M1 "unavailable" baseline; without a reconciliation the
+ * descriptors are byte-identical to the pre-telemetry behavior.
  */
 export function resolveAtomDescriptors(
   snapshot: TopologySceneSnapshot,
@@ -243,7 +354,18 @@ export function resolveAtomDescriptors(
     placementById.set(p.id, { position: p.position, ringIndex: p.ringIndex });
   }
 
-  return snapshot.nodes.map((node) => {
+  // Fleet-telemetry reconciliation join (OR-ATOM-005 — T5.4). When the
+  // snapshot carries one, provider atoms bind their spin/vibration to the
+  // *measured* fleet values and proven device atoms are appended in the outer
+  // band. Without a reconciliation every descriptor is byte-identical to the
+  // pre-telemetry M1 baseline (honest "unavailable" spin/vibration).
+  const reconciliation = snapshot.fleetTelemetry ?? null;
+  const providerJoin = new Map<string, ReconciledProviderNode>();
+  if (reconciliation) {
+    for (const pn of reconciliation.providerNodes) providerJoin.set(pn.providerId, pn);
+  }
+
+  const descriptors: AtomVisualDescriptor[] = snapshot.nodes.map((node) => {
     const isHub = node.id === "hub";
     const placement = placementById.get(node.id);
     const position = isHub
@@ -274,13 +396,26 @@ export function resolveAtomDescriptors(
         : [];
     const color = modelColors.length > 0 ? modelColors[0] : UNKNOWN_ATOM_COLOR;
 
-    // Honest spin (OR-ATOM-002 item 2): the snapshot carries a request
-    // *count*, not a tokens-per-second measurement. Feeding a count into
-    // `spinRadiansPerSecond` would fabricate a TPS value. The domain has no
-    // observed TPS in the snapshot → the honest encoding is `unavailable`.
-    const spin = spinRadiansPerSecond(null, SPIN_REFERENCE_TPS);
-    // M1 carries no queue telemetry; `null` → "unavailable" (never fabricated).
-    const vibration = queueVibration(null);
+    // Spin + queue vibration (OR-ATOM-002 item 2 baseline, OR-ATOM-005 T5.4
+    // binding): WITHOUT a reconciliation the snapshot carries only a request
+    // *count*, not a tokens-per-second measurement — feeding a count into
+    // `spinRadiansPerSecond` would fabricate TPS, so the honest encoding is
+    // `unavailable`. WITH a reconciliation, the *measured* provider values
+    // (and the measured scheduler pending-queue depth) are bound instead.
+    // A stale `Observed` (upstream decayed it to `null`) or an absent fact
+    // stays "unavailable" — never fabricated as 0.
+    const joinedProvider =
+      !isHub && node.providerId ? providerJoin.get(node.providerId) : undefined;
+    const joinedTps =
+      joinedProvider && !joinedProvider.stale && joinedProvider.outputTokensPerSecond?.value != null
+        ? joinedProvider.outputTokensPerSecond.value
+        : null;
+    const joinedQueued =
+      joinedProvider && !joinedProvider.stale && joinedProvider.queuedJobs?.value != null
+        ? joinedProvider.queuedJobs.value
+        : null;
+    const spin = spinRadiansPerSecond(reconciliation ? joinedTps : null, SPIN_REFERENCE_TPS);
+    const vibration = queueVibration(reconciliation ? joinedQueued : null);
     const visualState = resolveVisualState({
       health: node.health,
       traffic: node.traffic,
@@ -298,12 +433,201 @@ export function resolveAtomDescriptors(
       laneHue: laneHue(lane),
       spin,
       vibration,
+      // S9.2 — the raw measured TPS behind `spin` (null when no reconciliation
+      // or the joined sample is stale/absent): the nucleus smooths exactly
+      // this value per frame; the hub (no providerId) stays null.
+      measuredTps: reconciliation ? joinedTps : null,
       visualState,
       activeRequests: node.activeRequests?.value ?? null,
       ringIndex,
       modelColors,
-    };
+      fleetSampledAt: reconciliation ? reconciliation.capturedAt : null,
+    } satisfies AtomVisualDescriptor;
   });
+
+  // Proven device atoms (OR-ATOM-005 — T5.4). Placed ONLY in the outer device
+  // band (rings beyond the provider rings) by `computeDeviceBandLayout`, so
+  // no provider atom moves. Deterministic: keyed to the canonical id set,
+  // de-duplicated, hash-sorted — never to array order.
+  if (reconciliation) {
+    const maxProviderRing = layout.placements.reduce((max, p) => Math.max(max, p.ringIndex), 0);
+    const bandNodes: Array<{ id: string; kind: "gpu" | "runtime" }> = [
+      ...reconciliation.gpuNodes.map((g) => ({ id: g.resourceId, kind: "gpu" as const })),
+      ...reconciliation.runtimeNodes.map((r) => ({
+        id: r.resourceId,
+        kind: "runtime" as const,
+      })),
+    ];
+    const band = computeDeviceBandLayout(bandNodes, { startRingIndex: maxProviderRing + 1 });
+    const gpuById = new Map(reconciliation.gpuNodes.map((g) => [g.resourceId, g]));
+    const runtimeById = new Map(reconciliation.runtimeNodes.map((r) => [r.resourceId, r]));
+    const providerById = new Map(reconciliation.providerNodes.map((p) => [p.resourceId, p]));
+
+    // Proven-relationship indexes, built ONLY from `reconciliation.edges`
+    // (never from display labels / name joins — S9.1 provenance rule).
+    //   runtime_device    : runtime canonical id -> [runtime nodes on that GPU]
+    //   provider_runtime  : runtime canonical id -> [proven provider nodes]
+    // A runtime's own observed model comes from its reconciled `modelId` (the
+    // reconciler sets it only from a proven sample), so no separate runtime→model
+    // index is needed — a GPU's models are the union of its attributed runtimes'.
+    const runtimesByGpu = new Map<string, ReconciledRuntimeNode[]>();
+    const providersByRuntime = new Map<string, ReconciledProviderNode[]>();
+    for (const edge of reconciliation.edges) {
+      if (edge.relation === "runtime_device") {
+        const rt = runtimeById.get(edge.source);
+        if (rt) {
+          const list = runtimesByGpu.get(edge.target);
+          if (list) list.push(rt);
+          else runtimesByGpu.set(edge.target, [rt]);
+        }
+      } else if (edge.relation === "provider_runtime") {
+        const provider = providerById.get(edge.source);
+        if (provider) {
+          const list = providersByRuntime.get(edge.target);
+          if (list) list.push(provider);
+          else providersByRuntime.set(edge.target, [provider]);
+        }
+      }
+    }
+
+    for (const placement of band.placements) {
+      const gpu = placement.kind === "gpu" ? gpuById.get(placement.id) : undefined;
+      const runtime = placement.kind === "runtime" ? runtimeById.get(placement.id) : undefined;
+      const isGpu = placement.kind === "gpu";
+      // A stale reconciliation node (upstream decayed its values) must read as
+      // "unavailable", never animate from decayed/absent facts (T5.4 honesty).
+      const deviceStale = Boolean(gpu?.stale ?? runtime?.stale);
+      const obsValue = (o: { value: number | null } | null | undefined): number | null =>
+        !deviceStale && o && o.value != null ? o.value : null;
+
+      // Proven attribution for THIS atom (S9.1): a GPU's work comes ONLY from
+      // the runtimes proven to run on it (runtime_device edges); a runtime's is
+      // itself. One-to-many / many-to-many preserved — never an even split.
+      const attributedRuntimes: ReconciledRuntimeNode[] = isGpu
+        ? (runtimesByGpu.get(placement.id) ?? [])
+        : runtime
+          ? [runtime]
+          : [];
+      const singleRuntime = attributedRuntimes.length === 1 ? attributedRuntimes[0] : undefined;
+      // Facts ATTRIBUTED from the single proven on-GPU runtime must also
+      // respect that runtime's own staleness — the same rule as the
+      // spin/vibration attribution above (S9.1: a decayed value is never
+      // shown on the GPU).
+      const attributedValue = (
+        o: { value: number | null; stale?: boolean } | null | undefined
+      ): number | null =>
+        !deviceStale && !singleRuntime?.stale && o && o.value != null ? o.value : null;
+
+      // Observed model ids — ONLY from proven runtime→(gpu) residency (S9.3).
+      // Canonicalized (trim + lowercase), deduped, capped at 3 so the descriptor's
+      // nucleus colors match `resolveModelGroups` (MAX_MODEL_GROUPS = 3).
+      const modelSet = new Set<string>();
+      for (const rt of attributedRuntimes) {
+        // A stale runtime's residency is decayed — attribute nothing from it
+        // (S9.1: stale → unavailable, never shown on the device it once ran on).
+        if (rt.modelId && !rt.stale) modelSet.add(rt.modelId.trim().toLowerCase());
+      }
+      const observedModelIds = [...modelSet]
+        .filter((id) => id.length > 0)
+        .sort()
+        .slice(0, 3);
+      const modelColors = observedModelIds.map((id) => modelColor(id));
+      // Lane from the observed model ids via the tested domain classifier
+      // (S9.4): a single recognizable lane -> that lane; mixed -> observed
+      // "unknown"; none observed / none recognizable -> coloring "unknown".
+      const laneResult =
+        observedModelIds.length > 0 ? deriveLaneForProvider(observedModelIds) : null;
+      const lane: JobLane = laneResult ? asJobLane(laneResult.lane) : "unknown";
+
+      // Spin (S9.2): per-device attribution only. A GPU spins from its OWN
+      // measured TPS, or — when exactly one runtime is proven on it — from that
+      // runtime's measured TPS (unambiguous single-GPU attribution). A runtime
+      // spins from its own measured TPS. Never split an aggregate across GPUs.
+      let spinTps: number | null = null;
+      if (isGpu) {
+        const own = gpu?.outputTokensPerSecond;
+        if (own && own.value != null && !own.stale) spinTps = own.value;
+        else if (singleRuntime && !singleRuntime.stale) {
+          const t = singleRuntime.outputTokensPerSecond;
+          if (t && t.value != null && !t.stale) spinTps = t.value;
+        }
+      } else {
+        const t = runtime?.outputTokensPerSecond;
+        if (t && t.value != null) spinTps = t.value;
+      }
+      const spin = spinRadiansPerSecond(deviceStale ? null : spinTps, SPIN_REFERENCE_TPS);
+
+      // Queue vibration (S9.3): a GPU vibrates only when a single runtime's
+      // scheduler queue is safely attributed to it (no double counting); a
+      // runtime vibrates from its own queue.
+      let vibQueue: number | null = null;
+      if (isGpu) {
+        const q = singleRuntime?.queuedJobs;
+        if (q && q.value != null && !q.stale && !singleRuntime.stale) vibQueue = q.value;
+      } else {
+        const q = runtime?.queuedJobs;
+        if (q && q.value != null) vibQueue = q.value;
+      }
+      const vibration = queueVibration(deviceStale ? null : vibQueue);
+
+      // Proven provider linkage (S9.1): a runtime carries its proven
+      // provider_runtime edge; a GPU stays provider-unattached (its link to a
+      // provider is only transitive through its runtime — never drawn directly).
+      const providerId = isGpu
+        ? undefined
+        : (providersByRuntime.get(placement.id)?.[0]?.providerId ?? undefined);
+
+      descriptors.push({
+        id: placement.id,
+        kind: placement.kind,
+        label: placement.id,
+        providerId,
+        observedModelIds,
+        position: placement.position,
+        color: modelColors.length > 0 ? modelColors[0] : UNKNOWN_ATOM_COLOR,
+        modelColors,
+        lane,
+        laneHue: laneHue(lane),
+        spin,
+        vibration,
+        // S9.2 — the raw measured TPS behind `spin`, stale-gated exactly like
+        // the spin itself (a decayed sample spins the nucleus down, never
+        // holds a fake speed; multi-runtime GPUs carry null — no split).
+        measuredTps: deviceStale ? null : spinTps,
+        // Device atoms are telemetry evidence, not route traffic: no route
+        // link connects them, so they render as idle/unknown (neutral).
+        visualState: resolveVisualState({ health: "unknown", traffic: "idle" }),
+        activeRequests: null,
+        ringIndex: placement.ringIndex,
+        deviceFacts: {
+          kind: placement.kind,
+          utilizationPercent: obsValue(gpu?.utilizationPercent),
+          vramUsedBytes: obsValue(gpu?.vramUsedBytes),
+          vramTotalBytes: obsValue(gpu?.vramTotalBytes),
+          temperatureC: obsValue(gpu?.temperatureC),
+          powerWatts: obsValue(gpu?.powerWatts),
+          queuedJobs: isGpu
+            ? singleRuntime
+              ? attributedValue(singleRuntime.queuedJobs)
+              : null
+            : obsValue(runtime?.queuedJobs),
+          activeJobs: isGpu
+            ? singleRuntime
+              ? attributedValue(singleRuntime.activeJobs)
+              : null
+            : obsValue(runtime?.activeJobs),
+          modelId: isGpu
+            ? (observedModelIds[0] ?? null)
+            : deviceStale
+              ? null
+              : (runtime?.modelId ?? null),
+        },
+        fleetSampledAt: reconciliation.capturedAt,
+      });
+    }
+  }
+
+  return descriptors;
 }
 
 /**
@@ -318,6 +642,10 @@ export function resolveLinkDescriptors(snapshot: TopologySceneSnapshot): LinkVis
   for (const n of snapshot.nodes) {
     if (n.lane && n.lane.value != null) nodeLaneById.set(n.id, n.lane.value);
   }
+  // Proven pulse gate (OR-ATOM-009 S9.4): which links may carry pulses, from
+  // the snapshot's OWN evidence (the target provider atom; fleet-telemetry
+  // corroboration strengthens the basis only). Pure — see `scene/provenPulse`.
+  const { provenLinkIds, basisById } = computeProvenRouteLinks(snapshot);
   return snapshot.links.map((link) => {
     // Honest lane (OR-ATOM-002 item 3): join the target node's observed lane
     // when present; fall back to explicit "unknown" when absent.
@@ -330,6 +658,8 @@ export function resolveLinkDescriptors(snapshot: TopologySceneSnapshot): LinkVis
       target: link.target,
       lane,
       laneHue: laneHue(lane),
+      proven: provenLinkIds.has(link.id),
+      provenBasis: basisById.get(link.id) ?? "unproven",
       visualState,
     };
   });
@@ -361,6 +691,12 @@ export interface AtomicSceneProps {
    * `AtomicSceneContext` provider.
    */
   sceneContext: AtomicSceneContextValue;
+  /**
+   * Dev-probe override for the tier's bloom budget (OR-ATOM-010 iteration-e
+   * washout isolation). `undefined` → the resolved quality budget. Only the
+   * dev-only bench page wires it; the production host never passes it.
+   */
+  bloomOverride?: BloomBudget;
 }
 
 /** Props for the client-only scene host component. */
@@ -392,24 +728,20 @@ export interface AtomicTopologyRendererProps {
    * tree. Wired by the imperative instance to update its own focus state.
    */
   onFocusRequest?: (nodeId: string) => void;
-}
-
-/**
- * A minimal WebGL2 probe for the *render* path: attempts to create a real
- * context on a detached canvas. The `mount` gate (via `detectTopologyCapabilities`)
- * is the primary line of defense; this render-time probe is a second one, so
- * that if the context turns out to be unusable we render the empty state
- * rather than throwing out of an R3F `<Canvas>`.
- */
-function canCreateWebGL2AtRender(): boolean {
-  if (typeof document === "undefined") return false;
-  try {
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("webgl2");
-    return context != null;
-  } catch {
-    return false;
-  }
+  /**
+   * Dev-probe override for the per-tier bloom budget (OR-ATOM-010
+   * iteration-e washout isolation). `undefined` → the resolved quality
+   * budget (the production path); a full budget (or `{ enabled: false }`)
+   * → a tuned / bloom-free capture. Only the dev-only bench page wires it;
+   * the production host never passes it, so the render path is unchanged.
+   */
+  bloomOverride?: BloomBudget;
+  /**
+   * Dev-probe override for the resolved scene quality tier (iteration-e:
+   * forces a tier so headless captures are comparable regardless of the
+   * probe's hardware signals). `undefined` → the resolved tier.
+   */
+  qualityOverride?: AtomicSceneQuality;
 }
 
 /**
@@ -432,6 +764,8 @@ export function AtomicTopologyRenderer({
   onFocusRequest,
   eventPool,
   size,
+  bloomOverride,
+  qualityOverride,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
 
@@ -463,6 +797,15 @@ export function AtomicTopologyRenderer({
   // Environment signals are stable for the lifetime of this host, so probe
   // them once (the WebGL2 probe creates a real context — not free to repeat on
   // every render).
+  //
+  // OR-ATOM-009.1 (F5): the render gate used its own per-render WebGL2 probe
+  // (`canCreateWebGL2AtRender`), allocating + abandoning a real context on
+  // every telemetry re-render (~3.5 s cadence) — the context-exhaustion risk
+  // the plugin branch fixed by memoizing the probe. `webgl2Available()`
+  // allocates at most ONCE per page load (cached module state) and releases the
+  // probe context via `WEBGL_lose_context`; the mount gate has already
+  // populated that cache, so this `useMemo` is a cached read.
+  const webgl2Ok = useMemo(() => webgl2Available(), []);
   const { reducedMotion, quality } = useMemo(() => {
     const caps = detectTopologyCapabilities();
     const probe: QualityProbe = {
@@ -477,9 +820,9 @@ export function AtomicTopologyRenderer({
     };
     return {
       reducedMotion: caps.reducedMotion,
-      quality: resolveSceneQuality(probe),
+      quality: qualityOverride ?? resolveSceneQuality(probe),
     };
-  }, []);
+  }, [qualityOverride]);
 
   // The stable per-frame camera snapshot the DOM label overlay reads
   // (UX correction — projected labels). Created once; the scene writes to it
@@ -491,10 +834,25 @@ export function AtomicTopologyRenderer({
   // Responsive framing (UX correction): fit the *actual* layout bounds, not
   // the constant `DEFAULT_FIT_RADIUS`. The hub is the origin, so only the ring
   // atoms contribute; the margin covers the atom radius + electron cloud.
+  // When device atoms are present (OR-ATOM-005 — T5.4), they live in the OUTER
+  // band, beyond the provider rings — the provider-only fit cap would clip
+  // them, so the upper clamp is raised to contain the farthest device atom.
+  // No device atoms → `undefined` cap → byte-identical to the M1 framing.
+  const deviceAtoms = descriptors.filter((d) => d.kind === "gpu" || d.kind === "runtime");
+  let deviceBandCap = undefined as number | undefined;
+  if (deviceAtoms.length > 0) {
+    let maxDeviceNorm = 0;
+    for (const d of deviceAtoms) {
+      const norm = Math.hypot(d.position.x, d.position.y, d.position.z);
+      if (norm > maxDeviceNorm) maxDeviceNorm = norm;
+    }
+    deviceBandCap = maxDeviceNorm + ATOM_FIT_MARGIN;
+  }
   const ringPositions = descriptors.filter((d) => d.kind !== "hub");
   const fitRadius = computeFitRadiusFromPositions(
     ringPositions.map((d) => d.position),
-    ATOM_FIT_MARGIN
+    ATOM_FIT_MARGIN,
+    deviceBandCap
   );
 
   // The live viewport aspect drives the fit: a wide, short canvas needs a
@@ -529,7 +887,10 @@ export function AtomicTopologyRenderer({
   // the measurement runs one tick after the snapshot lands. A snapshot does
   // not age in place, so the badge reflects the feed state at the moment it
   // became observable.
-  const capturedAt = snapshot.capturedAt;
+  // T5.4: prefer the fleet-telemetry sample's `capturedAt` over the snapshot's
+  // own — the badge should reflect the freshness of the *measured* feed that
+  // powers the spin/vibration binding, not the (possibly stale) snapshot feed.
+  const capturedAt = snapshot.fleetTelemetry?.capturedAt ?? snapshot.capturedAt;
   const [telemetryState, setTelemetryState] = useState<AtomicTelemetryState>("unavailable");
   useEffect(() => {
     const id = setTimeout(() => {
@@ -559,7 +920,7 @@ export function AtomicTopologyRenderer({
     >
       {/* 3D canvas layer (client-only, WebGL-gated) */}
       <div className="atomic-scene-canvas" style={{ position: "absolute", inset: 0 }}>
-        {sceneModule && descriptors.length > 1 && canCreateWebGL2AtRender() ? (
+        {sceneModule && descriptors.length > 1 && webgl2Ok ? (
           <sceneModule.AtomicScene
             descriptors={descriptors}
             linkDescriptors={linkDescriptors}
@@ -567,6 +928,7 @@ export function AtomicTopologyRenderer({
             focusNodeId={focusNodeId}
             emptyStateLabel={options.emptyStateLabel}
             sceneContext={sceneContext}
+            bloomOverride={bloomOverride}
           />
         ) : (
           <div
@@ -709,11 +1071,72 @@ export function createAtomicTopologyInstance(
   // (inside `useFrame`) for transient discharges — never React state.
   const pool = createAtomicEventPool();
 
+  // Proven pulse gate (OR-ATOM-009 S9.4): a fresh gate per ingest (event-rate
+  // surface — the per-frame packet loop reads `descriptor.proven`, NOT the
+  // gate). Lifecycle events may enter the pool only along a PROVEN link,
+  // deduped within the gate's window and capped at the concurrent-pulse budget.
+  // The gate carries the admission history (dedupe window + per-link
+  // concurrent cap) — building one per snapshot would reset that state on
+  // every lifecycle event and every dev trigger, so the 150 ms dedupe window
+  // could never fire (two identical pulses both "admitted"). Cache the gate
+  // and rebuild ONLY when the proven-link set actually changes.
+  let cachedGate: ProvenPulseGate | null = null;
+  let cachedGateKey = "";
+  const pulseGate = (snapshot: TopologySceneSnapshot): ProvenPulseGate => {
+    const proven = computeProvenRouteLinks(snapshot).provenLinkIds;
+    const key = Array.from(proven).sort().join("\u0000");
+    if (!cachedGate || cachedGateKey !== key) {
+      cachedGate = createProvenPulseGate(proven);
+      cachedGateKey = key;
+    }
+    return cachedGate;
+  };
+
   const ingestSnapshot = (snapshot: TopologySceneSnapshot): void => {
     if (disposed) return;
     const nowMs = Date.now();
-    for (const e of mapLifecycleToAtomicEvents(snapshot)) pool.ingest(e, nowMs);
+    const events = mapLifecycleToAtomicEvents(snapshot);
+    for (const e of admitPulseEvents(events, pulseGate(snapshot), nowMs)) pool.ingest(e, nowMs);
   };
+
+  // Dev/test-only trigger (OR-ATOM-009 S9.4 / S9.5): `window.__atomicPulse`
+  // injects ONE deterministic pulse onto a proven route link through the SAME
+  // proven gate + pool path — never fabricating telemetry into real data.
+  // Defined only outside production; `dispose` removes it. The trigger function
+  // is kept at instance scope so `dispose()` can delete ONLY this instance's
+  // trigger from the shared `window` surface — a deferred StrictMode cleanup
+  // from an earlier mount must never clobber a newer instance's trigger.
+  let pulseTrigger:
+    | ((
+        providerId: string,
+        kind?: AtomicEventKind
+      ) => { ok: boolean; reason: string; linkId?: string })
+    | null = null;
+  if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
+    pulseTrigger = (providerId: string, kind?: AtomicEventKind) => {
+      if (disposed || typeof providerId !== "string" || providerId.length === 0) {
+        return { ok: false, reason: "bad-input" as const };
+      }
+      const eventKind: AtomicEventKind = kind ?? "request-started"; // default: the "active" discharge
+      const linkId = canonicalRouteLinkId(providerId);
+      const admission = pulseGate(state.snapshot).admit(linkId, Date.now());
+      if (admission.ok) {
+        pool.ingest(
+          {
+            id: `devpulse:${eventKind}:${providerId}:${Date.now()}`,
+            at: Date.now(),
+            kind: eventKind,
+            providerId,
+            resourceId: `devpulse:${providerId}`,
+            linkId,
+          },
+          Date.now()
+        );
+      }
+      return { ok: admission.ok, reason: admission.reason, linkId };
+    };
+    window.__atomicPulse = pulseTrigger;
+  }
 
   const render = (): void => {
     if (disposed) return;
@@ -771,6 +1194,10 @@ export function createAtomicTopologyInstance(
       // keeps reacting to `atomic:toggle-pause` / `atomic:reset-view` events.
       window.removeEventListener("atomic:toggle-pause", onTogglePause);
       window.removeEventListener("atomic:reset-view", onResetView);
+      // Remove only this instance's dev-only pulse trigger. A deferred cleanup
+      // from an earlier StrictMode mount must not delete a newer instance's
+      // trigger from the shared window surface.
+      if (window.__atomicPulse === pulseTrigger) delete window.__atomicPulse;
       // Release the event pool so no pooled events survive the teardown.
       pool.clear();
       try {

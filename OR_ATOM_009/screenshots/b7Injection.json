@@ -1,0 +1,420 @@
+{
+  "base": "http://127.0.0.1:21011",
+  "startedAt": "2026-10-29T07:32:01.353Z",
+  "results": [
+    {
+      "scenario": "idle",
+      "at": "2026-10-29T07:30:50.986Z",
+      "durationMs": 10942,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:30:43.962Z"
+      },
+      "badgeExpected": "available",
+      "bodyCapturedAt": 1793259043962,
+      "bodyAgeAtSample": 7024,
+      "perf": {
+        "at": 1793259050457,
+        "fps": 26,
+        "dtMs": 37.8,
+        "dtMaxMs": 1283,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "idle",
+          "active": true,
+          "capturedAt": 1793259043962,
+          "ageMs": 6495
+        },
+        "panel": {
+          "demoScenario": "idle"
+        }
+      },
+      "servedNetwork": 0,
+      "errors": {
+        "pageErrors": []
+      },
+      "png": "screenshots/capture-b7-idle.png",
+      "checks": {
+        "B-1 in_page_wrapper_installed": true,
+        "B-2 poller_consumed_body_badge_available": true,
+        "B-3 demo_handle_live_and_matching": true,
+        "B-4 diagnostics_panel_renders_scenario": true,
+        "B-5 body_not_served_over_network": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "unknown-stale",
+      "at": "2026-10-29T07:31:00.138Z",
+      "durationMs": 9096,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:30:54.298Z"
+      },
+      "badgeExpected": "available",
+      "bodyCapturedAt": 1793259054298,
+      "bodyAgeAtSample": 5840,
+      "perf": {
+        "at": 1793259059653,
+        "fps": 45,
+        "dtMs": 22,
+        "dtMaxMs": 733,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "unknown-stale",
+          "active": true,
+          "capturedAt": 1793259054298,
+          "ageMs": 5355
+        },
+        "panel": {
+          "demoScenario": "unknown-stale"
+        }
+      },
+      "servedNetwork": 0,
+      "errors": {
+        "pageErrors": []
+      },
+      "png": "screenshots/capture-b7-unknown-stale.png",
+      "checks": {
+        "B-1 in_page_wrapper_installed": true,
+        "B-2 poller_consumed_body_badge_available": true,
+        "B-3 demo_handle_live_and_matching": true,
+        "B-4 diagnostics_panel_renders_scenario": true,
+        "B-5 body_not_served_over_network": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "tps-20",
+      "at": "2026-10-29T07:31:08.939Z",
+      "durationMs": 8758,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:31:02.952Z"
+      },
+      "badgeExpected": "available",
+      "bodyCapturedAt": 1793259062952,
+      "bodyAgeAtSample": 5987,
+      "perf": {
+        "at": 1793259068465,
+        "fps": 50,
+        "dtMs": 19.9,
+        "dtMaxMs": 700,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-20",
+          "active": true,
+          "capturedAt": 1793259062952,
+          "ageMs": 5513
+        },
+        "panel": {
+          "demoScenario": "tps-20"
+        }
+      },
+      "servedNetwork": 0,
+      "errors": {
+        "pageErrors": []
+      },
+      "png": "screenshots/capture-b7-tps-20.png",
+      "checks": {
+        "B-1 in_page_wrapper_installed": true,
+        "B-2 poller_consumed_body_badge_available": true,
+        "B-3 demo_handle_live_and_matching": true,
+        "B-4 diagnostics_panel_renders_scenario": true,
+        "B-5 body_not_served_over_network": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "tps-80",
+      "at": "2026-10-29T07:31:17.821Z",
+      "durationMs": 8844,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:31:11.273Z"
+      },
+      "badgeExpected": "available",
+      "bodyCapturedAt": 1793259071273,
+      "bodyAgeAtSample": 6548,
+      "perf": {
+        "at": 1793259076753,
+        "fps": 40,
+        "dtMs": 25.2,
+        "dtMaxMs": 1383,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793259071273,
+          "ageMs": 5480
+        },
+        "panel": {
+          "demoScenario": "tps-80"
+        }
+      },
+      "servedNetwork": 0,
+      "errors": {
+        "pageErrors": []
+      },
+      "png": "screenshots/capture-b7-tps-80.png",
+      "checks": {
+        "B-1 in_page_wrapper_installed": true,
+        "B-2 poller_consumed_body_badge_available": true,
+        "B-3 demo_handle_live_and_matching": true,
+        "B-4 diagnostics_panel_renders_scenario": true,
+        "B-5 body_not_served_over_network": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "queued-jobs",
+      "at": "2026-10-29T07:31:25.976Z",
+      "durationMs": 8106,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:31:20.126Z"
+      },
+      "badgeExpected": "available",
+      "bodyCapturedAt": 1793259080126,
+      "bodyAgeAtSample": 5850,
+      "perf": {
+        "at": 1793259085639,
+        "fps": 51,
+        "dtMs": 19.8,
+        "dtMaxMs": 633,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "queued-jobs",
+          "active": true,
+          "capturedAt": 1793259080126,
+          "ageMs": 5513
+        },
+        "panel": {
+          "demoScenario": "queued-jobs"
+        }
+      },
+      "servedNetwork": 0,
+      "errors": {
+        "pageErrors": []
+      },
+      "png": "screenshots/capture-b7-queued-jobs.png",
+      "checks": {
+        "B-1 in_page_wrapper_installed": true,
+        "B-2 poller_consumed_body_badge_available": true,
+        "B-3 demo_handle_live_and_matching": true,
+        "B-4 diagnostics_panel_renders_scenario": true,
+        "B-5 body_not_served_over_network": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "mixed-lanes",
+      "at": "2026-10-29T07:31:35.044Z",
+      "durationMs": 9024,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:31:28.221Z"
+      },
+      "badgeExpected": "available",
+      "bodyCapturedAt": 1793259088221,
+      "bodyAgeAtSample": 6823,
+      "perf": {
+        "at": 1793259093887,
+        "fps": 45,
+        "dtMs": 22.4,
+        "dtMaxMs": 917,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "mixed-lanes",
+          "active": true,
+          "capturedAt": 1793259088221,
+          "ageMs": 5666
+        },
+        "panel": {
+          "demoScenario": "mixed-lanes"
+        }
+      },
+      "servedNetwork": 0,
+      "errors": {
+        "pageErrors": []
+      },
+      "png": "screenshots/capture-b7-mixed-lanes.png",
+      "checks": {
+        "B-1 in_page_wrapper_installed": true,
+        "B-2 poller_consumed_body_badge_available": true,
+        "B-3 demo_handle_live_and_matching": true,
+        "B-4 diagnostics_panel_renders_scenario": true,
+        "B-5 body_not_served_over_network": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "completion",
+      "at": "2026-10-29T07:31:43.692Z",
+      "durationMs": 8598,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:31:37.437Z"
+      },
+      "badgeExpected": "available",
+      "bodyCapturedAt": 1793259097437,
+      "bodyAgeAtSample": 6255,
+      "perf": {
+        "at": 1793259102930,
+        "fps": 49,
+        "dtMs": 20.5,
+        "dtMaxMs": 733,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "completion",
+          "active": true,
+          "capturedAt": 1793259097437,
+          "ageMs": 5493
+        },
+        "panel": {
+          "demoScenario": "completion"
+        }
+      },
+      "servedNetwork": 0,
+      "errors": {
+        "pageErrors": []
+      },
+      "png": "screenshots/capture-b7-completion.png",
+      "checks": {
+        "B-1 in_page_wrapper_installed": true,
+        "B-2 poller_consumed_body_badge_available": true,
+        "B-3 demo_handle_live_and_matching": true,
+        "B-4 diagnostics_panel_renders_scenario": true,
+        "B-5 body_not_served_over_network": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "failed-request",
+      "at": "2026-10-29T07:31:52.219Z",
+      "durationMs": 8473,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:31:46.257Z"
+      },
+      "badgeExpected": "available",
+      "bodyCapturedAt": 1793259106257,
+      "bodyAgeAtSample": 5962,
+      "perf": {
+        "at": 1793259111688,
+        "fps": 40,
+        "dtMs": 25.3,
+        "dtMaxMs": 1617,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "failed-request",
+          "active": true,
+          "capturedAt": 1793259106257,
+          "ageMs": 5431
+        },
+        "panel": {
+          "demoScenario": "failed-request"
+        }
+      },
+      "servedNetwork": 0,
+      "errors": {
+        "pageErrors": []
+      },
+      "png": "screenshots/capture-b7-failed-request.png",
+      "checks": {
+        "B-1 in_page_wrapper_installed": true,
+        "B-2 poller_consumed_body_badge_available": true,
+        "B-3 demo_handle_live_and_matching": true,
+        "B-4 diagnostics_panel_renders_scenario": true,
+        "B-5 body_not_served_over_network": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "multi-runtime-gpu",
+      "at": "2026-10-29T07:32:01.267Z",
+      "durationMs": 8981,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:31:54.682Z"
+      },
+      "badgeExpected": "available",
+      "bodyCapturedAt": 1793259114682,
+      "bodyAgeAtSample": 6585,
+      "perf": {
+        "at": 1793259120154,
+        "fps": 38,
+        "dtMs": 26.5,
+        "dtMaxMs": 1467,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "multi-runtime-gpu",
+          "active": true,
+          "capturedAt": 1793259114682,
+          "ageMs": 5472
+        },
+        "panel": {
+          "demoScenario": "multi-runtime-gpu"
+        }
+      },
+      "servedNetwork": 0,
+      "errors": {
+        "pageErrors": []
+      },
+      "png": "screenshots/capture-b7-multi-runtime-gpu.png",
+      "checks": {
+        "B-1 in_page_wrapper_installed": true,
+        "B-2 poller_consumed_body_badge_available": true,
+        "B-3 demo_handle_live_and_matching": true,
+        "B-4 diagnostics_panel_renders_scenario": true,
+        "B-5 body_not_served_over_network": true
+      },
+      "verdict": "PASS"
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import { errorResponse, unavailableResponse } from "@omniroute/open-sse/utils/er
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import * as log from "@/sse/utils/logger";
 import { toJsonErrorPayload } from "@/shared/utils/upstreamError";
+import { pickRandomMatchingNode } from "@/shared/utils/pickRandomMatchingNode";
 import {
   getProviderCredentials,
   clearRecoveredProviderState,
@@ -190,9 +191,12 @@ export async function createEmbeddingResponse(
   }
 
   let credentials: ProviderCredentialsResult | null = null;
+  // #arcforge-embeddings: several provider_nodes can share one model prefix
+  // (one per GPU host). Spread requests across all of them instead of pinning
+  // to the first registered node — see pickRandomMatchingNode().
   let providerConfig: EmbeddingProvider | null =
     options.resolvedProvider ||
-    dynamicProviders.find((dp) => dp.id === provider) ||
+    pickRandomMatchingNode(dynamicProviders, (dp) => dp.id === provider) ||
     getEmbeddingProvider(provider) ||
     null;
   let credentialsProviderId = provider;
@@ -264,7 +268,10 @@ export async function createEmbeddingResponse(
   if (!providerConfig) {
     try {
       const allNodes = (await getCachedProviderNodes()) as unknown as EmbeddingProviderNodeRow[];
-      const matchingNode = (Array.isArray(allNodes) ? allNodes : []).find(
+      // #arcforge-embeddings: same-prefix nodes load-balance here too (see
+      // pickRandomMatchingNode).
+      const matchingNode = pickRandomMatchingNode(
+        Array.isArray(allNodes) ? allNodes : [],
         (n) =>
           n.prefix === provider &&
           (n.apiType === "chat" || n.apiType === "responses" || n.apiType === "embeddings") &&

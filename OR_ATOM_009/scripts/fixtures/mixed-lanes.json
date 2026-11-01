@@ -1,0 +1,215 @@
+{
+  "snapshot": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709522,
+    "resources": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "kind": "gpu",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 12,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: runtime per-device attribution → GPU A"
+        }
+      },
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "kind": "runtime",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "modelId": "demo/text-embedding-3-small",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 12,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 12 output TPS (embedding runtime)"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured zero queue (explicit 0)"
+        }
+      },
+      {
+        "resourceId": "runtime:demo-host:rt-demo-b",
+        "kind": "runtime",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-b",
+        "modelId": "demo/qwen2-vl-7b-vision",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 8,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 8 output TPS (vision runtime)"
+        },
+        "queuedJobs": {
+          "value": 1,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 1 queued job (explicit count)"
+        }
+      },
+      {
+        "resourceId": "provider:demo-provider",
+        "kind": "provider",
+        "providerId": "demo-provider",
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: provider aggregate throughput (20 out-TPS)"
+        },
+        "queuedJobs": {
+          "value": 1,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: provider aggregate queue (1 waiting)"
+        }
+      }
+    ]
+  },
+  "reconciliation": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709522,
+    "gpuNodes": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "stale": false,
+        "outputTokensPerSecond": {
+          "value": 12,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: runtime per-device attribution → GPU A"
+        }
+      }
+    ],
+    "runtimeNodes": [
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "attributedGpuIds": ["gpu:demo-host:dev-uuid-a"],
+        "stale": false,
+        "modelId": "demo/text-embedding-3-small",
+        "outputTokensPerSecond": {
+          "value": 12,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 12 output TPS (embedding runtime)"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured zero queue (explicit 0)"
+        }
+      },
+      {
+        "resourceId": "runtime:demo-host:rt-demo-b",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-b",
+        "attributedGpuIds": ["gpu:demo-host:dev-uuid-a"],
+        "stale": false,
+        "modelId": "demo/qwen2-vl-7b-vision",
+        "outputTokensPerSecond": {
+          "value": 8,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 8 output TPS (vision runtime)"
+        },
+        "queuedJobs": {
+          "value": 1,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 1 queued job (explicit count)"
+        }
+      }
+    ],
+    "providerNodes": [
+      {
+        "resourceId": "provider:demo-provider",
+        "providerId": "demo-provider",
+        "stale": false,
+        "outputTokensPerSecond": {
+          "value": 20,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: provider aggregate throughput (20 out-TPS)"
+        },
+        "queuedJobs": {
+          "value": 1,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: provider aggregate queue (1 waiting)"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "gpu:demo-host:dev-uuid-a",
+        "relation": "runtime_device",
+        "basis": "runtime per-device attribution",
+        "sampledAt": 1793180709522
+      },
+      {
+        "source": "runtime:demo-host:rt-demo-b",
+        "target": "gpu:demo-host:dev-uuid-a",
+        "relation": "runtime_device",
+        "basis": "runtime per-device attribution",
+        "sampledAt": 1793180709522
+      },
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "model:demo/text-embedding-3-small",
+        "relation": "runtime_model",
+        "basis": "runtime observed model residency",
+        "sampledAt": 1793180709522
+      },
+      {
+        "source": "runtime:demo-host:rt-demo-b",
+        "target": "model:demo/qwen2-vl-7b-vision",
+        "relation": "runtime_model",
+        "basis": "runtime observed model residency",
+        "sampledAt": 1793180709522
+      }
+    ],
+    "providerCentricFallback": false
+  }
+}

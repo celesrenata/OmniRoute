@@ -1,0 +1,36 @@
+{
+  "project_type": "OmniRoute Next.js/TypeScript 3D Atomic Topology renderer plugin, built with Three.js/R3F, consumed by Menagerie/Roo/Zoo.",
+  "repository": "https://github.com/celesrenata/OmniRoute",
+  "authoritative_spec": "CONTEXT.md",
+  "kickoff": "KICKOFF_PROMPT.md",
+  "current_worktree_first": true,
+  "published_baseline": "release/v3.8.52 at 7ad29c0c9b; published Step 7 at a2ba49d059; local Step 8 may be ahead",
+  "frozen_code_zones": [
+    "cameraFit.ts",
+    "layout.ts",
+    "SceneOrbitControls.tsx",
+    "AtomicLabels.tsx",
+    "labelCollision.ts",
+    "projection.ts",
+    "2D ReactFlow behavior"
+  ],
+  "skill_hub_tools": [
+    "omr_skill_list",
+    "omr_skill_search",
+    "omr_skill_get",
+    "omr_catalog_search",
+    "omr_catalog_load",
+    "omr_catalog_resource"
+  ],
+  "source_hotspots": [
+    "src/plugins/atomic-topology/AtomicTopologyRenderer.tsx",
+    "src/plugins/atomic-topology/scene/AtomNode.tsx",
+    "src/plugins/atomic-topology/scene/Nucleus.tsx",
+    "src/plugins/atomic-topology/scene/ElectronCloud.tsx",
+    "src/plugins/atomic-topology/scene/EnergyLink.tsx",
+    "src/plugins/atomic-topology/overlays/AtomicTooltip.tsx",
+    "src/shared/topology/telemetry/reconcile.ts",
+    "src/shared/topology/telemetry/mergeSnapshots.ts"
+  ],
+  "execution_instructions": "Start with current local code and skill discovery, then implement and browser-verify. Do not push/deploy without explicit operator authorization; do not expose credentials. Keep working 2D fallback and scene. Never fabricate live metrics."
+}

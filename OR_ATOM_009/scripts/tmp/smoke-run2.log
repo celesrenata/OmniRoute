@@ -1,0 +1,9 @@
+URL after login: http://127.0.0.1:20999/home?topology-demo=tps-80&topology-dev=1
+CANVAS mounted: NO — page.waitForSelector: Timeout 45000ms exceeded.
+served: {"servedCount":0,"servedAt":0}
+perf: {"at":1793183081780,"fps":59,"dtMs":17.1,"dtMaxMs":300,"liveCanvases":0,"peakCanvases":0,"ctxEvents":{"lost":0,"restored":0},"demo":{"id":"tps-80","active":true,"capturedAt":1793183028764,"ageMs":53016},"panel":null}
+demoHandle: {"id":"tps-80","capturedAt":1793183028764,"ageMs":53016}
+telemetryBadge: null
+panel: {"hasToggle":true,"pressed":"2D","notice":null,"hasTopologyCard":true}
+pageErrors: []
+consoleErrors: ["Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, which may lead to a race condition."]

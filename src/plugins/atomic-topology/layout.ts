@@ -32,6 +32,70 @@ export interface AtomicLayoutNode {
   kind: "hub" | "provider" | "gpu";
 }
 
+/**
+ * A device atom placed in the outer telemetry band (OR-ATOM-005 — T5.4).
+ *
+ * Device atoms are proven-identity fleet nodes — GPU / inference-runtime
+ * devices from the fleet-telemetry reconciliation — and are laid out
+ * **outside** every provider ring so no provider atom ever moves.
+ */
+export interface DeviceBandNode {
+  /**
+   * Canonical device id — `gpu:<host>:<uuid>` or `runtime:<host>:<id>`
+   * (see `buildCanonicalResourceId` in `shared/topology/telemetry`).
+   */
+  id: string;
+  /** Device atom kind. */
+  kind: "gpu" | "runtime";
+}
+
+/**
+ * Geometry for the device band. The band occupies whole outer rings starting
+ * at `startRingIndex` — normally `maxProviderRing + 1` — reusing the exact
+ * ring math of {@link computeAtomicLayout} (capacities, radii, phase offset,
+ * z-jitter) so device rings are geometrically consistent with provider rings.
+ */
+export interface DeviceBandLayoutOptions {
+  /**
+   * 0-based ring index where the device band starts. Must be >= 0. Typically
+   * one past the highest ring used by the provider layout, guaranteeing that
+   * device atoms never share a ring with provider atoms.
+   */
+  startRingIndex: number;
+  /** Uniform scale applied to ring radii (default 1). */
+  radiusScale?: number;
+  /** Vertical world units added per ring — the orbital tilt (default 24). */
+  ringTiltStep?: number;
+  /** Max per-node z-offset used to break angle collisions (default 18). */
+  zJitter?: number;
+}
+
+/** One placed device atom (no hub — devices never sit at the origin). */
+export interface DeviceBandPlacement {
+  id: string;
+  kind: "gpu" | "runtime";
+  /** 0-based ring index (>= `startRingIndex`). */
+  ringIndex: number;
+  /** 0-based slot index within the ring (stable under reorder of same set). */
+  slotIndex: number;
+  /** Stable angle (radians, [0, 2π)) around the ring — slot-distributed. */
+  angle: number;
+  /** World-space position. */
+  position: { x: number; y: number; z: number };
+}
+
+/** Full device-band layout result (empty input → empty placements). */
+export interface DeviceBandLayout {
+  placements: DeviceBandPlacement[];
+  /** Highest ring index used, or -1 when the band is empty. */
+  maxRingUsed: number;
+  /**
+   * Farthest device-atom centerline distance from the origin
+   * (max band-ring radius × radiusScale + zJitter × radiusScale); 0 when empty.
+   */
+  boundsRadius: number;
+}
+
 /** Tunable geometry. All values are world units; defaults mirror the 2D rings. */
 export interface AtomicLayoutOptions {
   /** Uniform scale applied to ring radii (default 1). */
@@ -236,4 +300,107 @@ export function computeAtomicLayout(
     membershipSignature: atomicMembershipSignature(nodes),
     boundsRadius: maxRadius,
   };
+}
+
+/**
+ * Compute the deterministic ring layout for the outer **device band**
+ * (OR-ATOM-005 — T5.4).
+ *
+ * Device atoms (proven-identity GPU / inference-runtime nodes from the
+ * fleet-telemetry reconciliation) are placed in whole rings starting at
+ * `startRingIndex` — normally one past the highest provider ring — so the
+ * device band never overlaps a provider ring and no provider atom moves.
+ *
+ * The band reuses the exact ring math of {@link computeAtomicLayout}:
+ * same `capacityAt` / `radiusAt` / `ringPhaseOffset` / `fnv1a` determinism
+ * contract, slot-distributed angles, per-node z-jitter, per-ring y tilt.
+ *
+ * Determinism contract (mirrors `computeAtomicLayout`):
+ * - Device atoms are assigned to band rings in `fnv1a(id)` order (ties broken
+ *   by id string), so ring membership and slot are functions of the id set
+ *   alone — never of array order.
+ * - Each atom's angle is **slot-distributed**: `slotIndex / ringCount × 2π +
+ *   ringPhaseOffset(ringIndex)`.
+ * - Rings are stacked by `ringTiltStep` in y; each atom gets a deterministic
+ *   ±`zJitter` offset (hash-bit keyed), scaled with `radiusScale`.
+ *
+ * @param devices  device atom list (any order, duplicates tolerated — de-duplicated).
+ * @param options  band geometry (`startRingIndex` required; other tunables optional).
+ */
+export function computeDeviceBandLayout(
+  devices: readonly DeviceBandNode[],
+  options: DeviceBandLayoutOptions
+): DeviceBandLayout {
+  const radiusScale = options.radiusScale ?? 1;
+  const ringTiltStep = options.ringTiltStep ?? 24;
+  const zJitter = options.zJitter ?? 18;
+  const startRingIndex = Math.max(0, options.startRingIndex);
+
+  // De-duplicate by id.
+  const byId = new Map<string, DeviceBandNode>();
+  for (const device of devices) {
+    if (!byId.has(device.id)) byId.set(device.id, device);
+  }
+  const ids = [...byId.keys()];
+  // Hash order (tie-break by id) makes ring assignment order-independent.
+  ids.sort((a, b) => {
+    const ha = fnv1a(a);
+    const hb = fnv1a(b);
+    return ha !== hb ? ha - hb : a < b ? -1 : a > b ? 1 : 0;
+  });
+
+  // Pass 1: assign ring indices (starting at `startRingIndex`) and count per ring.
+  const ringOf = new Map<string, number>();
+  const ringCounts = new Map<number, number>();
+  let ringIndex = startRingIndex;
+  let slotInRing = 0;
+  for (const id of ids) {
+    ringOf.set(id, ringIndex);
+    ringCounts.set(ringIndex, (ringCounts.get(ringIndex) ?? 0) + 1);
+    slotInRing += 1;
+    if (slotInRing >= capacityAt(ringIndex)) {
+      ringIndex += 1;
+      slotInRing = 0;
+    }
+  }
+
+  // Pass 2: compute slot-distributed positions.
+  const placements: DeviceBandPlacement[] = [];
+  const slotCounter = new Map<number, number>();
+  let maxRingUsed = -1;
+  for (const id of ids) {
+    const device = byId.get(id);
+    if (!device) continue;
+    const r = ringOf.get(id)!;
+    maxRingUsed = Math.max(maxRingUsed, r);
+    const countInRing = ringCounts.get(r)!;
+    const slot = slotCounter.get(r) ?? 0;
+    slotCounter.set(r, slot + 1);
+
+    const radius = radiusAt(r) * radiusScale;
+    // Slot-distributed angle: even spread around the ring + per-ring phase.
+    const angle = ((slot / countInRing) * Math.PI * 2 + ringPhaseOffset(r)) % (Math.PI * 2);
+    const x = radius * Math.cos(angle);
+    const zBase = radius * Math.sin(angle);
+    // Deterministic ± jitter (bit 31 of the id hash); scaled with the radius
+    // so `radiusScale` scales the whole geometry uniformly.
+    const jitterSign = ((fnv1a(id) >>> 31) & 1) === 0 ? 1 : -1;
+    const z = zBase + jitterSign * zJitter * radiusScale;
+    const y = r * ringTiltStep;
+
+    placements.push({
+      id,
+      kind: device.kind,
+      ringIndex: r,
+      slotIndex: slot,
+      angle,
+      position: { x, y, z },
+    });
+  }
+
+  // Bounds: farthest band ring radius (scaled) + max z-jitter; 0 when empty.
+  const boundsRadius =
+    maxRingUsed === -1 ? 0 : radiusAt(maxRingUsed) * radiusScale + zJitter * radiusScale;
+
+  return { placements, maxRingUsed, boundsRadius };
 }

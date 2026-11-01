@@ -5,7 +5,8 @@ import { Worker } from "node:worker_threads";
 
 import type { CallLogArtifact, CallLogArtifactWriteResult } from "./callLogArtifacts.ts";
 
-const MAX_QUEUED_JOBS = 128;
+const MAX_QUEUED_JOBS = 32;
+const WORKER_JOB_TIMEOUT_MS = 10_000;
 const IDLE_TIMEOUT_MS = 30_000;
 const CLOSE_TIMEOUT_MS = 2_000;
 const WARNING_INTERVAL_MS = 30_000;
@@ -24,6 +25,8 @@ type QueueItem = {
     appLogLevel?: string;
   };
   resolve: (result: CallLogArtifactWriteResult | null) => void;
+  jobId?: number;
+  timeoutTimer?: NodeJS.Timeout;
 };
 
 let worker: Worker | null = null;
@@ -158,6 +161,7 @@ function ensureWorker(): Worker {
   created.on("message", (reply: WorkerReply) => {
     if (!active || reply.id !== active.id) return;
     const completed = active;
+    if (completed.timeoutTimer) clearTimeout(completed.timeoutTimer);
     active = null;
     completed.resolve(reply.result);
     pump();
@@ -184,6 +188,24 @@ function pump(): void {
   active = next;
   clearIdleTimer();
   try {
+    // Start a per-job timeout
+    next.jobId = nextId;
+    next.timeoutTimer = setTimeout(() => {
+      // Job timed out — fail open for this request and restart worker
+      active = null;
+      if (next.timeoutTimer) clearTimeout(next.timeoutTimer);
+      next.resolve(null);
+      warnRateLimited(
+        `[callLogs] Worker job ${next.id} timed out (> ${WORKER_JOB_TIMEOUT_MS}ms); terminating worker`
+      );
+      terminateWorker();
+      // We're not in pump() anymore, so call it manually if there's more work
+      if (queue.length > 0) {
+        // Skip this job since timeout already resolved it
+        // This is a minimal race-safe way - just re-pump which will handle the queue
+        setImmediate(pump);
+      }
+    }, WORKER_JOB_TIMEOUT_MS);
     ensureWorker().postMessage({
       id: next.id,
       artifact: next.artifact,

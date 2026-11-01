@@ -94,6 +94,25 @@ export interface OmnirouteCallLogRow {
 export interface OmnirouteProviderConnectionRow {
   id: string;
   provider: string;
+  /**
+   * The opaque `provider_specific_data` blob (OR-ATOM-009.2), camelCase
+   * casing as delivered by the app DB path (getProviderConnections →
+   * rowToCamel, src/lib/db/providers.ts:324). DUAL SHAPE: rowToCamel
+   * (src/lib/db/caseMapping.ts:46) JSON.parses the column, so the value
+   * arrives as an ALREADY-PARSED object on the app path, while direct-SQL /
+   * legacy paths may still carry the raw JSON string. Carried opaquely; ONLY
+   * validated base URLs may leave this module (see
+   * `aggregateProviderBaseUrls`) — never any credential field.
+   */
+  providerSpecificData?: string | Record<string, unknown>;
+  /**
+   * The same blob under its raw column name — some driver/cache paths
+   * leave snake_case on the row (precedent: src/lib/db/quotaSnapshots.ts:60).
+   * DUAL SHAPE as `providerSpecificData` (raw string or already-parsed object).
+   * Accepted as a fallback when `providerSpecificData` is absent; both
+   * casings are read, never trusted one over the other.
+   */
+  provider_specific_data?: string | Record<string, unknown>;
 }
 
 /** Breaker status as emitted by getAllCircuitBreakerStatuses() (name+state). */
@@ -198,6 +217,109 @@ function toProviderKey(row: OmnirouteProviderConnectionRow): string | null {
 }
 
 /**
+ * Extract a validated JOIN-FACT base URL from the opaque
+ * `provider_specific_data` blob (OR-ATOM-009.2). DUAL SHAPE: the column is a
+ * JSON blob, but the app DB path (rowToCamel, src/lib/db/caseMapping.ts:46)
+ * JSON.parses it, so callers may receive EITHER a raw JSON string (direct
+ * SQL / legacy paths) OR an already-parsed object (app DB path) — both are
+ * accepted. The blob may also hold credentials, so ONLY a top-level STRING
+ * `baseUrl` that parses as an http(s) URL is returned. Any parse or
+ * validation failure → null (the join fact stays absent — never guessed).
+ * No other field of the blob ever leaves this module.
+ */
+export function validatedBaseUrl(
+  providerSpecificData: string | Record<string, unknown> | undefined
+): string | null {
+  let parsed: unknown;
+  if (typeof providerSpecificData === "string") {
+    if (providerSpecificData.trim() === "") return null;
+    try {
+      parsed = JSON.parse(providerSpecificData);
+    } catch {
+      return null; // malformed JSON → no join fact
+    }
+  } else if (
+    providerSpecificData !== undefined &&
+    typeof providerSpecificData === "object" &&
+    !Array.isArray(providerSpecificData)
+  ) {
+    // App DB path: rowToCamel (caseMapping.ts:46) already JSON.parsed the
+    // column — use the object directly, no second parse.
+    parsed = providerSpecificData;
+  } else {
+    return null; // number / boolean / array / … → no join fact
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const raw = (parsed as Record<string, unknown>).baseUrl;
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null; // not a parseable URL → no join fact
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  return raw;
+}
+
+/** Cap on the validated join-fact base URLs a single provider atom carries —
+ *  protects the snapshot from a pathological key with hundreds of rows. */
+const MAX_PROVIDER_BASE_URLS = 16;
+
+/**
+ * Read the opaque `provider_specific_data` blob from a connection row,
+ * accepting BOTH casings AND both shapes (see `OmnirouteProviderConnectionRow`):
+ * the raw JSON string OR the already-parsed object (rowToCamel,
+ * src/lib/db/caseMapping.ts:46). The value is forwarded AS-IS — no coercion
+ * to string. Returns undefined when the row carries no usable value — the
+ * join fact stays absent, never guessed. The blob itself never leaves this
+ * module.
+ */
+function providerSpecificDataBlob(
+  row: OmnirouteProviderConnectionRow
+): string | Record<string, unknown> | undefined {
+  const pick = (value: unknown): string | Record<string, unknown> | undefined => {
+    if (typeof value === "string") return value;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return undefined;
+  };
+  return pick(row.providerSpecificData) ?? pick(row.provider_specific_data);
+}
+
+/**
+ * Aggregate the validated JOIN-FACT base URLs of EVERY connection row for
+ * one provider key (OR-ATOM-009.2). A single provider key can front
+ * SEVERAL upstream endpoints (live 2026-10-30: vllm on 3 hosts), so the
+ * provider atom carries the full set, not just the first row's URL.
+ *
+ * - First-seen order preserved; identical URLs deduped.
+ * - Capped at `MAX_PROVIDER_BASE_URLS`; the 17th distinct URL is dropped.
+ * - Invalid rows are skipped silently — a valid row among invalid ones
+ *   still contributes (one malformed row never poisons the set).
+ * - Returns `undefined` when no row yields a valid URL (join facts absent
+ *   → the provider stays unattached; never guessed).
+ * - ONLY validated base URLs leave this helper — no blob content, no
+ *   credential fields (enforced by `validatedBaseUrl`).
+ */
+export function aggregateProviderBaseUrls(
+  rows: OmnirouteProviderConnectionRow[]
+): string[] | undefined {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const row of rows) {
+    if (out.length >= MAX_PROVIDER_BASE_URLS) break;
+    const url = validatedBaseUrl(providerSpecificDataBlob(row));
+    if (url !== null && !seen.has(url)) {
+      seen.add(url);
+      out.push(url);
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
  * Build the OmniRoute-native provider. Every producer is injectable so the
  * unit tests run from fixtures with NO live infrastructure (AC2).
  */
@@ -260,6 +382,19 @@ export function buildOmnirouteTelemetryProvider(
     const resources: FleetResourceObservation[] = [];
     const seen = new Set<string>();
 
+    // JOIN FACTS (OR-ATOM-009.2) need EVERY connection row per provider key
+    // (a key can front several endpoints), so group once up front — the
+    // atom-dedup loop below still skips duplicate keys, but rows excluded
+    // by that dedup contribute to the aggregated baseUrls.
+    const rowsByKey = new Map<string, OmnirouteProviderConnectionRow[]>();
+    for (const row of connections) {
+      const providerKey = toProviderKey(row);
+      if (providerKey == null) continue;
+      const list = rowsByKey.get(providerKey);
+      if (list === undefined) rowsByKey.set(providerKey, [row]);
+      else list.push(row);
+    }
+
     for (const row of connections) {
       const providerKey = toProviderKey(row);
       if (
@@ -276,6 +411,13 @@ export function buildOmnirouteTelemetryProvider(
         kind: "provider",
         providerId: providerKey,
       };
+
+      // Join facts only (OR-ATOM-009.2): the validated upstream base URLs
+      // of EVERY connection row for this key (deduped, first-seen order,
+      // capped). Consumed solely to reconcile proven provider→runtime
+      // edges — never displayed, never credentials.
+      const baseUrls = aggregateProviderBaseUrls(rowsByKey.get(providerKey) ?? []);
+      if (baseUrls !== undefined) resource.baseUrls = baseUrls;
 
       // Active jobs: process-wide in-flight count (documented, not per-provider).
       resource.activeJobs = observedNumberValue(inflightCount, "omniroute-live", capturedAt, {
@@ -361,10 +503,22 @@ export async function createProductionOmnirouteProvider(
       const rows = (await providersModule.getProviderConnections()) as Array<
         Record<string, unknown>
       >;
-      return rows.map((c) => ({
-        id: typeof c.id === "string" ? c.id : String(c.id),
-        provider: typeof c.provider === "string" ? c.provider : String(c.provider),
-      }));
+      return rows.map((c) => {
+        // Forward the opaque blob AS-IS under either casing — the raw JSON
+        // string OR the already-parsed object (rowToCamel,
+        // caseMapping.ts:46); credential columns (api_key, access_token, …)
+        // are never mapped (OR-ATOM-009.2).
+        const pick = (value: unknown): string | Record<string, unknown> | undefined =>
+          typeof value === "string" || (value && typeof value === "object" && !Array.isArray(value))
+            ? (value as string | Record<string, unknown>)
+            : undefined;
+        const blob = pick(c.provider_specific_data) ?? pick(c.providerSpecificData);
+        return {
+          id: typeof c.id === "string" ? c.id : String(c.id),
+          provider: typeof c.provider === "string" ? c.provider : String(c.provider),
+          ...(blob !== undefined ? { providerSpecificData: blob } : {}),
+        };
+      });
     },
     circuitBreakerStatuses: async () => {
       const statuses = cbModule.getAllCircuitBreakerStatuses();

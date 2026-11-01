@@ -4,6 +4,7 @@ import { GLOBAL_SKILL_OWNER_ID, skillRegistry } from "@/lib/skills/registry";
 import { validateBody, isValidationFailure } from "@/shared/validation/helpers";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
+import { snapshotAfterMutation } from "@/lib/skills/snapshotBridge";
 
 const installManifestSchema = z.object({
   name: z.string().min(1).max(100),
@@ -43,7 +44,10 @@ export async function POST(request: Request) {
       enabled: true,
     });
 
-    return NextResponse.json({ success: true, id: skill.id });
+    // New registered skill = composition change → durable snapshot.
+    const snapshotId = snapshotAfterMutation("skill-added");
+
+    return NextResponse.json({ success: true, id: skill.id, snapshotId });
   } catch (err: unknown) {
     const error = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error }, { status: 500 });

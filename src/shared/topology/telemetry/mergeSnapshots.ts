@@ -25,6 +25,11 @@ export interface MergeOptions {
   maxResources?: number;
   /** Age beyond factor * windowMs marks a field stale (default 3). */
   staleFactor?: number;
+  /**
+   * Bounded clock-skew tolerance for future-stamped samples, in ms
+   * (default 0 — strict, backward compatible).
+   */
+  futureToleranceMs?: number;
 }
 
 export interface MergeResult {
@@ -33,7 +38,10 @@ export interface MergeResult {
   truncated: boolean;
   /** Resources dropped by schema validation. */
   droppedInvalid: number;
-  /** Snapshots dropped because some field was sampled AFTER capturedAt. */
+  /**
+   * Snapshots dropped because some field was sampled AFTER capturedAt plus
+   * the bounded clock-skew tolerance.
+   */
   droppedFuture: number;
   /** Rows dropped because the same canonical id carried two different kinds. */
   droppedConflicts: number;
@@ -119,11 +127,15 @@ function pickLatest(
   return current;
 }
 
-function snapshotHasFutureSamples(snapshot: FleetTelemetrySnapshot, capturedAt: number): boolean {
+function snapshotHasFutureSamples(
+  snapshot: FleetTelemetrySnapshot,
+  capturedAt: number,
+  toleranceMs: number
+): boolean {
   for (const r of snapshot.resources) {
     for (const f of OBSERVED_FIELDS) {
       const o = r[f];
-      if (o && isFutureSampled(o.sampledAt, capturedAt)) return true;
+      if (o && isFutureSampled(o.sampledAt, capturedAt, toleranceMs)) return true;
     }
   }
   return false;
@@ -133,7 +145,8 @@ function snapshotHasFutureSamples(snapshot: FleetTelemetrySnapshot, capturedAt: 
  * Merge provider snapshots into ONE bounded snapshot.
  *
  * Steps (all documented + tested):
- * 1. drop whole snapshots with future samples (out-of-order rejection);
+ * 1. drop whole snapshots whose samples are beyond capturedAt + the
+ *    bounded clock-skew tolerance (out-of-order rejection);
  * 2. validate every resource with the strict resource schema;
  * 3. join by canonical resourceId only — same id + different kind is a
  *    conflict and the rows are dropped (no phantom devices);
@@ -149,6 +162,7 @@ export function mergeSnapshots(
 ): MergeResult {
   const maxResources = opts.maxResources ?? MAX_SNAPSHOT_RESOURCES;
   const staleFactor = opts.staleFactor ?? STALE_FACTOR_DEFAULT;
+  const futureToleranceMs = opts.futureToleranceMs ?? 0;
   if (!Number.isFinite(capturedAt)) {
     throw new Error("mergeSnapshots: capturedAt must be a finite number");
   }
@@ -156,7 +170,7 @@ export function mergeSnapshots(
   let droppedFuture = 0;
   const validSnapshots = snapshots.filter((s) => {
     if (s.schemaVersion !== 1 || !Number.isFinite(s.capturedAt)) return false;
-    if (snapshotHasFutureSamples(s, capturedAt)) {
+    if (snapshotHasFutureSamples(s, capturedAt, futureToleranceMs)) {
       droppedFuture += 1;
       return false;
     }
@@ -200,6 +214,29 @@ export function mergeSnapshots(
       merged.providerId = prev.providerId ?? r.providerId;
       merged.runtimeId = prev.runtimeId ?? r.runtimeId;
       merged.modelId = prev.modelId ?? r.modelId;
+      // Join facts (OR-ATOM-009.2): fill-gap semantics — the most-recent
+      // non-undefined value per resourceId; absent stays absent. baseUrls
+      // is a SET of proven facts, so the two snapshots' sets are UNIONED
+      // (deduped, prev order first) — a fact observed by ANY snapshot keeps
+      // its provenance instead of being clobbered by the other.
+      const mergedBaseUrls =
+        prev.baseUrls === undefined
+          ? r.baseUrls
+          : r.baseUrls === undefined
+            ? prev.baseUrls
+            : (() => {
+                const seen = new Set(prev.baseUrls);
+                const mergedUrls = [...prev.baseUrls];
+                for (const u of r.baseUrls) {
+                  if (!seen.has(u)) {
+                    seen.add(u);
+                    mergedUrls.push(u);
+                  }
+                }
+                return mergedUrls;
+              })();
+      if (mergedBaseUrls !== undefined) merged.baseUrls = mergedBaseUrls;
+      merged.endpointPort = prev.endpointPort ?? r.endpointPort;
       byId.set(r.resourceId, merged);
     }
   }

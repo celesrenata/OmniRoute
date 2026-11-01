@@ -1,0 +1,234 @@
+{
+  "tag": "after",
+  "base": "http://127.0.0.1:20140",
+  "at": "2026-10-27T22:24:28.017Z",
+  "captures": [
+    {
+      "name": "after-desktop-steady.png",
+      "shot": "OR_ATOM_008_task/screenshots/after-desktop-steady.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "atomic",
+      "canvases": {
+        "canvasCount": 1,
+        "canvases": [
+          {
+            "w": 702,
+            "h": 420,
+            "cw": 702,
+            "ch": 420,
+            "webgl2": "yes"
+          }
+        ],
+        "pixelVar": 0,
+        "nonBlank": false
+      },
+      "blankCheck": {
+        "pixelVar": 6789,
+        "meanLum": 725,
+        "size": [1440, 900]
+      },
+      "nonBlank": true,
+      "fps2s": 15,
+      "rendererInfo": {
+        "calls": 269,
+        "triangles": 107634,
+        "geometries": 40,
+        "textures": 3,
+        "programs": 6
+      },
+      "consoleErrors": ["[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"]
+    },
+    {
+      "name": "after-desktop-traffic.png",
+      "shot": "OR_ATOM_008_task/screenshots/after-desktop-traffic.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "atomic",
+      "canvases": {
+        "canvasCount": 1,
+        "canvases": [
+          {
+            "w": 702,
+            "h": 420,
+            "cw": 702,
+            "ch": 420,
+            "webgl2": "yes"
+          }
+        ],
+        "pixelVar": 0,
+        "nonBlank": false
+      },
+      "blankCheck": {
+        "pixelVar": 6777,
+        "meanLum": 725,
+        "size": [1440, 900]
+      },
+      "nonBlank": true,
+      "fps2s": 14,
+      "rendererInfo": {
+        "calls": 269,
+        "triangles": 107622,
+        "geometries": 40,
+        "textures": 3,
+        "programs": 6
+      },
+      "traffic": [
+        {
+          "model": "kiro/claude-haiku-4.5",
+          "status": 200
+        },
+        {
+          "model": "bedrock/claude-haiku-4.5",
+          "status": 403
+        },
+        {
+          "model": "aihorde/koboldcpp/Angelic_Eclipse-12B",
+          "status": 400
+        }
+      ],
+      "consoleErrors": ["[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"]
+    },
+    {
+      "name": "after-mobile-steady.png",
+      "shot": "OR_ATOM_008_task/screenshots/after-mobile-steady.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "renderer": "atomic",
+      "canvases": {
+        "canvasCount": 1,
+        "canvases": [
+          {
+            "w": 308,
+            "h": 300,
+            "cw": 308,
+            "ch": 300,
+            "webgl2": "yes"
+          }
+        ],
+        "pixelVar": 0,
+        "nonBlank": false
+      },
+      "blankCheck": {
+        "pixelVar": 44984,
+        "meanLum": 620,
+        "size": [390, 844]
+      },
+      "nonBlank": true,
+      "fps2s": 30,
+      "rendererInfo": {
+        "calls": 259,
+        "triangles": 106500,
+        "geometries": 39,
+        "textures": 3,
+        "programs": 6
+      },
+      "consoleErrors": ["[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"]
+    },
+    {
+      "name": "after-desktop-2d.png",
+      "shot": "OR_ATOM_008_task/screenshots/after-desktop-2d.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "reactflow-2d",
+      "canvases": {
+        "canvasCount": 0,
+        "canvases": [],
+        "pixelVar": null,
+        "nonBlank": null
+      },
+      "blankCheck": {
+        "pixelVar": 6407,
+        "meanLum": 725,
+        "size": [1440, 900]
+      },
+      "nonBlank": true,
+      "fps2s": 58,
+      "rendererInfo": null,
+      "consoleErrors": [
+        "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, which may lead to a race condition."
+      ]
+    },
+    {
+      "name": "after-mobile-2d.png",
+      "shot": "OR_ATOM_008_task/screenshots/after-mobile-2d.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "renderer": "reactflow-2d",
+      "canvases": {
+        "canvasCount": 0,
+        "canvases": [],
+        "pixelVar": null,
+        "nonBlank": null
+      },
+      "blankCheck": {
+        "pixelVar": 44907,
+        "meanLum": 620,
+        "size": [390, 844]
+      },
+      "nonBlank": true,
+      "fps2s": 58,
+      "rendererInfo": null,
+      "consoleErrors": [
+        "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+        "Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, which may lead to a race condition."
+      ]
+    },
+    {
+      "name": "after-desktop-zoom-detail.png",
+      "shot": "OR_ATOM_008_task/screenshots/after-desktop-zoom-detail.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "renderer": "atomic",
+      "zoomed": true,
+      "canvases": {
+        "canvasCount": 1,
+        "canvases": [
+          {
+            "w": 702,
+            "h": 420,
+            "cw": 702,
+            "ch": 420,
+            "webgl2": "yes"
+          }
+        ],
+        "pixelVar": 0,
+        "nonBlank": false
+      },
+      "blankCheck": {
+        "pixelVar": 18030,
+        "meanLum": 704,
+        "size": [1440, 900]
+      },
+      "nonBlank": true,
+      "fps2s": 15,
+      "rendererInfo": {
+        "calls": 269,
+        "triangles": 107622,
+        "geometries": 40,
+        "textures": 3,
+        "programs": 6
+      },
+      "consoleErrors": ["[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"]
+    },
+    {
+      "name": "after-motion-desktop.webm",
+      "type": "webm",
+      "durationTargetMs": 12000,
+      "consoleErrors": ["[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"]
+    }
+  ]
+}

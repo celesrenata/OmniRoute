@@ -1,0 +1,26 @@
+{
+  "base": "http://127.0.0.1:20141",
+  "chromeMode": "headed",
+  "at": "2026-10-27T22:19:03.253Z",
+  "metrics": {
+    "canvasCount": 1,
+    "r3fStateFound": false,
+    "gpu": "ANGLE (Apple, ANGLE Metal Renderer: Apple M5 Max, Unspecified Version)",
+    "glErr": null,
+    "camDist": null,
+    "memory": null
+  },
+  "fps": 120,
+  "renderCallsPerFrame": 201.14,
+  "renderCallsTotalOverWindow": 96747,
+  "windowSec": 4.01,
+  "rendererInfoTriple": {
+    "render.calls": 201.14,
+    "memory.geometries": "UNVERIFIED",
+    "memory.textures": "UNVERIFIED"
+  },
+  "memoryUnverifiedReason": "R3F v9.8.1 store is not attached to the canvas DOM element (canvas.__r3f is undefined — it lives on scene objects only); three.js WebGLRenderer is not exposed on window; no plugin component stashes gl. renderer.info.memory.* requires a source onCreated hook to read; not modified per S8.5 hard rules.",
+  "pixelVarComposited": 5709,
+  "nonBlankComposited": true,
+  "shot": "OR_ATOM_008_task/screenshots/renderer-info-before.png"
+}

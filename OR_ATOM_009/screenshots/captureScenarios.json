@@ -1,0 +1,474 @@
+{
+  "base": "http://127.0.0.1:21011",
+  "startedAt": "2026-10-29T07:15:36.534Z",
+  "results": [
+    {
+      "scenario": "idle",
+      "at": "2026-10-29T07:14:08.804Z",
+      "durationMs": 11480,
+      "bodyCapturedAt": 1793258037324,
+      "bodyAgeAtSample": 11211,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:13:57.324Z"
+      },
+      "expectedBadge": "available",
+      "perf": {
+        "at": 1793258048535,
+        "fps": 47,
+        "dtMs": 21.1,
+        "dtMaxMs": 483,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "idle",
+          "active": true,
+          "capturedAt": 1793258037324,
+          "ageMs": 11211
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 4,
+      "servedAtOffsetsMs": [2784, 2785, 6296, 9799],
+      "errors": {
+        "pageErrors": [],
+        "consoleErrors": [
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+        ]
+      },
+      "png": "screenshots/capture-idle.png",
+      "checks": {
+        "C-1 canvas_mounted": true,
+        "C-2 demo_served": true,
+        "C-3 demo_labeled": true,
+        "C-4 badge_expected": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "unknown-stale",
+      "at": "2026-10-29T07:14:19.867Z",
+      "durationMs": 11033,
+      "bodyCapturedAt": 1793258033835,
+      "bodyAgeAtSample": 25644,
+      "badge": {
+        "state": "stale",
+        "aria": "Feed last updated 2026-10-29T07:13:53.835Z"
+      },
+      "expectedBadge": "stale",
+      "perf": {
+        "at": 1793258059479,
+        "fps": 57,
+        "dtMs": 17.6,
+        "dtMaxMs": 317,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "unknown-stale",
+          "active": true,
+          "capturedAt": 1793258033835,
+          "ageMs": 25644
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 4,
+      "servedAtOffsetsMs": [17104, 17105, 20639, 24141],
+      "errors": {
+        "pageErrors": [],
+        "consoleErrors": [
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+        ]
+      },
+      "png": "screenshots/capture-unknown-stale.png",
+      "checks": {
+        "C-1 canvas_mounted": true,
+        "C-2 demo_served": true,
+        "C-3 demo_labeled": true,
+        "C-4 badge_expected": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "tps-20",
+      "at": "2026-10-29T07:14:30.755Z",
+      "durationMs": 10855,
+      "bodyCapturedAt": 1793258059900,
+      "bodyAgeAtSample": 10648,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:14:19.900Z"
+      },
+      "expectedBadge": "available",
+      "perf": {
+        "at": 1793258070548,
+        "fps": 56,
+        "dtMs": 17.9,
+        "dtMaxMs": 317,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-20",
+          "active": true,
+          "capturedAt": 1793258059900,
+          "ageMs": 10648
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 4,
+      "servedAtOffsetsMs": [2113, 2113, 5650, 9153],
+      "errors": {
+        "pageErrors": [],
+        "consoleErrors": [
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+        ]
+      },
+      "png": "screenshots/capture-tps-20.png",
+      "checks": {
+        "C-1 canvas_mounted": true,
+        "C-2 demo_served": true,
+        "C-3 demo_labeled": true,
+        "C-4 badge_expected": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "tps-80",
+      "at": "2026-10-29T07:14:41.887Z",
+      "durationMs": 11093,
+      "bodyCapturedAt": 1793258070794,
+      "bodyAgeAtSample": 10442,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:14:30.794Z"
+      },
+      "expectedBadge": "available",
+      "perf": {
+        "at": 1793258081236,
+        "fps": 42,
+        "dtMs": 23.6,
+        "dtMaxMs": 1050,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "tps-80",
+          "active": true,
+          "capturedAt": 1793258070794,
+          "ageMs": 10442
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 4,
+      "servedAtOffsetsMs": [1865, 1866, 5580, 9083],
+      "errors": {
+        "pageErrors": [],
+        "consoleErrors": [
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+        ]
+      },
+      "png": "screenshots/capture-tps-80.png",
+      "checks": {
+        "C-1 canvas_mounted": true,
+        "C-2 demo_served": true,
+        "C-3 demo_labeled": true,
+        "C-4 badge_expected": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "queued-jobs",
+      "at": "2026-10-29T07:14:52.765Z",
+      "durationMs": 10840,
+      "bodyCapturedAt": 1793258081925,
+      "bodyAgeAtSample": 10610,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:14:41.925Z"
+      },
+      "expectedBadge": "available",
+      "perf": {
+        "at": 1793258092535,
+        "fps": 57,
+        "dtMs": 17.5,
+        "dtMaxMs": 300,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "queued-jobs",
+          "active": true,
+          "capturedAt": 1793258081925,
+          "ageMs": 10610
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 4,
+      "servedAtOffsetsMs": [2073, 2074, 5607, 9109],
+      "errors": {
+        "pageErrors": [],
+        "consoleErrors": [
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+        ]
+      },
+      "png": "screenshots/capture-queued-jobs.png",
+      "checks": {
+        "C-1 canvas_mounted": true,
+        "C-2 demo_served": true,
+        "C-3 demo_labeled": true,
+        "C-4 badge_expected": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "mixed-lanes",
+      "at": "2026-10-29T07:15:03.955Z",
+      "durationMs": 11158,
+      "bodyCapturedAt": 1793258092797,
+      "bodyAgeAtSample": 10614,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:14:52.797Z"
+      },
+      "expectedBadge": "available",
+      "perf": {
+        "at": 1793258103411,
+        "fps": 49,
+        "dtMs": 20.5,
+        "dtMaxMs": 950,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "mixed-lanes",
+          "active": true,
+          "capturedAt": 1793258092797,
+          "ageMs": 10614
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 4,
+      "servedAtOffsetsMs": [2106, 2106, 5703, 9207],
+      "errors": {
+        "pageErrors": [],
+        "consoleErrors": [
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+        ]
+      },
+      "png": "screenshots/capture-mixed-lanes.png",
+      "checks": {
+        "C-1 canvas_mounted": true,
+        "C-2 demo_served": true,
+        "C-3 demo_labeled": true,
+        "C-4 badge_expected": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "completion",
+      "at": "2026-10-29T07:15:14.642Z",
+      "durationMs": 10648,
+      "bodyCapturedAt": 1793258103994,
+      "bodyAgeAtSample": 10438,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:15:03.994Z"
+      },
+      "expectedBadge": "available",
+      "perf": {
+        "at": 1793258114432,
+        "fps": 57,
+        "dtMs": 17.6,
+        "dtMaxMs": 300,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "completion",
+          "active": true,
+          "capturedAt": 1793258103994,
+          "ageMs": 10438
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 4,
+      "servedAtOffsetsMs": [1903, 1903, 5435, 8937],
+      "errors": {
+        "pageErrors": [],
+        "consoleErrors": [
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+        ]
+      },
+      "png": "screenshots/capture-completion.png",
+      "checks": {
+        "C-1 canvas_mounted": true,
+        "C-2 demo_served": true,
+        "C-3 demo_labeled": true,
+        "C-4 badge_expected": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "failed-request",
+      "at": "2026-10-29T07:15:25.434Z",
+      "durationMs": 10762,
+      "bodyCapturedAt": 1793258114672,
+      "bodyAgeAtSample": 10564,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:15:14.672Z"
+      },
+      "expectedBadge": "available",
+      "perf": {
+        "at": 1793258125236,
+        "fps": 57,
+        "dtMs": 17.5,
+        "dtMaxMs": 300,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "failed-request",
+          "active": true,
+          "capturedAt": 1793258114672,
+          "ageMs": 10564
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 4,
+      "servedAtOffsetsMs": [2027, 2028, 5545, 9047],
+      "errors": {
+        "pageErrors": [],
+        "consoleErrors": [
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+        ]
+      },
+      "png": "screenshots/capture-failed-request.png",
+      "checks": {
+        "C-1 canvas_mounted": true,
+        "C-2 demo_served": true,
+        "C-3 demo_labeled": true,
+        "C-4 badge_expected": true
+      },
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "multi-runtime-gpu",
+      "at": "2026-10-29T07:15:36.468Z",
+      "durationMs": 11004,
+      "bodyCapturedAt": 1793258125464,
+      "bodyAgeAtSample": 10539,
+      "badge": {
+        "state": "available",
+        "aria": "Feed last updated 2026-10-29T07:15:25.464Z"
+      },
+      "expectedBadge": "available",
+      "perf": {
+        "at": 1793258136003,
+        "fps": 41,
+        "dtMs": 24.4,
+        "dtMaxMs": 1267,
+        "liveCanvases": 1,
+        "peakCanvases": 1,
+        "ctxEvents": {
+          "lost": 0,
+          "restored": 0
+        },
+        "demo": {
+          "id": "multi-runtime-gpu",
+          "active": true,
+          "capturedAt": 1793258125464,
+          "ageMs": 10539
+        },
+        "panel": {
+          "demoScenario": "none"
+        }
+      },
+      "served": 4,
+      "servedAtOffsetsMs": [2004, 2004, 6044, 9548],
+      "errors": {
+        "pageErrors": [],
+        "consoleErrors": [
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+          "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+        ]
+      },
+      "png": "screenshots/capture-multi-runtime-gpu.png",
+      "checks": {
+        "C-1 canvas_mounted": true,
+        "C-2 demo_served": true,
+        "C-3 demo_labeled": true,
+        "C-4 badge_expected": true
+      },
+      "verdict": "PASS"
+    }
+  ]
+}

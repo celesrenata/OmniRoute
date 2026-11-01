@@ -1,0 +1,200 @@
+{
+  "snapshot": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709522,
+    "resources": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "kind": "gpu",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 90,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: two runtime per-device attributions → GPU A (60+30, not split)"
+        }
+      },
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-b",
+        "kind": "gpu",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-b",
+        "utilizationPercent": {
+          "value": 12,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: idle device observed (no attributed throughput)"
+        }
+      },
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "kind": "runtime",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "modelId": "demo/multi-rt-a",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 60,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 60 output TPS (runtime A)"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured zero queue (explicit 0)"
+        }
+      },
+      {
+        "resourceId": "runtime:demo-host:rt-demo-b",
+        "kind": "runtime",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-b",
+        "modelId": "demo/multi-rt-b",
+        "deviceUuid": "dev-uuid-a",
+        "outputTokensPerSecond": {
+          "value": 30,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 30 output TPS (runtime B)"
+        },
+        "queuedJobs": {
+          "value": 2,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 2 queued jobs (explicit count)"
+        }
+      }
+    ]
+  },
+  "reconciliation": {
+    "schemaVersion": 1,
+    "capturedAt": 1793180709522,
+    "gpuNodes": [
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-a",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-a",
+        "stale": false,
+        "outputTokensPerSecond": {
+          "value": 90,
+          "source": "omniroute-live",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: two runtime per-device attributions → GPU A (60+30, not split)"
+        }
+      },
+      {
+        "resourceId": "gpu:demo-host:dev-uuid-b",
+        "hostId": "demo-host",
+        "deviceUuid": "dev-uuid-b",
+        "stale": false,
+        "utilizationPercent": {
+          "value": 12,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: idle device observed (no attributed throughput)"
+        }
+      }
+    ],
+    "runtimeNodes": [
+      {
+        "resourceId": "runtime:demo-host:rt-demo-a",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-a",
+        "attributedGpuIds": ["gpu:demo-host:dev-uuid-a"],
+        "stale": false,
+        "modelId": "demo/multi-rt-a",
+        "outputTokensPerSecond": {
+          "value": 60,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 60 output TPS (runtime A)"
+        },
+        "queuedJobs": {
+          "value": 0,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured zero queue (explicit 0)"
+        }
+      },
+      {
+        "resourceId": "runtime:demo-host:rt-demo-b",
+        "hostId": "demo-host",
+        "runtimeId": "rt-demo-b",
+        "attributedGpuIds": ["gpu:demo-host:dev-uuid-a"],
+        "stale": false,
+        "modelId": "demo/multi-rt-b",
+        "outputTokensPerSecond": {
+          "value": 30,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 30 output TPS (runtime B)"
+        },
+        "queuedJobs": {
+          "value": 2,
+          "source": "runtime",
+          "sampledAt": 1793180709522,
+          "windowMs": 10000,
+          "stale": false,
+          "basis": "demo: measured 2 queued jobs (explicit count)"
+        }
+      }
+    ],
+    "providerNodes": [],
+    "edges": [
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "gpu:demo-host:dev-uuid-a",
+        "relation": "runtime_device",
+        "basis": "runtime per-device attribution",
+        "sampledAt": 1793180709522
+      },
+      {
+        "source": "runtime:demo-host:rt-demo-b",
+        "target": "gpu:demo-host:dev-uuid-a",
+        "relation": "runtime_device",
+        "basis": "runtime per-device attribution",
+        "sampledAt": 1793180709522
+      },
+      {
+        "source": "runtime:demo-host:rt-demo-a",
+        "target": "model:demo/multi-rt-a",
+        "relation": "runtime_model",
+        "basis": "runtime observed model residency",
+        "sampledAt": 1793180709522
+      },
+      {
+        "source": "runtime:demo-host:rt-demo-b",
+        "target": "model:demo/multi-rt-b",
+        "relation": "runtime_model",
+        "basis": "runtime observed model residency",
+        "sampledAt": 1793180709522
+      }
+    ],
+    "providerCentricFallback": false
+  }
+}

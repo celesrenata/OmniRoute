@@ -1,0 +1,28 @@
+[2026-10-29T07:21:49.157Z] scenario=mixed-lanes capturedAt=1793258509149 bodyHash=cab53a7d2f75cc07 gpu=1 runtime=2 edges=4 fallback=false
+[2026-10-29T07:21:49.257Z] soak start base=http://127.0.0.1:21011 scenario=mixed-lanes duration=1200s remountAt=600s url=http://127.0.0.1:21011/home?topology-dev=1
+[2026-10-29T07:21:50.479Z] dashboard password gate passed (LOGIN_PASSWORD provided)
+[2026-10-29T07:21:51.812Z] baseline {"at":1793258511812,"fps":41,"dtMs":24.4,"dtMaxMs":350,"liveCanvases":1,"peakCanvases":1,"ctxEvents":{"lost":0,"restored":0},"demo":{"id":"mixed-lanes","active":true,"capturedAt":1793258509149,"ageMs":2663},"panel":{"demoScenario":"none"}}
+[2026-10-29T07:21:51.812Z] fleet served=2 after 0.0s
+[2026-10-29T07:21:52.299Z] min=0 fps=46 dtMax=350ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=3149ms served=2 pixelDiff=null pageErr=0 consoleErr=2
+[2026-10-29T07:22:52.783Z] min=1 fps=46 dtMax=350ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=63628ms served=19 pixelDiff=19.15 pageErr=0 consoleErr=6
+[2026-10-29T07:23:53.275Z] min=2 fps=45 dtMax=350ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=124121ms served=36 pixelDiff=0.16 pageErr=0 consoleErr=9
+[2026-10-29T07:24:53.749Z] min=3 fps=44 dtMax=350ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=184596ms served=52 pixelDiff=0.15 pageErr=0 consoleErr=11
+[2026-10-29T07:25:54.255Z] min=4 fps=44 dtMax=350ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=245101ms served=69 pixelDiff=0.15 pageErr=0 consoleErr=13
+[2026-10-29T07:26:54.767Z] min=5 fps=45 dtMax=350ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=305614ms served=86 pixelDiff=0.16 pageErr=0 consoleErr=15
+[2026-10-29T07:27:55.339Z] min=6 fps=41 dtMax=350ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=366185ms served=103 pixelDiff=0.15 pageErr=0 consoleErr=17
+[2026-10-29T07:28:55.986Z] min=7 fps=36 dtMax=350ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=426832ms served=120 pixelDiff=0.16 pageErr=0 consoleErr=19
+[2026-10-29T07:29:56.492Z] min=8 fps=38 dtMax=350ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=487337ms served=136 pixelDiff=0.15 pageErr=0 consoleErr=21
+[2026-10-29T07:30:57.196Z] min=9 fps=39 dtMax=350ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=548041ms served=153 pixelDiff=0.14 pageErr=0 consoleErr=23
+[2026-10-29T07:31:57.814Z] min=10 fps=39 dtMax=350ms live=1 peak=1 ctx={"lost":2,"restored":2} demoAge=608659ms served=170 pixelDiff=0.14 pageErr=0 consoleErr=25
+[2026-10-29T07:31:57.839Z] remount: reloading page (init scripts + fleet route re-install on the new document)
+[2026-10-29T07:31:59.499Z] remount: pre live=1 peak=1 | post live=1 peak=1 served=2
+[2026-10-29T07:33:00.644Z] min=11 fps=47 dtMax=317ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=671489ms served=189 pixelDiff=0.23 pageErr=0 consoleErr=32
+[2026-10-29T07:34:01.085Z] min=12 fps=52 dtMax=317ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=731933ms served=206 pixelDiff=0.15 pageErr=0 consoleErr=34
+[2026-10-29T07:35:01.499Z] min=13 fps=47 dtMax=317ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=792347ms served=222 pixelDiff=0.16 pageErr=0 consoleErr=36
+[2026-10-29T07:36:02.179Z] min=14 fps=38 dtMax=317ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=853024ms served=239 pixelDiff=0.15 pageErr=0 consoleErr=38
+[2026-10-29T07:37:02.607Z] min=15 fps=44 dtMax=317ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=913454ms served=256 pixelDiff=0.15 pageErr=0 consoleErr=40
+[2026-10-29T07:38:03.029Z] min=16 fps=52 dtMax=317ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=973875ms served=273 pixelDiff=0.15 pageErr=0 consoleErr=42
+[2026-10-29T07:39:03.508Z] min=17 fps=51 dtMax=317ms live=1 peak=1 ctx={"lost":0,"restored":0} demoAge=1034356ms served=290 pixelDiff=0.15 pageErr=0 consoleErr=44
+[2026-10-29T07:40:03.981Z] min=18 fps=47 dtMax=317ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=1094827ms served=307 pixelDiff=0.15 pageErr=0 consoleErr=46
+[2026-10-29T07:41:04.430Z] min=19 fps=50 dtMax=317ms live=1 peak=1 ctx={"lost":1,"restored":1} demoAge=1155277ms served=323 pixelDiff=0.15 pageErr=0 consoleErr=48
+[2026-10-29T07:42:04.460Z] AFTER {"at":1793259724439,"fps":50,"dtMs":20,"dtMaxMs":317,"liveCanvases":1,"peakCanvases":1,"ctxEvents":{"lost":1,"restored":1},"demo":{"id":"mixed-lanes","active":true,"capturedAt":1793258509149,"ageMs":1215290},"panel":{"demoScenario":"none"},"rendererInfo":null,"fleetServed":340}

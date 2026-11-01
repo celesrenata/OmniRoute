@@ -1,0 +1,11 @@
+[2026-10-29T07:09:37.815Z] scenario=tps-80 bodyCapturedAt=1793257777801
+[2026-10-29T07:09:38.114Z] goto http://127.0.0.1:21011/home?topology-dev=1
+[2026-10-29T07:09:39.431Z] password gate passed
+[2026-10-29T07:09:41.088Z] atomic canvas mounted
+[2026-10-29T07:09:50.152Z] G-1 canvas mounted: liveCanvases=1 peak=1 fps=29
+[2026-10-29T07:09:50.237Z] G-2 diagnostics panel mounted: true (demoScenario=none)
+[2026-10-29T07:09:50.942Z] G-3 proven row for route:demo-provider: PASS (fleetCorroborates=false; rows=[{"id":"route:demo-provider","proven":true,"text":"route:demo-providerPROVEN · call-log route · sampled 0s ago"}])
+[2026-10-29T07:09:50.968Z] G-4 window.__atomicPulse present: true
+[2026-10-29T07:09:50.994Z] G-5 trigger admitted+deduped: first={"ok":true,"reason":"admitted","linkId":"route:demo-provider"} deduped={"ok":false,"reason":"deduped","linkId":"route:demo-provider"}
+[2026-10-29T07:09:50.995Z] G-6 unproven rejected: {"ok":false,"reason":"unproven","linkId":"route:definitely-not-a-provider"} badInput={"ok":false,"reason":"bad-input"}
+[2026-10-29T07:09:51.063Z] G-8 canvas pixel probe: {"nonZeroPixels":0,"mean":0}

@@ -614,6 +614,14 @@ const AGENTIC_FEATURES_ITEMS: readonly SidebarSectionChild[] = [
     subtitleKey: "omniSkillsSubtitle",
     icon: "auto_fix_high",
   },
+  {
+    id: "skill-hub",
+    href: "/dashboard/skill-hub",
+    i18nKey: "skillHub",
+    labelFallback: "Skill Hub",
+    subtitleFallback: "Discover, inspect and run the skill catalog",
+    icon: "category",
+  },
   MCP_ITEM,
   {
     id: "a2a",

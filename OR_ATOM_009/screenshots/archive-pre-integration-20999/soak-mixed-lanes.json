@@ -1,0 +1,349 @@
+{
+  "scenario": "mixed-lanes",
+  "capturedAt": 1793185420971,
+  "bodyHash": "d87aeaeda81eda8ea6a5352f62c8ef7280bf2d80e8c7d490d953811e6be6163c",
+  "durationSec": 600,
+  "remountAt": 300,
+  "base": "http://127.0.0.1:20999",
+  "startedAt": "2026-10-28T11:03:44.049Z",
+  "finishedAt": "2026-10-28T11:13:51.475Z",
+  "baseline": {
+    "at": 1793185424048,
+    "fps": 42,
+    "dtMs": 23.7,
+    "dtMaxMs": 367,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 0,
+      "restored": 0
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793185420971,
+      "ageMs": 3077
+    },
+    "panel": null
+  },
+  "samples": [
+    {
+      "at": 1793185424513,
+      "fps": 48,
+      "dtMs": 21,
+      "dtMaxMs": 367,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 3542
+      },
+      "panel": null,
+      "pixelDiffVsPrev": null,
+      "fleetServed": 2
+    },
+    {
+      "at": 1793185484982,
+      "fps": 48,
+      "dtMs": 20.9,
+      "dtMaxMs": 367,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 64011
+      },
+      "panel": null,
+      "pixelDiffVsPrev": 19.13,
+      "fleetServed": 19
+    },
+    {
+      "at": 1793185545462,
+      "fps": 48,
+      "dtMs": 21,
+      "dtMaxMs": 367,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 124491
+      },
+      "panel": null,
+      "pixelDiffVsPrev": 0.14,
+      "fleetServed": 36
+    },
+    {
+      "at": 1793185605941,
+      "fps": 48,
+      "dtMs": 21,
+      "dtMaxMs": 367,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 184970
+      },
+      "panel": null,
+      "pixelDiffVsPrev": 0.14,
+      "fleetServed": 52
+    },
+    {
+      "at": 1793185666399,
+      "fps": 47,
+      "dtMs": 21.4,
+      "dtMaxMs": 367,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 245428
+      },
+      "panel": null,
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 69
+    },
+    {
+      "at": 1793185726888,
+      "fps": 47,
+      "dtMs": 21.5,
+      "dtMaxMs": 367,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 305917
+      },
+      "panel": null,
+      "pixelDiffVsPrev": 0.14,
+      "fleetServed": 86
+    },
+    {
+      "at": 1793185789408,
+      "fps": 46,
+      "dtMs": 21.6,
+      "dtMaxMs": 233,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 368437
+      },
+      "panel": null,
+      "pixelDiffVsPrev": 0.22,
+      "fleetServed": 105
+    },
+    {
+      "at": 1793185849900,
+      "fps": 46,
+      "dtMs": 21.5,
+      "dtMaxMs": 233,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 428929
+      },
+      "panel": null,
+      "pixelDiffVsPrev": 0.14,
+      "fleetServed": 121
+    },
+    {
+      "at": 1793185910390,
+      "fps": 47,
+      "dtMs": 21.5,
+      "dtMaxMs": 233,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 489419
+      },
+      "panel": null,
+      "pixelDiffVsPrev": 0.14,
+      "fleetServed": 138
+    },
+    {
+      "at": 1793185970850,
+      "fps": 47,
+      "dtMs": 21.4,
+      "dtMaxMs": 233,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 1,
+        "restored": 1
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 549879
+      },
+      "panel": null,
+      "pixelDiffVsPrev": 0.15,
+      "fleetServed": 155
+    }
+  ],
+  "after": {
+    "at": 1793186030864,
+    "fps": 47,
+    "dtMs": 21.3,
+    "dtMaxMs": 233,
+    "liveCanvases": 1,
+    "peakCanvases": 1,
+    "ctxEvents": {
+      "lost": 1,
+      "restored": 1
+    },
+    "demo": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793185420971,
+      "ageMs": 609893
+    },
+    "panel": null,
+    "rendererInfo": null,
+    "fleetServed": 172
+  },
+  "remount": {
+    "pre": {
+      "at": 1793185726911,
+      "fps": 60,
+      "dtMs": 16.8,
+      "dtMaxMs": 367,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 305940
+      },
+      "panel": null
+    },
+    "post": {
+      "at": 1793185728482,
+      "fps": 47,
+      "dtMs": 21.1,
+      "dtMaxMs": 233,
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "ctxEvents": {
+        "lost": 0,
+        "restored": 0
+      },
+      "demo": {
+        "id": "mixed-lanes",
+        "active": true,
+        "capturedAt": 1793185420971,
+        "ageMs": 307511
+      },
+      "panel": null
+    },
+    "servedAfterRemount": 2
+  },
+  "verdicts": {
+    "GATE-1 demo body served to the real poller": "PASS",
+    "GATE-2 atomic canvas live at end": "PASS",
+    "GATE-3 zero uncaught page errors": "PASS",
+    "GATE-4 every context loss recovered (or none)": "PASS",
+    "GATE-5 no unbounded canvas growth (live ≤ peak, live > 0)": "PASS",
+    "GATE-6 remount restored scene without canvas growth": "PASS"
+  },
+  "soft": {
+    "fps_p50": 47,
+    "fps_p95": 48,
+    "pixelDiffMin": 0.14,
+    "pixelDiffMax": 19.13,
+    "animated": true,
+    "rendererInfo": "UNAVAILABLE (this checkout does not expose window.__atomic.rendererInfo)",
+    "consoleErrors": [
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+      "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+    ],
+    "demoHandle": {
+      "id": "mixed-lanes",
+      "active": true,
+      "capturedAt": 1793185420971,
+      "ageMs": 609893
+    },
+    "panelScenario": "UNAVAILABLE (diagnostics panel not wired in this checkout — Phase 3 integrator)"
+  },
+  "pageErrors": []
+}

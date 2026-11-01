@@ -106,6 +106,7 @@ export const catalogTools = {
           revision: r.revision,
           tags: r.tags,
           source: r.source,
+          executable: r.executable,
           score: r.score,
           reason: r.reason,
         })),
@@ -216,9 +217,10 @@ export const catalogTools = {
   omr_catalog_execute: {
     name: "omr_catalog_execute",
     description:
-      "Execute a registered, approved skill operation. Only built-in skills mapped to " +
-      "registered handlers are executable; instruction-only imported skills return a " +
-      "clear non-executable result. Requires execute:skills scope.",
+      "Execute a registered, approved skill operation. Executable only when the " +
+      "skill's id resolves to a registered handler in the skill registry; curated " +
+      "built-in agent skills (omni-*/cli-*) and instruction-only imported skills " +
+      "return a clear non-executable result. Requires execute:skills scope.",
     scopes: ["execute:skills"],
     inputSchema: CatalogExecuteSchema,
     handler: async (args: z.infer<typeof CatalogExecuteSchema>, extra?: McpToolExtraLike) => {

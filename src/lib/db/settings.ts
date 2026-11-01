@@ -163,6 +163,7 @@ export async function getSettings() {
     promptCacheAffinityEnabled: true,
     comboStrategy: "fallback",
     comboStickyRoundRobinLimit: null, // null = inherit stickyRoundRobinLimit (a literal default here shadows the documented batched-rotation default of 3 — #6678 regression caught by the v3.8.47 release CI)
+    skillsEnabled: true,
     providerStrategies: {},
     // Per-operator quota row visibility (dashboard usage tab). Keyed by
     // provider id → { hidden: [<quota visibility key>] }. Independent of the

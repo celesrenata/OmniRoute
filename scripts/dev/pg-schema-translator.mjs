@@ -34,6 +34,8 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { resolve as resolvePath } from "node:path";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Parse the marker dump
@@ -494,6 +496,18 @@ function translateDefault(expr) {
   if (/^CURRENT_TIMESTAMP$/i.test(e)) return "(now() AT TIME ZONE 'UTC')";
   if (/^datetime\(\s*'now'\s*\)/i.test(e))
     return "to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')";
+  // Handle datetime('now', '<interval>') where interval is like '+30 days'
+  // -> to_char(now() + interval, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  const nowInterval = e.match(/^datetime\s*\(\s*'now'\s*,\s*'([^']+)'\s*\)$/i);
+  if (nowInterval) {
+    const interval = nowInterval[1];
+    // Validate interval syntax: must start with +/-, then a number and unit.
+    if (/^[+-]\s*\d+\s+(day|hour|minute|second)s?\s*$/i.test(interval)) {
+      // Normalize spacing.
+      const norm = interval.trim().replace(/\s+/g, " ");
+      return `to_char(now() AT TIME ZONE 'UTC' + INTERVAL '${norm}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+    }
+  }
   if (/^strftime\(\s*'[^']*',\s*'now'\s*\)/i.test(e))
     return "to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')";
   if (/^strftime\(\s*'%s'/i.test(e)) return "extract(epoch from now())::BIGINT";
@@ -963,4 +977,21 @@ function main() {
   );
 }
 
-main();
+// CLI entrypoint only — importing this module (e.g. from a unit test) must not
+// run main() or call process.exit(). Compare resolved paths, not raw URL
+// strings, so it holds whether the CLI is launched by absolute or relative path.
+const isCliEntry =
+  process.argv[1] && fileURLToPath(import.meta.url) === resolvePath(process.argv[1]);
+if (isCliEntry) {
+  main();
+}
+
+export {
+  parseDump,
+  translateColumnType,
+  translateDefault,
+  translateColumn,
+  translateTable,
+  translateIndex,
+  main,
+};

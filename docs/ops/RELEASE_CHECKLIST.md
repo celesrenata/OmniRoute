@@ -1,7 +1,7 @@
 ---
 title: "Release Checklist"
 version: 3.8.51
-lastUpdated: 2026-08-28
+lastUpdated: 2026-10-27
 ---
 
 # Release Checklist
@@ -31,7 +31,7 @@ npm run test:e2e           # optional but recommended
 /generate-release-cc
 
 # 5. Deploy (skill)
-/deploy-vps-both-cc        # or akamai-cc / local-cc
+omniroute-deploy           # k8s fleet (see .opencode/skills/omniroute-deploy/SKILL.md)
 
 # 6. Capture release evidences (skill)
 /capture-release-evidences-cc
@@ -277,15 +277,13 @@ Do NOT run `npm run build` followed by a separate `npm run build:cli` for deploy
 
 ### Deploy
 
-Deploy skills use the light rsync flow — no `npm pack`, no `npm i -g`:
+Deploy via the in-repo k8s skill — build on `celes@192.168.42.254`, push `registry.celestium.life/library/omniroute`, apply `~/sources/kube/omniroute` manifests:
 
-- [ ] Use deploy skill that matches target:
-  - `/deploy-vps-local-cc` — local VPS (192.168.0.15)
-  - `/deploy-vps-akamai-cc` — Akamai VPS (69.164.221.35)
-  - `/deploy-vps-both-cc` — both
+- [ ] Use the `omniroute-deploy` skill (`.opencode/skills/omniroute-deploy/SKILL.md`)
 - [ ] Before deploying, confirm `dist/BUILD_SHA` == `git rev-parse --short HEAD`
 - [ ] Build must run where `node_modules` is real (main checkout or `npm ci`'d worktree — NOT a symlinked worktree)
-- [ ] Smoke test deployed instance:
+- [ ] Smoke test deployed instance at `https://omniroute.celestium.life`:
+  - Root URL returns 307 → login (healthy)
   - Open `/dashboard/health` → check version string matches release
   - Run a `/v1/chat/completions` request against a known provider
   - Verify `/api/monitoring/health` returns `CLOSED` circuit breakers

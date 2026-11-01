@@ -25,6 +25,7 @@ import {
   isTopologyEntryInSet,
   type TopologyActiveRequest,
 } from "@/app/(dashboard)/home/topologyUtils";
+import type { ReconciliationResult } from "@/shared/topology/telemetry/reconcile";
 import { resolveTopologyNodeLabel } from "@/app/(dashboard)/home/topologyLabel";
 
 import { HUB_NODE_ID, providerNodeId, providerRouteLinkId } from "./layoutIdentity";
@@ -196,6 +197,14 @@ export interface TopologyNormalizeInput {
    * only *reduced* here — it is never generated.
    */
   lifecycleEvents?: TopologyLifecycleInput[] | null;
+  /**
+   * Optional fleet-telemetry reconciliation (OR-ATOM-005 / Step 5). When
+   * present, carried verbatim (deep-frozen with the snapshot) onto the
+   * `fleetTelemetry` field. Absent / `null` → no `fleetTelemetry` block on
+   * the snapshot. The 2D ReactFlow renderer ignores the block; the 3D
+   * atomic renderer consumes it to place GPU / runtime atoms.
+   */
+  reconciliation?: ReconciliationResult | null;
   /** Snapshot timestamp; defaults to `Date.now()`. */
   capturedAt?: number;
 }
@@ -378,6 +387,9 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
 
   const snapshot: TopologySceneSnapshot = { schemaVersion: 1, capturedAt, nodes, links };
   if (lifecycle) snapshot.lifecycle = lifecycle;
+  // Fleet telemetry reconciliation (OR-ATOM-005 / Step 5): carried verbatim,
+  // deep-frozen with the snapshot. Absent / null → the field stays absent.
+  if (input.reconciliation) snapshot.fleetTelemetry = input.reconciliation;
 
   // Snapshot values are provenance-carrying and immutable: freeze the whole
   // snapshot so no renderer can mutate core-owned data (deep — every nested

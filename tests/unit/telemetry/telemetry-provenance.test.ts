@@ -11,7 +11,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  FUTURE_TOLERANCE_MS_DEFAULT,
   GRAFANA_PROXY_BASIS_PREFIX,
+  isFutureSampled,
   isValidResource,
   MAX_SNAPSHOT_RESOURCES,
   MAX_QUERY_WINDOW_MS,
@@ -215,3 +217,25 @@ describe("provenance: query schema", () => {
 });
 
 void MAX_SNAPSHOT_RESOURCES;
+
+describe("provenance: bounded clock-skew tolerance (OR-ATOM-005 T5.6c)", () => {
+  it("is strict by default (toleranceMs = 0)", () => {
+    assert.equal(isFutureSampled(1000, 1000), false);
+    assert.equal(isFutureSampled(1001, 1000), true);
+    assert.equal(isFutureSampled(1001, 1000, 0), true);
+  });
+
+  it("tolerates small positive skew within toleranceMs", () => {
+    // Within the tolerance (and exactly at the boundary) is not future.
+    assert.equal(isFutureSampled(1500, 1000, 5000), false);
+    assert.equal(isFutureSampled(6000, 1000, 5000), false);
+    // Beyond the tolerance is future.
+    assert.equal(isFutureSampled(6001, 1000, 5000), true);
+    // A past sample is never "future", regardless of tolerance.
+    assert.equal(isFutureSampled(999, 1000, 5000), false);
+  });
+
+  it("exports a documented default tolerance constant", () => {
+    assert.equal(FUTURE_TOLERANCE_MS_DEFAULT, 5000);
+  });
+});

@@ -98,6 +98,24 @@ export interface FleetResourceObservation {
   /** Runtime identity — required when kind === "runtime". */
   runtimeId?: string;
   modelId?: string;
+  /**
+   * Provider JOIN FACTS (provider atoms only, OR-ATOM-009.2): the validated
+   * upstream base URLs (http/https only) of EVERY connection row for this
+   * provider key — a single provider key can front several endpoints (live
+   * 2026-10-30: vllm on 3 hosts), so the fact is a SET, not one string.
+   * Deduped, first-seen order, capped at 16. Used ONLY to reconcile proven
+   * `provider_runtime` edges (host:port match against a runtime's observed
+   * endpoint) — NEVER rendered as a display label, NEVER parsed for
+   * credentials. Join-only; absent when no row carries a valid value.
+   */
+  baseUrls?: string[];
+  /**
+   * Runtime JOIN FACT (runtime atoms only, OR-ATOM-009.2): the port of the
+   * runtime's metrics endpoint, derived ONLY from a fully-parsed
+   * `<hostId>:<port>` instance label whose host part exactly equals the
+   * runtime's proven hostId. Join-only; never displayed; never guessed.
+   */
+  endpointPort?: number;
   /** ONLY throughput derived via the TTFT-excluded generationThroughput
    * helper, with windowMs + basis. Token COUNTS must never be placed here. */
   outputTokensPerSecond?: Observed<number>;
@@ -118,13 +136,18 @@ export interface FleetTelemetrySnapshot {
   resources: FleetResourceObservation[];
 }
 
-/** Canonical id shape: `kind[:host]:id` with single-colon segments. */
+/** Canonical id shape: `kind[:host]:id` with single-colon separators. */
 export const CANONICAL_ID_KINDS = ["gpu", "runtime", "provider"] as const;
 
 export type CanonicalIdKind = (typeof CANONICAL_ID_KINDS)[number];
 
+/**
+ * The structural separators of a canonical id (`:` and `/`) are forbidden in
+ * id segments. Spaces are LEGAL — a macmon GPU's device id is the chip
+ * display name (e.g. "Apple M5 Max").
+ */
 function hasForbiddenChars(s: string): boolean {
-  return s.includes(":") || s.includes(" ") || s.includes("/");
+  return s.includes(":") || s.includes("/");
 }
 
 /**

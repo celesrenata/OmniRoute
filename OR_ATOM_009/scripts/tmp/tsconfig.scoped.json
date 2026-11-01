@@ -1,0 +1,11 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": { "noEmit": true, "incremental": false },
+  "include": [],
+  "files": [
+    "../../../src/plugins/atomic-topology/dev/demoHarness.ts",
+    "../../../src/plugins/atomic-topology/dev/demoController.ts",
+    "../../../src/plugins/atomic-topology/overlays/AtomicTelemetryDiagnostics.tsx",
+    "../../../tests/unit/atomic-topology/demoHarness.test.ts"
+  ]
+}

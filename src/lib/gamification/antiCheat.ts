@@ -81,7 +81,7 @@ export async function getAnomalies(): Promise<AnomalyFlag[]> {
        FROM xp_audit_log
        WHERE created_at > datetime('now', '-1 hour')
        GROUP BY api_key_id
-       HAVING hourly_total > 1000`
+       HAVING SUM(xp_earned) > 1000`
     )
     .all() as Array<{ api_key_id: string; hourly_total: number }>;
 

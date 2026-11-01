@@ -284,6 +284,7 @@ export const updateSettingsSchema = z.object({
   // Routing settings (#134)
   fallbackStrategy: z.enum(ACCOUNT_FALLBACK_STRATEGY_VALUES).optional(),
   wildcardAliases: z.array(z.object({ pattern: z.string(), target: z.string() })).optional(),
+  skillsEnabled: z.boolean().optional(),
   stickyRoundRobinLimit: z.number().int().min(0).max(1000).optional(),
   /** 9router parity: global combo expansion strategy (fallback vs round-robin). */
   comboStrategy: z.enum(["fallback", "round-robin"]).optional(),

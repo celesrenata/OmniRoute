@@ -1,0 +1,100 @@
+{
+  "base": "http://127.0.0.1:20140",
+  "at": "2026-10-27T22:19:39.035Z",
+  "pageErrors": [],
+  "consoleErrors": [],
+  "results": [
+    {
+      "atoms": 8,
+      "rendererInfo": {
+        "calls": 247,
+        "triangles": 97382,
+        "geometries": 36,
+        "textures": 3,
+        "programs": 6
+      },
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "contextLost": 0,
+      "contextRestored": 0,
+      "remounts": 0,
+      "fps2s": 12,
+      "canvases": [
+        {
+          "w": 1440,
+          "h": 900
+        }
+      ]
+    },
+    {
+      "atoms": 16,
+      "rendererInfo": {
+        "calls": 484,
+        "triangles": 179518,
+        "geometries": 69,
+        "textures": 3,
+        "programs": 6
+      },
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "contextLost": 0,
+      "contextRestored": 0,
+      "remounts": 0,
+      "fps2s": 9,
+      "canvases": [
+        {
+          "w": 1440,
+          "h": 900
+        }
+      ]
+    },
+    {
+      "atoms": 32,
+      "rendererInfo": {
+        "calls": 952,
+        "triangles": 343754,
+        "geometries": 135,
+        "textures": 3,
+        "programs": 6
+      },
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "contextLost": 0,
+      "contextRestored": 0,
+      "remounts": 0,
+      "fps2s": 5,
+      "canvases": [
+        {
+          "w": 1440,
+          "h": 900
+        }
+      ]
+    }
+  ],
+  "dispose": {
+    "before": {
+      "atoms": 32,
+      "rendererInfo": {
+        "calls": 952,
+        "triangles": 343754,
+        "geometries": 135,
+        "textures": 3,
+        "programs": 6
+      },
+      "liveCanvases": 1,
+      "peakCanvases": 1,
+      "contextLost": 0,
+      "contextRestored": 0,
+      "remounts": 0
+    },
+    "after": {
+      "atoms": 32,
+      "rendererInfo": null,
+      "liveCanvases": 0,
+      "peakCanvases": 0,
+      "contextLost": 0,
+      "contextRestored": 0,
+      "remounts": 1
+    }
+  }
+}

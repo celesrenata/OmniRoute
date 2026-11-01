@@ -1,0 +1,6 @@
+[perf] atoms=8 fps=8 avgMs=120.2 p95Ms=133.4 worstMs=133.4 sampled=33 heapΔMB=0 gpuMB=null errors=0
+[perf] atoms=16 fps=6 avgMs=181.05 p95Ms=183.4 worstMs=200 sampled=22 heapΔMB=0 gpuMB=null errors=0
+[perf] atoms=32 fps=3 avgMs=304.16 p95Ms=316.7 worstMs=316.7 sampled=12 heapΔMB=0 gpuMB=null errors=0
+[perf] reduced-motion atoms=8 fps=8 avgMs=119.69 errors=0
+[soak] 1200000ms frozenFrames=0 minGapMs=166.5 contextLost=false heapEndMB=57.5 errors=0
+wrote OR_ATOM_010/screenshots/perf_report.json

@@ -1,0 +1,28 @@
+{
+  "task_id": "or-atom-010-cinematic-fidelity",
+  "task_description": "Transform the existing Atomic Topology visual materials/effects to match the original luminous atomic/plasma concept, preserving all layout, camera, labels, controls, telemetry provenance and the 2D fallback. Use skill-aided material bench, before/after screenshot scorecard, browser validation and a 20-minute stability soak.",
+  "status": "pending",
+  "priority": "P0-visual",
+  "feature_order": ["T10.0", "T10.1", "T10.2", "T10.3", "T10.4", "T10.5", "T10.6", "T10.7"],
+  "blocked_reason": null,
+  "context_files": ["CONTEXT.md", "KICKOFF_PROMPT.md", "VISUAL_SCORECARD.md", "REFERENCES.md"],
+  "visual_references": [
+    "references/omniroute_neon_gpu_topology_dashboard.png",
+    "references/neon_gpu_topology_dashboard.png",
+    "references/gpu_galaxy_neon_topology_dashboard.png",
+    "references/neon_gpu_atom_dashboard.png"
+  ],
+  "do_not_modify": [
+    "camera",
+    "zoom",
+    "framing",
+    "topology layout",
+    "positions",
+    "labels",
+    "controls",
+    "routing",
+    "telemetry semantics",
+    "2D fallback"
+  ],
+  "acceptance": "Golden atom + full topology before/after at fixed cameras; visual criteria >=4/5, actual browser screenshots, actual perf + 20-minute soak evidence. No demo passed off as production."
+}

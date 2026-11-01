@@ -1,0 +1,13 @@
+[2026-10-29T07:21:59.319Z] scenario=mixed-lanes capturedAt=1793258519310 bodyHash=42e2f1278eab6bd8 edges=4 fallback=false
+[2026-10-29T07:21:59.441Z] start base=http://127.0.0.1:21011 scenario=mixed-lanes settle=30s lostFor=20s restoreSettle=30s
+[2026-10-29T07:22:00.693Z] dashboard password gate passed (LOGIN_PASSWORD provided)
+[2026-10-29T07:22:01.495Z] fleet served=2 after 0.0s
+[2026-10-29T07:22:01.495Z] settle 30s
+[2026-10-29T07:22:31.960Z] settle {"at":1793258551500,"fps":44,"dtMs":22.5,"dtMaxMs":367,"liveCanvases":1,"peakCanvases":1,"ctxEvents":{"lost":0,"restored":0},"demo":{"id":"mixed-lanes","active":true,"capturedAt":1793258519310,"ageMs":32190},"panel":{"demoScenario":"none"},"fleetServed":10}
+[2026-10-29T07:22:31.978Z] forced context loss (webgl2)
+[2026-10-29T07:22:31.978Z] holding lost 20s
+[2026-10-29T07:22:52.062Z] lost {"at":1793258571982,"fps":60,"dtMs":16.8,"dtMaxMs":367,"liveCanvases":1,"peakCanvases":1,"ctxEvents":{"lost":1,"restored":0},"demo":{"id":"mixed-lanes","active":true,"capturedAt":1793258519310,"ageMs":52672},"panel":{"demoScenario":"none"},"fleetServed":16}
+[2026-10-29T07:22:52.063Z] restoreContext() issued
+[2026-10-29T07:22:52.063Z] settle 30s after restore
+[2026-10-29T07:23:22.553Z] restored {"at":1793258602072,"fps":44,"dtMs":22.6,"dtMaxMs":367,"liveCanvases":1,"peakCanvases":1,"ctxEvents":{"lost":1,"restored":1},"demo":{"id":"mixed-lanes","active":true,"capturedAt":1793258519310,"ageMs":82762},"panel":{"demoScenario":"none"},"fleetServed":24}
+[2026-10-29T07:23:25.598Z] tick {"samplerFramesDelta":135,"after":{"frames":157,"last":85119.1}}

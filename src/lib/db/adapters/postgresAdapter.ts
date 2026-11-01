@@ -22,6 +22,53 @@
 import type { SqliteAdapter, PreparedStatement, RunResult } from "./types";
 import { runtimeRequire } from "./runtimeRequire";
 
+/**
+ * Ended pg-native clients are deliberately kept reachable — see releasePgClient().
+ *
+ * Bounded so a pathological reset loop cannot retain wrappers forever; the cap is
+ * far above any realistic number of adapter closes in a process lifetime.
+ */
+const retainedPgClients: unknown[] = [];
+const MAX_RETAINED_PG_CLIENTS = 256;
+
+/**
+ * Close a pg-native client without letting libuv read freed memory.
+ *
+ * pg-native's binding (libpq 1.11.0) embeds the connection's `uv_poll_t` inside
+ * the native `Connection` object. `PQ#finish()` calls
+ * `uv_close((uv_handle_t *) &self->poll_watcher, NULL)` — with NO close callback —
+ * and then drops the wrapper's own reference. The close only completes on a later
+ * event-loop iteration, so if V8 collects the JS wrapper first, libuv's closing
+ * handle queue points at freed memory and the whole process aborts:
+ *
+ *   Assertion `handle->flags & UV_HANDLE_CLOSING' failed.
+ *     ../deps/uv/src/unix/core.c:314
+ *   Aborted (core dumped)   // exit 134
+ *
+ * Observed with a PostgreSQL-backed deployment: `ensureDbInitialized()` opens a
+ * throwaway probe connection at boot and closes it, so every boot SIGABRT'd ~2s
+ * in and the pod crashlooped forever. Keeping the ended client referenced until
+ * the loop drains the close queue makes teardown safe; the socket itself is still
+ * closed, only the small native wrapper is retained.
+ */
+export function releasePgClient(client: { end: () => unknown }): void {
+  retainedPgClients.push(client);
+  if (retainedPgClients.length > MAX_RETAINED_PG_CLIENTS) {
+    retainedPgClients.splice(0, retainedPgClients.length - MAX_RETAINED_PG_CLIENTS);
+  }
+  client.end();
+}
+
+/** Test seam: how many ended clients releasePgClient() still retains. */
+export function getRetainedPgClientCount(): number {
+  return retainedPgClients.length;
+}
+
+/** Test seam: drop retained references. Never called by production code. */
+export function resetRetainedPgClientsForTest(): void {
+  retainedPgClients.length = 0;
+}
+
 // Helper that converts SQLite-style '?' parameters to PostgreSQL '$1' style,
 // skipping any '?' that lives inside a single-quoted string literal.
 // Exported for unit coverage (tests/unit/db/translateParams.test.ts).
@@ -98,15 +145,28 @@ export function translateParams(sql: string): {
 }
 
 /**
- * Extracts `AS alias` names from a SELECT and records how PostgreSQL will return
- * them: unquoted aliases fold to lowercase, quoted aliases keep their case.
+ * Extracts all AS aliases from a SQLite/Postgres SELECT statement.
+ * Returns an array of objects { declared: string, pgFolded: string }
+ * where pgFolded is what Postgres will actually return (lowercase for unquoted).
+ * This is used to remap result-row keys back to the case the SQL declared,
+ * fixing the class of bugs where PG folds unquoted aliases to lowercase.
  */
 function extractAliases(sql: string): Array<{ declared: string; pgFolded: string }> {
   const aliases: Array<{ declared: string; pgFolded: string }> = [];
+  // Match: column alias AS "Name" or AS name (no quotes). Also handle quoted identifiers.
+  // Examples:
+  //   SELECT foo AS bar           -> bar
+  //   SELECT foo AS "TotalCount"  -> TotalCount (PG keeps case because it's quoted)
+  //   SELECT foo AS "totalCount"  -> totalCount
+  // The regex captures:
+  //   group 1: the alias itself (with or without quotes stripped)
+  // We store the declared form (as written by the caller) and the PG-folded form.
   const aliasRegex = /\bAS\s+((?:")?([a-zA-Z_][a-zA-Z0-9_]*)(?:")?)/gi;
   let match;
   while ((match = aliasRegex.exec(sql)) !== null) {
     const aliasCore = match[2];
+    // When not quoted, PG folds to lowercase; when quoted (AS "TotalCount"),
+    // PG preserves the declared case, so the PG-folded form equals the declared.
     const isQuoted = match[1].startsWith('"');
     aliases.push({ declared: aliasCore, pgFolded: isQuoted ? aliasCore : aliasCore.toLowerCase() });
   }
@@ -114,14 +174,16 @@ function extractAliases(sql: string): Array<{ declared: string; pgFolded: string
 }
 
 /**
- * Restores row keys from PostgreSQL's folded form to the case the SQL declared,
- * so callers reading row.totalRequests get a value instead of undefined.
+ * Remaps row keys from their PG-folded form (lowercase) back to the declared
+ * alias case in the SQL, so code that reads row.totalRequests doesn't get
+ * undefined on Postgres where unquoted aliases fold to lowercase.
  */
 function remapKeys<T extends Record<string, unknown>>(
   rows: T[],
   aliases: Array<{ declared: string; pgFolded: string }>
 ): T[] {
   if (aliases.length === 0) return rows;
+  // Build map from pgFolded → declared for fast lookup
   const aliasMap = new Map(aliases.map((a) => [a.pgFolded, a.declared]));
   return rows.map((row) => {
     const newRow: Record<string, unknown> = {};
@@ -391,26 +453,88 @@ function detectUnsupportedSyntax(sql: string): string | null {
   return null;
 }
 
+// Splits a `VALUES (...)` tail on top-level commas. A comma nested inside a
+// function call (`to_char(NOW(), 'YYYY')`) or a single-quoted literal (`'a, b'`)
+// belongs to its value and must not start a new one. SQL escapes a quote by
+// doubling it (`'it''s'`), so consecutive quotes are consumed together.
+// Returns null when the tail is not a single balanced tuple — multi-row
+// `VALUES (…), (…)` closes the outer group early (depth < 0), and translating
+// that as a single-row upsert would silently produce wrong SQL.
+function splitTopLevelValues(values: string): string[] | null {
+  const out: string[] = [];
+  let current = "";
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < values.length; i++) {
+    const ch = values[i];
+    if (inString) {
+      current += ch;
+      if (ch === "'") {
+        if (values[i + 1] === "'") {
+          current += values[i + 1];
+          i++;
+        } else {
+          inString = false;
+        }
+      }
+      continue;
+    }
+    if (ch === "'") {
+      inString = true;
+      current += ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+      current += ch;
+      continue;
+    }
+    if (ch === ")") {
+      depth--;
+      if (depth < 0) return null;
+      current += ch;
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      out.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (inString || depth !== 0) return null;
+  if (current.trim().length > 0) out.push(current.trim());
+  return out;
+}
+
+// Matches the outer `VALUES (...)` group of both upsert forms, tolerating
+// leading/trailing whitespace (multi-line statements) and `)` inside a value.
+// The previous pattern used `[^)]+` for the values group, so ANY function value
+// (`NOW()`, `datetime('now')`) failed the match and the upsert was never
+// translated — e.g. every `INSERT OR REPLACE … VALUES (…, datetime('now'))` on
+// the PostgreSQL backend threw "shape not supported" (model context/capability
+// override PATCH endpoints returned 500).
+const INSERT_OR_VALUES_RE =
+  /^\s*INSERT\s+OR\s+(\w+)\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([\s\S]*)\)\s*;?\s*$/i;
+
 // Translates a single-row `INSERT OR REPLACE ...` into a real Postgres upsert
 // (updates existing rows, matching SQLite semantics). The conflict target is
 // the table's primary key; non-key columns are updated from the new values.
-function translateInsertOrReplace(sql: string, conflictColumns: string[]): string {
-  const match = sql.match(
-    /^INSERT\s+OR\s+REPLACE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s+VALUES\s*\(([^)]+)\)$/i
-  );
-  if (!match) {
+export function translateInsertOrReplace(sql: string, conflictColumns: string[]): string {
+  const match = sql.match(INSERT_OR_VALUES_RE);
+  if (!match || match[1].toUpperCase() !== "REPLACE") {
     // Not a simple single-row form (aliases, multi-row VALUES, RETURNING, …):
     // fail loud rather than ship a wrong statement.
     throw new Error(
       `[postgresAdapter] INSERT OR REPLACE shape not supported: ${sql.slice(0, 120)}`
     );
   }
-  const table = match[1];
-  const columns = match[2].split(",").map((c) => c.trim());
-  const values = match[3].split(",");
-  if (columns.length !== values.length) {
+  const table = match[2];
+  const columns = match[3].split(",").map((c) => c.trim());
+  const values = splitTopLevelValues(match[4]);
+  if (!values || columns.length !== values.length) {
     throw new Error(
-      `[postgresAdapter] column/value count mismatch in INSERT OR REPLACE: ${sql.slice(0, 120)}`
+      `[postgresAdapter] INSERT OR REPLACE shape not supported (multi-row or column/value count mismatch): ${sql.slice(0, 120)}`
     );
   }
   const conflictCols = conflictColumns.filter((c) => columns.includes(c));
@@ -442,19 +566,17 @@ function translateInsertOrReplace(sql: string, conflictColumns: string[]): strin
 // Translates a single-row `INSERT OR IGNORE ...` into Postgres
 // `INSERT ... ON CONFLICT DO NOTHING` — the exact SQLite semantics (the
 // conflicting row is left untouched and nothing is inserted).
-function translateInsertOrIgnore(sql: string, conflictColumns: string[]): string {
-  const match = sql.match(
-    /^INSERT\s+OR\s+IGNORE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s+VALUES\s*\(([^)]+)\)$/i
-  );
-  if (!match) {
+export function translateInsertOrIgnore(sql: string, conflictColumns: string[]): string {
+  const match = sql.match(INSERT_OR_VALUES_RE);
+  if (!match || match[1].toUpperCase() !== "IGNORE") {
     throw new Error(`[postgresAdapter] INSERT OR IGNORE shape not supported: ${sql.slice(0, 120)}`);
   }
-  const table = match[1];
-  const columns = match[2].split(",").map((c) => c.trim());
-  const values = match[3].split(",");
-  if (columns.length !== values.length) {
+  const table = match[2];
+  const columns = match[3].split(",").map((c) => c.trim());
+  const values = splitTopLevelValues(match[4]);
+  if (!values || columns.length !== values.length) {
     throw new Error(
-      `[postgresAdapter] column/value count mismatch in INSERT OR IGNORE: ${sql.slice(0, 120)}`
+      `[postgresAdapter] INSERT OR IGNORE shape not supported (multi-row or column/value count mismatch): ${sql.slice(0, 120)}`
     );
   }
   const conflictCols = conflictColumns.filter((c) => columns.includes(c));
@@ -523,11 +645,11 @@ function getClientForConnection(config: {
 
   try {
     client.connectSync(connStr);
-    return { client, cleanup: () => client.end() };
+    return { client, cleanup: () => releasePgClient(client) };
   } catch (err) {
     // Make sure we properly clean up on failure to avoid hanging connections
     try {
-      client.end();
+      releasePgClient(client);
     } catch {}
     throw err;
   }
@@ -552,6 +674,10 @@ export function createPostgresAdapter(config: {
     ? { client: config.client, cleanup: () => undefined }
     : getClientForConnection(config);
   const client = clientHolder.client;
+  // close() must be idempotent: shutdown, reset and backup paths can all ask the
+  // same adapter to close, and a second libpq teardown on an already-finished
+  // connection is not safe.
+  let closed = false;
 
   const adapter: SqliteAdapter = {
     driver: "pg-native",
@@ -742,7 +868,10 @@ export function createPostgresAdapter(config: {
       }
 
       const { sql: paramSql, numParams, names } = translateParams(sql);
+      // Extract aliases to remap PG-folded keys back to declared case
+      // (Postgres folds unquoted aliases to lowercase; callers expect case-preserving keys).
       const sqlAliases = extractAliases(sql);
+
       // Rewrite SQLite dialect (DATETIME/IFNULL/COLLATE NOCASE/AUTOINCREMENT…)
       // to PostgreSQL before the unsupported-construct gate and execution.
       const translatedSql = translateSqliteSql(paramSql);
@@ -760,7 +889,7 @@ export function createPostgresAdapter(config: {
         translatedSql.trimStart().toUpperCase().startsWith("INSERT OR REPLACE") ||
         translatedSql.trimStart().toUpperCase().startsWith("INSERT OR IGNORE")
       ) {
-        const tableMatch = translatedSql.match(/^INSERT\s+OR\s+\w+\s+INTO\s+(\w+)/i);
+        const tableMatch = translatedSql.match(/^\s*INSERT\s+OR\s+\w+\s+INTO\s+(\w+)/i);
         if (!tableMatch) {
           throw new Error(`INSERT OR ... without table: ${sql.slice(0, 120)}`);
         }
@@ -852,13 +981,16 @@ export function createPostgresAdapter(config: {
         get(...params: unknown[]): unknown {
           const result = exec1(resolveBind(params));
           if (!Array.isArray(result) || result.length < 1) return undefined;
+          // Remap keys to match the declared alias case (fixes PG's lowercase folding).
           return remapKeys([result[0]], sqlAliases)[0];
         },
 
         // all returns all rows
         all(...params: unknown[]): unknown[] {
           const result = exec1(resolveBind(params));
-          return Array.isArray(result) ? remapKeys(result, sqlAliases) : [];
+          if (!Array.isArray(result)) return [];
+          // Remap keys to match the declared alias case (fixes PG's lowercase folding).
+          return remapKeys(result, sqlAliases);
         },
       };
     },
@@ -1052,6 +1184,8 @@ export function createPostgresAdapter(config: {
 
     // Called on adapter close to clean up resources
     close(): void {
+      if (closed) return;
+      closed = true;
       clientHolder.cleanup();
     },
 
