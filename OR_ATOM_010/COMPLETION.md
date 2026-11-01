@@ -22,16 +22,37 @@ no mockups, no faked demo.
   tapered envelope, shimmer) via `applyPlasmaInjection` + `customProgramCacheKey` (T10.4)
 - `AtomicScene.tsx` — `ColorScience` renderer pass: ACES filmic tone mapping,
   exposure 1.1 → **1.65** (T10.5b retune), sRGB output; deep-navy fog depth (T10.5)
+- `quality.ts` — **iteration-e regression fix (2026-11-01): `QUALITY_BUDGETS`
+  now defaults `bloom.enabled` to `false` on high + medium** (low/none were
+  already off). The GPU bloom pass added in `26a67bbf7` (`BloomComposer`) still
+  washed thin links at default auto-fit framing on real pixels even after the
+  T10.5e retune — the A/B control pair
+  (`screenshots/iteration-e/ab_bloom_on.png` vs `ab_default_off.png`) shows
+  bloom-on adding a broad white halo that muddies the filaments (independent
+  audit dropped filament clarity 3 → 2). Saturated coverage (chroma>30,
+  lum>40) drops **~9.7 % → 0.20 %** with the pass off, localizing neon back to
+  its true emissive cores; `ab_default_off.png` is visually identical to the
+  good `screenshots/after_iterd_default.png`, restoring C2 filament clarity
+  and C4 color truth. Root cause is the **pass**, not the link geometry
+  (`EnergyLink.tsx` is byte-identical to the iteration-d reference; a
+  `RIBBON_HALF_WIDTH` 1.6 → 0.8 probe moved saturated coverage 9.71 % → 9.72 %).
+  Bloom is an **optional** post-FX enhancement (no C1–C8 criterion requires
+  it), so the default ships on the crisp material baseline; the pass stays
+  wired and reachable via the dev `bloom=` bench override (`BloomBudget`
+  values retained) for A/B. `quality.test.ts` now asserts `enabled: false` on
+  high/medium so a re-enable is a deliberate change; the threshold/strength
+  washout guards are kept.
 - `AtomicScene.tsx` — quality-gated GPU bloom (T10.5e): `BloomComposer`
   (RenderPass → UnrealBloomPass → OutputPass) mounts only on bloom-enabled
-  tiers (high/medium), takes over the frame loop with positive-priority
-  `useFrame`, resizes the composer at the live canvas DPR and disposes the
-  passes on unmount. Washout root cause (2026-10-31): the pass threshold
-  (0.75) sat inside the ACES output band, so nearly the whole scene was the
-  bloom source (frame mean luminance 136 vs 28 unlit). Retuned from a headless
-  A/B sweep — high `0.35 / 0.30 / 3.0`, medium `0.28 / 0.30 / 2.5` (frame mean
-  136 → 45; saturated-neon coverage 0.01% → ~9%, chroma preserved; ≥255 clip
-  0.12%). Budgets in `quality.ts`; washout guard in `quality.test.ts`.
+  tiers, takes over the frame loop with positive-priority `useFrame`, resizes
+  the composer at the live canvas DPR and disposes the passes on unmount.
+  Washout root cause (2026-10-31): the pass threshold (0.75) sat inside the
+  ACES output band, so nearly the whole scene was the bloom source (frame mean
+  luminance 136 vs 28 unlit). Retuned from a headless A/B sweep — high
+  `0.35 / 0.30 / 3.0`, medium `0.28 / 0.30 / 2.5` (frame mean 136 → 45;
+  saturated-neon coverage 0.01% → ~9%, chroma preserved; ≥255 clip 0.12%).
+  **As of iteration-e the pass defaults to OFF on all tiers** (see the
+  `quality.ts` entry above); the budgets remain for the dev override.
 - `AtomNode.tsx` / `Nucleus.tsx` — per-state emissive + hub emissive lifted,
   glow halo sprite scale/opacity widened (T10.5b)
 - `ElectronCloud.tsx` — orbital trail opacity/tube + electron sprite scale
@@ -104,12 +125,15 @@ node scripts/ad-hoc/pw-atomic-perf.mjs --soak=1200000                # perf ladd
 
 ## Known limitations / follow-ups
 
-1. **Bloom** is now a real quality-gated postFX pass (T10.5e, high/medium tiers;
-   low/none keep the direct render path). The iteration-e washout (whole-scene
-   bloom) is fixed by the threshold retune — see
-   `OR_ATOM_010/VISUAL_SCORECARD.md` → "T10.5e" for the A/B numbers. Remaining:
+1. **Bloom** is now a real quality-gated postFX pass (T10.5e, `BloomComposer`),
+   but it **defaults to OFF on every tier as of iteration-e** — the pass still
+   washed thin links at default auto-fit framing on real pixels even after the
+   threshold retune, so the crisp material baseline is the shipped default.
+   It stays wired and reachable via the dev `bloom=` bench override for A/B
+   (budgets retained in `quality.ts`). See `OR_ATOM_010/VISUAL_SCORECARD.md` →
+   "T10.5e" for the A/B numbers (saturated coverage ~9.7 % → 0.20 %). Remaining:
    the perf evidence is still SwiftShader CPU-rasterized; a real-GPU run would
-   confirm the composer's frame-time delta.
+   confirm the composer's frame-time delta when the pass is re-enabled.
 2. **Real-GPU perf pass** — the `perf_report.json` numbers are SwiftShader
    CPU-rasterized (not a GPU figure). A run on the operator's GPU (or
    `pw-webgl-probe.mjs`) would confirm the real-GPU frame times. The **20-minute
