@@ -21,6 +21,14 @@ export interface SceneClock {
 export const MAX_FRAME_DELTA = 0.1;
 
 /**
+ * Baseline ambient spin (rad/s) for atoms with no measured positive rate
+ * (null / stale / absent telemetry). A static visual constant — NOT telemetry.
+ * Same pattern as {@link GROUP_SPIN_RAD_PER_SECOND} in ModelGroups.tsx: the
+ * scene reads as "alive" without fabricating a data-driven speed.
+ */
+export const IDLE_SPIN_RAD_PER_SECOND = 0.2;
+
+/**
  * Advance a pause-aware clock by one frame.
  *
  * - `paused` → returns the clock's time **unchanged** (accumulates exactly 0,
@@ -111,6 +119,15 @@ export interface MotionParams {
   breathActive: boolean;
   /** The breathing period in seconds (slow, human-readable). */
   breathPeriod: number;
+  /**
+   * Whether the nucleus cluster uses the baseline ambient spin rate
+   * ({@link IDLE_SPIN_RAD_PER_SECOND}) instead of a data-driven rate.
+   * True when no measured positive TPS is available (unavailable /
+   * measured-zero) AND reduced-motion is off. Distinct from `spinActive`
+   * so the no-fabrication contract (`spinActive: false` when no data) is
+   * preserved — idle is a visual constant, not a telemetry signal.
+   */
+  idleMotion: boolean;
 }
 
 /**
@@ -132,5 +149,6 @@ export function motionParams(input: MotionParamsInput): MotionParams {
     spinActive: active,
     breathActive: active,
     breathPeriod: 3,
+    idleMotion: !input.reducedMotion && !active,
   };
 }

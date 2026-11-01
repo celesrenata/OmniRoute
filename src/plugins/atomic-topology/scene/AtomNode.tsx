@@ -52,7 +52,7 @@ import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
 import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
-import { breathingScale, MAX_FRAME_DELTA, motionParams } from "./motion";
+import { IDLE_SPIN_RAD_PER_SECOND, breathingScale, MAX_FRAME_DELTA, motionParams } from "./motion";
 import { fnv1a } from "./cloudShells";
 import {
   ANCHOR_RADIUS_FRACTION,
@@ -309,8 +309,16 @@ export function AtomNode({
       // context-loss hold the orientation, then resume contiguously).
       if (!frozen) {
         const dt = Math.min(delta, MAX_FRAME_DELTA);
-        const smoothedTps = spinSmoother.step(descriptor.measuredTps, dt);
-        spinAngle.current += tpsToRadiansPerSecond(smoothedTps) * dt;
+        // Idle baseline: when no measured TPS is available (unavailable /
+        // measured-zero), the nucleus spins at the ambient constant — a
+        // static visual rate, NOT a telemetry signal. When a positive
+        // measurement IS available, the data-driven smoothed rate wins.
+        if (motion.idleMotion) {
+          spinAngle.current += IDLE_SPIN_RAD_PER_SECOND * dt;
+        } else {
+          const smoothedTps = spinSmoother.step(descriptor.measuredTps, dt);
+          spinAngle.current += tpsToRadiansPerSecond(smoothedTps) * dt;
+        }
       }
       clusterRotation.setFromAxisAngle(clusterAxis, spinAngle.current);
       cl.quaternion.copy(clusterRotation);
