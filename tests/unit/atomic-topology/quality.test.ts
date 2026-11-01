@@ -77,19 +77,25 @@ test("resolveSceneQuality: non-finite signals are treated as absent (optimistic)
 /* ------------------------------------------------------------------ */
 
 test("QUALITY_BUDGETS: the ladder is monotonic and bounded", () => {
+  // OR-ATOM-010 iteration-e regression fix: bloom is OFF by default on the
+  // high/medium tiers — the GPU bloom pass (26a67bbf7) regressed the material
+  // by washing thin links at default auto-fit framing on real pixels (the
+  // independent audit dropped filament clarity 3 → 2). The pass stays wired
+  // and reachable via the dev `bloom=` bench override for A/B; only the
+  // default ships off, on the crisp material baseline (probe_bloom_off).
   assert.deepEqual(QUALITY_BUDGETS.high, {
     dprMax: 2,
     antialias: true,
     tubeSegments: 24,
     cloudParticles: 12,
-    bloom: { enabled: true, strength: 0.35, radius: 0.3, threshold: 3.0 },
+    bloom: { enabled: false, strength: 0.35, radius: 0.3, threshold: 3.0 },
   });
   assert.deepEqual(QUALITY_BUDGETS.medium, {
     dprMax: 1.5,
     antialias: true,
     tubeSegments: 14,
     cloudParticles: 8,
-    bloom: { enabled: true, strength: 0.28, radius: 0.3, threshold: 2.5 },
+    bloom: { enabled: false, strength: 0.28, radius: 0.3, threshold: 2.5 },
   });
   assert.deepEqual(QUALITY_BUDGETS.low, {
     dprMax: 1,
@@ -117,11 +123,18 @@ test("QUALITY_BUDGETS: the ladder is monotonic and bounded", () => {
   assert.equal(QUALITY_BUDGETS.none.tubeSegments, 0);
   assert.equal(QUALITY_BUDGETS.none.cloudParticles, 0);
 
-  // OR-ATOM-010 T10.5e: bloom only at high/medium, and stronger at high.
-  assert.equal(QUALITY_BUDGETS.high.bloom.enabled, true);
-  assert.equal(QUALITY_BUDGETS.medium.bloom.enabled, true);
+  // OR-ATOM-010 iteration-e regression fix: bloom is OFF by default on every
+  // tier — the GPU bloom pass (26a67bbf7) washed thin links at default auto-fit
+  // framing on real pixels, so the default ships on the crisp material
+  // baseline (probe_bloom_off). The budget values are retained so the dev
+  // `bloom=` bench override (AtomicScene override path) can re-enable the pass
+  // for A/B without a re-shape.
+  assert.equal(QUALITY_BUDGETS.high.bloom.enabled, false);
+  assert.equal(QUALITY_BUDGETS.medium.bloom.enabled, false);
   assert.equal(QUALITY_BUDGETS.low.bloom.enabled, false);
   assert.equal(QUALITY_BUDGETS.none.bloom.enabled, false);
+  // The high tier still carries the stronger budget so a dev-override
+  // comparison is monotonic down the ladder.
   assert.ok(QUALITY_BUDGETS.high.bloom.strength > QUALITY_BUDGETS.medium.bloom.strength);
   // iteration-e washout guard: with ACES tone-mapping a low threshold makes
   // the whole scene the bloom source (headless A/B: threshold 0.75 raised

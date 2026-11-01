@@ -137,12 +137,17 @@ export const QUALITY_BUDGETS: Record<
     antialias: true,
     tubeSegments: 24,
     cloudParticles: 12,
-    // iteration-e retune (headless A/B, OR_ATOM_010/screenshots/probe_bloom_*):
-    // 1.05 / 0.55 / 0.75 washed the whole scene out (mean luminance 28 → 136,
-    // neon palette erased). 0.35 / 0.30 / 3.00 keeps a localized, chroma-
-    // preserving halo on the true emissives (mean 45 vs 28 unlit; saturated
-    // coverage 9.0% vs 0.2%).
-    bloom: { enabled: true, strength: 0.35, radius: 0.3, threshold: 3.0 },
+    // OR-ATOM-010 iteration-e regression fix: bloom OFF by default. The GPU
+    // bloom pass (26a67bbf7) regressed the material — even the iteration-e
+    // retune (0.35 / 0.30 / 3.00) still washes thin links at default auto-fit
+    // framing on real pixels (filament clarity criterion dropped 3 → 2 in the
+    // independent audit; "broad, faint smears" across all links). probe_bloom_off
+    // (the direct render path) is visually identical to the good iteration-d
+    // reference and keeps the 6 px hot core + packets legible. Bloom is an
+    // OPTIONAL post-FX enhancement, not required by the acceptance criteria —
+    // keep the pass wired and reachable via the dev `bloom=` bench override for
+    // A/B, but the default ships on the crisp material baseline.
+    bloom: { enabled: false, strength: 0.35, radius: 0.3, threshold: 3.0 },
   },
   medium: {
     dprMax: 1.5,
@@ -152,7 +157,10 @@ export const QUALITY_BUDGETS: Record<
     // iteration-e retune: same washout failure as the high tier; weaker
     // strength and a slightly lower threshold (fewer emissive cores render at
     // lower detail, so the source band narrows naturally).
-    bloom: { enabled: true, strength: 0.28, radius: 0.3, threshold: 2.5 },
+    // OR-ATOM-010 iteration-e regression fix: default OFF, same rationale as
+    // the high tier — the pass washes thin links on real pixels; the dev
+    // `bloom=` bench override still reaches it for A/B.
+    bloom: { enabled: false, strength: 0.28, radius: 0.3, threshold: 2.5 },
   },
   low: {
     dprMax: 1,

@@ -227,3 +227,48 @@ Regressions guarded by `tests/unit/atomic-topology/quality.test.ts` → the new
 washout guard asserts the enabled tiers keep `threshold >= 2.5` (high) /
 `>= 2.0` (medium) and `strength <= 0.5`, so a low-threshold bloom cannot
 regress.
+
+## T10.5e — iteration-e regression: default GPU-bloom pass OFF (2026-11-01)
+
+The iteration-e retune (`bloom 0.35/0.30/3.00` on high, `0.28/0.30/2.5` on
+medium, both `enabled: true`) still **washed thin links at default auto-fit
+framing on real pixels**: the A/B control pair
+(`screenshots/iteration-e/ab_bloom_on.png` vs `ab_default_off.png`, captured at
+`node=provider:bench-primary&paused=1&quality=high`) shows bloom-on adds a
+broad white halo that bleeds into the hub and muddies the filaments — exactly
+the washout the independent audit flagged (filament clarity dropped 3 → 2).
+Measuring the scene region, **saturated coverage (chroma>30, lum>40) drops from
+~9.7 % (bloom on) to 0.20 % (bloom off)** — the neon is localized back to its
+true emissive cores instead of spread into a fog.
+
+Root cause is the **GPU bloom pass added in `26a67bbf7`** (`BloomComposer` +
+`QUALITY_BUDGETS.bloom`), **not** the link geometry: `EnergyLink.tsx` is
+byte-identical between the good iteration-d reference and the working tree,
+and a `RIBBON_HALF_WIDTH` 1.6 → 0.8 probe moved saturated coverage
+9.71 % → 9.72 % (zero). The thin ribbon is sub-pixel at fit framing, so the
+bloom halo — not the ribbon width — dominates the perceived link.
+
+**Fix:** `QUALITY_BUDGETS` now defaults `bloom.enabled` to `false` on the high
+and medium tiers (the `low`/`none` tiers were already off). Bloom is an
+**optional** post-FX enhancement — none of the acceptance criteria C1–C8
+require it — so the default ships on the crisp material baseline
+(`ab_default_off.png` is visually identical to the good
+`screenshots/after_iterd_default.png`, restoring C2 filament clarity and C4
+color truth). The pass stays wired and reachable via the dev `bloom=`
+bench override (`BloomBudget` values retained) for A/B; only the **default**
+ships off.
+
+| View (evidence, `screenshots/iteration-e/`) | Note                                                                                                                  |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `after_default.png` (bloom off, live)       | crisp neon filaments + bright packet sprites; saturated coverage 0.20 % — the washed-out 9.7 % of iteration-e is gone |
+| `after_closeup.png` / `after_error.png`     | per-state color truth intact; error atom stays red                                                                    |
+| `ab_default_off.png`                        | **new default** — matches `after_iterd_default.png` (good iteration-d baseline)                                       |
+| `ab_bloom_on.png`                           | dev-override control — broad halo washout (the regression being fixed)                                                |
+| `motion_after_0..5.png`                     | 6 consecutive live frames — packet travel / transient motion visible                                                  |
+
+Guarded by `tests/unit/atomic-topology/quality.test.ts`: the budget-ladder test
+now asserts `enabled: false` on high/medium (and low/none), so a future
+re-enable is an explicit, deliberate change; the threshold/strength guards
+(`threshold >= 2.5` high / `>= 2.0` medium, `strength <= 0.5`) are kept so that
+when the dev override turns the pass on it cannot regress to a low-threshold
+washout.
