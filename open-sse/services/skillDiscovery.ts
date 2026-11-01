@@ -574,3 +574,35 @@ export function listDomains(): { domain: string; count: number }[] {
     .map(([domain, count]) => ({ domain, count }))
     .sort((a, b) => b.count - a.count);
 }
+
+/**
+ * Human-readable label for a domain slug, e.g. "data-ml" -> "Data Ml".
+ * Display-only; the slug itself remains the stable `id` / filter key.
+ */
+export function domainLabel(domain: string): string {
+  const cleaned = domain.trim().replace(/[_-]+/g, " ").trim();
+  if (!cleaned) return "Other";
+  return cleaned
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/**
+ * Live sidebar data for the dashboard Skill Hub: the current domain
+ * distribution of the visible catalog (builtin + imported).
+ *
+ * Each entry is keyed by its domain slug so the search filter's
+ * `s.domain === skillset` fallback (see searchCatalog) applies the chip
+ * correctly. Unlike the DB-snapshotted `skill_collections` seed (which goes
+ * stale when the catalog reorgs on disk), this always reflects the catalog
+ * as it is *right now*.
+ */
+export function listSkillsetFilters(): { id: string; name: string; skillCount: number }[] {
+  return listDomains().map((d) => ({
+    id: d.domain,
+    name: domainLabel(d.domain),
+    skillCount: d.count,
+  }));
+}
