@@ -5,9 +5,31 @@
  * (visionBridge.ts already imports getBestVisionModel from visionBridgeRouter.ts).
  */
 
+import { AUDIO_TRANSCRIPTION_PROVIDERS } from "@omniroute/open-sse/config/audioRegistry.ts";
 import { resolveProviderId } from "@/shared/constants/providers";
 import { isNoAuthProviderKey } from "@/shared/utils/noAuthProviders";
 import { SYNTHETIC_NOAUTH_CONNECTION_ID } from "@omniroute/open-sse/services/autoCombo/resilienceCandidateFilter.ts";
+
+/**
+ * True when `model` (`provider/...` or bare) names a hardcoded transcription
+ * provider that authenticates with nothing — `authType "none"` on
+ * `AUDIO_TRANSCRIPTION_PROVIDERS`, e.g. the cluster-local `arcforge-stt`
+ * endpoint. These are usable without any stored connection row, so the generic
+ * "noauth catalog entry OR stored row" check would wrongly reject them. The
+ * dynamic `provider_node` path (operator-allowlisted LAN hosts,
+ * `credentialsOptional`) is deliberately excluded — those still require an
+ * explicit connection row, so this helper only admits the hardcoded catalog.
+ */
+export function isCredentialLessTranscriptionModel(model: string): boolean {
+  const rawProvider = typeof model === "string" ? model.split("/")[0]?.trim() : "";
+  if (!rawProvider) return false;
+  const provider = resolveProviderId(rawProvider);
+  // The registry is keyed by canonical provider id; look up under both the raw
+  // key and the resolved id to catch alias/short-id spellings.
+  const entry =
+    AUDIO_TRANSCRIPTION_PROVIDERS[rawProvider] ?? AUDIO_TRANSCRIPTION_PROVIDERS[provider];
+  return Boolean(entry && entry.authType === "none");
+}
 
 /**
  * True when a provider connection can actually authenticate upstream.
@@ -156,6 +178,10 @@ export async function hasUsableCredentialsForModel(model: string): Promise<boole
   const rawProvider = typeof model === "string" ? model.split("/")[0]?.trim() : "";
   if (!rawProvider) return null;
   const provider = resolveProviderId(rawProvider);
+  // Hardcoded credential-less STT providers (e.g. cluster-local `arcforge-stt`)
+  // authenticate with nothing and need no stored row — usable out of the box,
+  // so short-circuit before the DB lookup.
+  if (isCredentialLessTranscriptionModel(model)) return true;
   const isNoAuth = isNoAuthProviderKey(rawProvider, provider);
   try {
     const { getProviderConnections } = await loadProvidersModule();
