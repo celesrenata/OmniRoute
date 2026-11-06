@@ -202,6 +202,23 @@ export const AUDIO_TRANSCRIPTION_PROVIDERS: Record<string, AudioProvider> = {
     models: [{ id: "qwen3-asr", name: "Qwen3 ASR" }],
   },
 
+  // #arcforge-stt: ArcForge host-native STT on gremlin-1 (10.1.1.12), OpenVINO
+  // GPU INT8 engine (whisper-turbo base) over an OpenAI-compatible API surface
+  // (POST /v1/audio/transcriptions + /v1/audio/translations; see
+  // _tasks/hands-off/2026-11-05_arcforge-stt-openvino-gpu_v1.md). The live
+  // service's GET /v1/models reports the model id as `whisper-large-v3`, so that
+  // is the canonical id clients send. authType "none": no credentials are looked
+  // up or sent — the service sits on the LAN. To reach a different host, add a
+  // provider_node row (dynamic path) or override baseUrl.
+  "arcforge-stt": {
+    id: "arcforge-stt",
+    baseUrl: "http://10.1.1.12:10300/v1/audio/transcriptions",
+    authType: "none",
+    authHeader: "none",
+    format: "openai",
+    models: [{ id: "whisper-large-v3", name: "Whisper Large v3 (ArcForge GPU INT8)" }],
+  },
+
   kie: {
     id: "kie",
     baseUrl: "https://api.kie.ai",
