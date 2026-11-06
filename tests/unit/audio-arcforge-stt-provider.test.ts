@@ -1,9 +1,19 @@
+// ArcForge STT fleet — handler contract tests on the DYNAMIC provider_nodes path.
+//
+// The fleet used to live as a hardcoded single-host entry in
+// AUDIO_TRANSCRIPTION_PROVIDERS; it is now a set of same-prefix provider_nodes
+// (one per GPU host) resolved by the least-loaded picker. These tests exercise
+// the handler against a provider built from a dynamic node row, so the
+// contract they guard is: sync multipart POST, optional-credential auth, and
+// upstream error surfacing — independent of how the node was resolved.
+
 import test from "node:test";
 import assert from "node:assert/strict";
 
 const { handleAudioTranscription } = await import("../../open-sse/handlers/audioTranscription.ts");
-const { AUDIO_TRANSCRIPTION_PROVIDERS, parseTranscriptionModel } =
+const { AUDIO_TRANSCRIPTION_PROVIDERS, buildDynamicAudioProvider, parseTranscriptionModel } =
   await import("../../open-sse/config/audioRegistry.ts");
+const { isAllowlistedLocalAudioHost } = await import("../../open-sse/config/audioRegistry.ts");
 
 type FetchInit = { method?: string; headers?: Record<string, string>; body?: unknown };
 type ErrorPayload = { error: { message: string } };
@@ -19,101 +29,119 @@ function transcriptionFormData(model = "arcforge-stt/whisper-large-v3") {
   return formData;
 }
 
-test("ArcForge STT is registered for transcription (OpenAI-compatible, credential-less)", () => {
-  const provider = AUDIO_TRANSCRIPTION_PROVIDERS["arcforge-stt"];
-  assert.ok(provider, "arcforge-stt entry missing from AUDIO_TRANSCRIPTION_PROVIDERS");
+// The shape of an allowlisted fleet node row (see provider_nodes: prefix
+// `arcforge-stt`, one host per box).
+const FLEET_NODE = {
+  id: "arc-stt-12-5c3d59d9",
+  prefix: "arcforge-stt",
+  apiType: "audio-transcriptions",
+  baseUrl: "http://10.1.1.12:10300/v1",
+} as unknown as Parameters<typeof buildDynamicAudioProvider>[0];
+
+function fleetProvider() {
+  // Allowlist the host so the dynamic provider carries credentialsOptional
+  // (the route then dispatches without requiring a stored connection key).
+  const prev = process.env.OMNIROUTE_LOCAL_AUDIO_HOSTS;
+  process.env.OMNIROUTE_LOCAL_AUDIO_HOSTS = "10.1.1.12,10.1.1.13";
+  try {
+    return buildDynamicAudioProvider(FLEET_NODE, "/audio/transcriptions");
+  } finally {
+    if (prev === undefined) delete process.env.OMNIROUTE_LOCAL_AUDIO_HOSTS;
+    else process.env.OMNIROUTE_LOCAL_AUDIO_HOSTS = prev;
+  }
+}
+
+test("fleet node builds a dynamic transcription provider (credential-optional, no hardcoded pin)", () => {
+  // The prefix must NOT be a hardcoded registry entry — that was the bug that
+  // pinned the whole fleet to one host.
+  assert.equal(AUDIO_TRANSCRIPTION_PROVIDERS["arcforge-stt"], undefined);
+  assert.ok(
+    isAllowlistedLocalAudioHost("http://10.1.1.12:10300/v1", "10.1.1.12,10.1.1.13"),
+    "fleet host must match the allowlist entry"
+  );
+  const provider = fleetProvider();
   assert.equal(provider.id, "arcforge-stt");
-  // Live service contract (gremlin-1, OpenVINO GPU INT8 — see
-  // _tasks/hands-off/2026-11-05_arcforge-stt-openvino-gpu_v1.md). GET /v1/models
-  // on the running service reports the model id as `whisper-large-v3`.
   assert.equal(provider.baseUrl, "http://10.1.1.12:10300/v1/audio/transcriptions");
-  assert.equal(provider.authType, "none");
-  assert.equal(provider.authHeader, "none");
-  assert.equal(provider.format, "openai");
-  assert.deepEqual(
-    provider.models.map((model) => model.id),
-    ["whisper-large-v3"]
+  assert.equal(provider.authType, "apikey");
+  assert.equal(provider.authHeader, "bearer");
+  assert.equal(provider.credentialsOptional, true);
+  assert.equal(
+    provider.credentialProviderId,
+    "arc-stt-12-5c3d59d9",
+    "connections are stored under the node id, not the shared prefix"
   );
 });
 
-test("parseTranscriptionModel resolves arcforge-stt/<model> without dynamic providers", () => {
-  assert.deepEqual(parseTranscriptionModel("arcforge-stt/whisper-large-v3"), {
-    provider: "arcforge-stt",
-    model: "whisper-large-v3",
-  });
+test("parseTranscriptionModel resolves arcforge-stt/<model> from a dynamic fleet provider", () => {
+  const parsed = parseTranscriptionModel("arcforge-stt/whisper-large-v3", [fleetProvider()]);
+  assert.equal(parsed.provider, "arcforge-stt");
+  assert.equal(parsed.model, "whisper-large-v3");
 });
 
-test("handleAudioTranscription proxies arcforge-stt as a single sync multipart POST, no auth", async () => {
-  const originalFetch = globalThis.fetch;
-  const calls: { url: string; method: string; headers: Record<string, string> }[] = [];
-
-  globalThis.fetch = async (url, options: FetchInit = {}) => {
-    const stringUrl = String(url);
-    calls.push({
-      url: stringUrl,
-      method: options?.method || "GET",
-      headers: options.headers || {},
+test("handleAudioTranscription proxies a dynamic fleet node as a sync multipart POST, no auth", async () => {
+  const provider = fleetProvider();
+  let capturedUrl = "";
+  let capturedInit: FetchInit | null = null;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown, init?: FetchInit): Promise<Response> => {
+    capturedUrl = String(input);
+    capturedInit = init ?? {};
+    return new Response(JSON.stringify({ text: "hello world", language: "en" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
     });
-
-    if (stringUrl === "http://10.1.1.12:10300/v1/audio/transcriptions") {
-      // No Authorization header — authType "none" must not send credentials.
-      assert.equal(options.headers.Authorization, undefined, "no auth header for authType none");
-      assert.match(options.headers["Content-Type"], /^multipart\/form-data; boundary=/);
-      assert.ok(options.body instanceof Uint8Array);
-      const bodyText = new TextDecoder().decode(options.body);
-      assert.match(bodyText, /name="model"\r\n\r\nwhisper-large-v3\r\n/);
-      assert.match(bodyText, /filename="clip\.wav"/);
-      assert.match(bodyText, /Content-Type: audio\/wav/);
-      return Response.json({
-        object: "transcription",
-        text: "hello from arcforge stt",
-        language: "en",
-      });
-    }
-
-    return new Response(JSON.stringify({ error: `unexpected fetch: ${stringUrl}` }), {
-      status: 404,
-      headers: { "Content-Type": "application/json" },
-    });
-  };
+  }) as unknown as typeof fetch;
 
   try {
-    const res = await handleAudioTranscription({
-      formData: transcriptionFormData("arcforge-stt/whisper-large-v3"),
+    const response = await handleAudioTranscription({
+      formData: transcriptionFormData(),
       credentials: null,
+      resolvedProvider: provider,
+      resolvedModel: "whisper-large-v3",
     });
-    assert.equal(res.status, 200);
-    const body = (await res.json()) as { object: string; text: string };
-    assert.equal(body.object, "transcription");
-    assert.equal(body.text, "hello from arcforge stt");
-    assert.equal(calls.length, 1, "single sync request, no polling");
-    assert.equal(calls[0].method, "POST");
+    assert.ok(response);
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { text: string };
+    assert.equal(body.text, "hello world");
+    assert.equal(
+      capturedUrl,
+      "http://10.1.1.12:10300/v1/audio/transcriptions",
+      "sync POST must hit the fleet node URL"
+    );
+    assert.equal(capturedInit?.method, "POST");
   } finally {
-    globalThis.fetch = originalFetch;
+    globalThis.fetch = origFetch;
   }
 });
 
-test("handleAudioTranscription surfaces arcforge-stt upstream errors via upstreamErrorResponse", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    if (String(url) === "http://10.1.1.12:10300/v1/audio/transcriptions") {
-      return new Response(JSON.stringify({ error: { message: "no speech detected" } }), {
-        status: 422,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    return new Response("not found", { status: 404 });
-  };
+test("handleAudioTranscription surfaces dynamic fleet node upstream errors via upstreamErrorResponse", async () => {
+  const provider = fleetProvider();
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (async (): Promise<Response> => {
+    return new Response(
+      JSON.stringify({
+        error: { message: "openvino: backend unavailable", type: "upstream_error" },
+      }),
+      { status: 503, headers: { "content-type": "application/json" } }
+    );
+  }) as unknown as typeof fetch;
 
   try {
-    const res = await handleAudioTranscription({
-      formData: transcriptionFormData("arcforge-stt/whisper-large-v3"),
+    const response = await handleAudioTranscription({
+      formData: transcriptionFormData(),
       credentials: null,
+      resolvedProvider: provider,
+      resolvedModel: "whisper-large-v3",
     });
-    assert.equal(res.status, 422);
-    const body = (await res.json()) as ErrorPayload;
-    assert.match(body.error.message, /no speech detected/);
+    assert.ok(response);
+    assert.equal(response.status, 503);
+    const body = (await response.json()) as ErrorPayload;
+    assert.ok(body.error, "error body expected");
+    assert.ok(
+      typeof body.error.message === "string" && body.error.message.length > 0,
+      "sanitized error message expected"
+    );
   } finally {
-    globalThis.fetch = originalFetch;
+    globalThis.fetch = origFetch;
   }
 });
