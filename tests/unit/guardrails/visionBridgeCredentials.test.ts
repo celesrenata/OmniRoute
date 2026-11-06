@@ -35,8 +35,13 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../../src/lib/db/core.ts");
 const providersDb = await import("../../../src/lib/db/providers.ts");
-const { hasUsableCredentialsForModel, hasTerminalConnectionStatus } =
-  await import("../../../src/lib/guardrails/visionBridgeCredentials.ts");
+const {
+  hasUsableCredentialsForModel,
+  hasTerminalConnectionStatus,
+  isCredentialLessTranscriptionModel,
+} = await import("../../../src/lib/guardrails/visionBridgeCredentials.ts");
+const { selectAudioBridgeModel } =
+  await import("../../../src/lib/guardrails/audioBridgeHelpers.ts");
 
 async function resetStorage() {
   core.resetDbInstance();
@@ -159,4 +164,62 @@ test("hasTerminalConnectionStatus recognizes terminal statuses", () => {
   assert.equal(hasTerminalConnectionStatus({ testStatus: "active" }), false);
   assert.equal(hasTerminalConnectionStatus({ testStatus: null }), false);
   assert.equal(hasTerminalConnectionStatus({}), false);
+});
+
+// ── credential-less hardcoded STT providers (arcforge-stt) ──────────────────
+
+// `arcforge-stt` is a hardcoded transcription provider with `authType: "none"`
+// (LAN STT endpoint — no key, no stored row). It is deliberately NOT in
+// NOAUTH_PROVIDERS, so the generic "noauth catalog OR stored row" gate
+// returned false and the audio bridge skipped it. These tests pin the short
+// circuit: credential-less transcription models are usable with no stored row.
+
+test("isCredentialLessTranscriptionModel is true for arcforge-stt/whisper-large-v3", () => {
+  assert.equal(isCredentialLessTranscriptionModel("arcforge-stt/whisper-large-v3"), true);
+});
+
+test("isCredentialLessTranscriptionModel is false for keyed / unknown / bare models", () => {
+  // Keyed transcription providers still require a stored connection row.
+  assert.equal(isCredentialLessTranscriptionModel("openai/whisper-1"), false);
+  assert.equal(isCredentialLessTranscriptionModel("cohere/cohere-transcribe-03-2026"), false);
+  // Unknown providers are never short-circuited into usability.
+  assert.equal(isCredentialLessTranscriptionModel("garbage/xyz"), false);
+  // Bare model ids carry no provider prefix to resolve.
+  assert.equal(isCredentialLessTranscriptionModel("whisper-large-v3"), false);
+  assert.equal(isCredentialLessTranscriptionModel(""), false);
+});
+
+test("credential-less STT model is usable with NO stored row (arcforge-stt)", async () => {
+  await resetStorage();
+  // No provider_connections row at all — the LAN endpoint needs none.
+  const usable = await hasUsableCredentialsForModel("arcforge-stt/whisper-large-v3");
+  assert.equal(
+    usable,
+    true,
+    "authType 'none' transcription provider must not require a stored row"
+  );
+});
+
+test("credential-less STT model is usable even when the provider has a banned row", async () => {
+  await resetStorage();
+  // Even a terminal-status row must not shadow the credential-less default.
+  await providersDb.createProviderConnection({
+    provider: "arcforge-stt",
+    authType: "no-auth",
+    name: "arcforge-local",
+    isActive: true,
+    testStatus: "banned",
+  });
+  const usable = await hasUsableCredentialsForModel("arcforge-stt/whisper-large-v3");
+  assert.equal(
+    usable,
+    true,
+    "credential-less provider is usable by default regardless of stored rows"
+  );
+});
+
+test("audio-bridge fixed model resolves arcforge-stt/whisper-large-v3", async () => {
+  await resetStorage();
+  const selected = await selectAudioBridgeModel("arcforge-stt/whisper-large-v3");
+  assert.equal(selected, "arcforge-stt/whisper-large-v3");
 });
