@@ -9,19 +9,19 @@ Deploys the OmniRoute gateway to the operator's k8s cluster. Verified 2026-10-24
 
 ## Topology (verified)
 
-| Piece                 | Value                                                                                                                |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Build + registry host | `celes@192.168.42.254` (host `esnixi`, 449G free on /home, 125G RAM, docker 29.8)                                    |
-| Manifest dir on 254   | `~/sources/kube/omniroute`                                                                                           |
-| Container registry    | `registry.celestium.life/library/omniroute`                                                                          |
-| Namespace / deploy    | `omniroute` / deployment `omniroute` (single replica, `Recreate` strategy — brief downtime on every deploy)          |
-| Image command         | `node dev/run-standalone.mjs`                                                                                        |
-| Ports                 | `20128` (http), `20132` (livews)                                                                                     |
-| Data                  | PVC `data` → `/app/data`; init container `fix-data-perms` chowns `1000:1000`                                         |
-| DB                    | PostgreSQL (CNPG cluster `postgresql` in ns `postgres-service`); falls back silently to SQLite on connect failure    |
-| Public URL            | `https://omniroute.celestium.life` (traefik ingress `omniroute-http`/`-https`/`-livews`; `307` root→login = healthy) |
-| Kustomize             | `kustomization.yaml` (omniroute.yaml + omniroute-postgres-secret.yaml)                                               |
-| One-shot scripts      | `runmefirst.sh` = `kubectl create namespace omniroute; kubectl apply -f .` · `runmelast.sh` = `kubectl delete -f .`  |
+| Piece                 | Value                                                                                                                                                       |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Build + registry host | `celes@192.168.42.254` (host `esnixi`, 449G free on /home, 125G RAM, docker 29.8)                                                                           |
+| Manifest dir on 254   | `~/sources/kube/omniroute`                                                                                                                                  |
+| Container registry    | `registry.celestium.life/library/omniroute`                                                                                                                 |
+| Namespace / deploy    | `omniroute` / deployment `omniroute` (3 replicas, RollingUpdate — verified live 2026-11-07)                                                                 |
+| Image command         | `node dev/run-standalone.mjs`                                                                                                                               |
+| Ports                 | `20128` (http), `20132` (livews — loopback-bound, NOT publicly reachable), `20133` (realtime-audio dictation WS; `OMNIROUTE_REQUIRE_API_KEY` on by default) |
+| Data                  | PVC `data` → `/app/data`; init container `fix-data-perms` chowns `1000:1000`                                                                                |
+| DB                    | PostgreSQL (CNPG cluster `postgresql` in ns `postgres-service`); falls back silently to SQLite on connect failure                                           |
+| Public URL            | `https://omniroute.celestium.life` (traefik ingress `omniroute-http`/`-https`/`-livews`/`-realtime-audio`; `307` root→login = healthy)                      |
+| Kustomize             | `kustomization.yaml` (omniroute.yaml + omniroute-postgres-secret.yaml)                                                                                      |
+| One-shot scripts      | `runmefirst.sh` = `kubectl create namespace omniroute; kubectl apply -f .` · `runmelast.sh` = `kubectl delete -f .`                                         |
 
 **Image tag convention:** `3.8.52-<feature>-<git-sha8>` — e.g. `3.8.52-ponytail-0b277cab5`.
 The tag embeds the branch feature name plus the 8-char commit SHA it was built from.
@@ -109,6 +109,24 @@ out from anywhere in this network (NetworkPolicy), which is normal, not a failur
 curl -sk -m 10 -o /dev/null -w '%{http_code}\n' https://omniroute.celestium.life/
 # 307 (root → login) or 200 = healthy · 502/504 = upstream down
 ```
+
+**Realtime-audio dictation ingress** (`omniroute-realtime-audio`, path
+`/realtime-audio` → service port `20133`; WebSocket sidecar from
+`src/lib/services/audioRealtimeProxy.ts`, added 2026-11-07). Probe through the
+ingress after deploying an image that contains the daemon — a `502` means the
+running image predates the sidecar, not a bad ingress. Auth is required by
+default (`OMNIROUTE_REQUIRE_API_KEY`), so expect a refused upgrade, never an open
+dictation endpoint:
+
+```bash
+curl -sk -m 10 -o /dev/null -w '%{http_code}\n' https://omniroute.celestium.life/realtime-audio/
+# 401 + JSON {"error":{"code":"AUTH_002"}} = sidecar up, key required
+# (plain non-WS GET → 404; WS upgrade with a valid key → 101)
+```
+
+Key transport: `Authorization: Bearer <key>` (header, curl/proxy clients) or
+path-scoped `wss://…/realtime-audio/<key>` (browsers can't set WS headers).
+The `?key=` query form is intentionally NOT supported (security #3300).
 
 ### 5. Rollback (if smoke fails)
 
