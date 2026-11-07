@@ -173,6 +173,7 @@ async function transcribeWithModel(
       credentials,
       resolvedProvider: providerConfig,
       resolvedModel,
+      dynamicProviders,
     });
   } catch (error) {
     live.finish({ status: 500, error: error instanceof Error ? error.message : String(error) });
