@@ -54,11 +54,13 @@ test("realtimeAudioNodeCandidates: dedupes identical roots across node rows", ()
   assert.equal(candidates.length, 2);
 });
 
-test("realtimeAudioNodeCandidates: falls back to the hardcoded registry node when no dynamic rows exist", () => {
+test("realtimeAudioNodeCandidates: no dynamic rows → no candidates (fleet is dynamic-only since the load-balance refactor)", () => {
+  // #11 removed the hardcoded arcforge-stt registry entry: the STT fleet is
+  // seeded into provider_nodes by the seed-arc-audio-nodes init container and
+  // resolved dynamically. An empty fleet therefore yields zero candidates and
+  // the proxy refuses the upgrade with 502 AUDIO_NODE_NONE.
   const candidates = realtimeAudioNodeCandidates([]);
-  assert.equal(candidates.length, 1);
-  assert.equal(candidates[0].id, "arcforge-stt");
-  assert.equal(candidates[0].wsUrl, "ws://10.1.1.12:10300/v1/realtime");
+  assert.equal(candidates.length, 0);
 });
 
 test("realtimeAudioNodeCandidates: https node roots keep the wss scheme", () => {
