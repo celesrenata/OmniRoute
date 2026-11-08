@@ -41,6 +41,8 @@ import { breathingScale, easeInOut, easeOutSharp, MAX_FRAME_DELTA, motionParams 
 import { createRotationSmoothing, tpsToRadiansPerSecond } from "./nucleusMotion";
 import { hexToLinear } from "./nucleonPack";
 import { bookTransition, oneShotIntensity, type OneShotEvent, type OneShotState } from "./oneShot";
+import { STRIKE_CODE, strikeLife, strokeEnvelope, type StrikeKind } from "./strikeTimeline";
+import { CLOUD_BOUND_RADIUS } from "./shaderParams";
 import { sceneClock, sceneState } from "./sceneState";
 import { useAtomicSceneContext } from "./sceneContext";
 import { fnv1a } from "./cloudShells";
@@ -81,6 +83,9 @@ const FOCUS_NEIGHBOUR_DIM = 0.42;
 /** Ray-march steps (bounded by shaderParams). */
 const MARCH_STEPS = 48;
 const FAILURE_RGB: [number, number, number] = [1.0, 0.16, 0.12];
+/** Shell radii the strike attaches to (world units; hub is drawn larger). */
+const ATOM_SHELL_R = CLOUD_BOUND_RADIUS * 0.55;
+const HUB_SHELL_R = ATOM_SHELL_R * HUB_SCALE;
 
 interface AtomRuntime {
   energy: ReturnType<typeof createEnergySmoother>;
@@ -89,11 +94,20 @@ interface AtomRuntime {
   phase: number;
 }
 
+/** A booked between-atom discharge (from an event edge only; never loops). */
+interface StrikeRuntime {
+  kind: StrikeKind;
+  startAt: number;
+  /** Per-link strike counter: picks the channel variant and mutation phase. */
+  n: number;
+}
+
 interface LinkRuntime {
   prev: OneShotState;
   flash: OneShotEvent | null;
-  burst: OneShotEvent | null;
+  strike: StrikeRuntime | null;
   pending: OneShotEvent | null;
+  strikes: number;
 }
 
 interface Gpu {
@@ -236,7 +250,10 @@ export function RtTopologyContent({
       layer.ribbon.raycast = () => {};
       layer.bolt.raycast = () => {};
       gpu.links.push(layer);
-      gpu.root.add(layer.ribbon, layer.bolt);
+      gpu.root.add(layer.ribbon, ...layer.fx);
+      layer.fx.forEach((m) => {
+        m.raycast = () => {};
+      });
     }
     gpu.links.forEach((layer, li) => {
       const n = Math.max(0, Math.min(gpu.linkCap, linkDescriptors.length - li * gpu.linkCap));
@@ -294,6 +311,7 @@ export function RtTopologyContent({
 
     // Links first: failure discharges flash the target atom's core red.
     alertById.current.clear();
+    const anyStrike: boolean[] = gpu.links.map(() => false);
     linkDescriptors.forEach((link, i) => {
       const layer = gpu.links[Math.floor(i / gpu.linkCap)];
       if (!layer) return;
@@ -303,25 +321,33 @@ export function RtTopologyContent({
       const state = link.visualState.state as OneShotState;
       let rt = linkRt.current.get(link.id);
       if (!rt) {
-        rt = { prev: state, flash: null, burst: null, pending: null };
+        rt = { prev: state, flash: null, strike: null, pending: null, strikes: 0 };
         linkRt.current.set(link.id, rt);
       }
+      const book = (ev: OneShotEvent): void => {
+        rt.strikes += 1;
+        rt.strike = {
+          kind: ev.kind === "completion" ? "completion" : "failure",
+          startAt: ev.startAt,
+          n: rt.strikes,
+        };
+        if (ev.kind === "completion") rt.flash = ev;
+      };
       if (rt.prev !== state) {
         const ev = bookTransition(rt.prev, state, t);
         rt.prev = state;
         if (ev) {
           if (pausedRef.current) rt.pending = ev;
-          else if (ev.kind === "completion") rt.flash = ev;
-          else rt.burst = ev;
+          else book(ev);
         }
       }
       if (rt.pending && !pausedRef.current && !sceneState.contextLost) {
         const ev = rt.pending;
         rt.pending = null;
         ev.startAt = t;
-        if (ev.kind === "completion") rt.flash = ev;
-        else rt.burst = ev;
+        book(ev);
       }
+      if (rt.strike && t - rt.strike.startAt > strikeLife(rt.strike.kind)) rt.strike = null;
       const arr = layer.data.arr;
       const o = row * LINK_FIELDS * 4;
       if (!td) {
@@ -345,13 +371,17 @@ export function RtTopologyContent({
         flashPos = completionImpulseFraction(e, easeOutSharp(e));
         if (flashK <= 0.01) rt.flash = null;
       }
-      const burst = rt.burst && !reduced ? oneShotIntensity(rt.burst, t) : 0;
-      if (rt.burst && burst <= 0.001 && !reduced) rt.burst = null;
-      // Reduced motion: a steady (non-flashing) red discharge while in error.
-      const boltK = state === "error" ? (reduced ? 0.35 : 0.22 + 0.78 * burst) : 0;
-      if (state === "error") {
-        alertById.current.set(link.target, reduced ? 0.35 : Math.min(1, 0.25 + burst));
-      }
+      // Strike (hard) from a live event; reduced motion shows a steady soft tint
+      // for the state instead (no flicker, no strobing).
+      const strikeAge = rt.strike && !reduced ? t - rt.strike.startAt : -1;
+      const strikeStrength = rt.strike && rt.strike.kind === "failure" ? 1 : rt.strike ? 0.9 : 0;
+      const alertBase = state === "error" ? (reduced ? 0.35 : 0.25) : 0;
+      const alertNow =
+        rt.strike && rt.strike.kind === "failure" && !reduced
+          ? Math.min(1, alertBase + 0.8 * strokeEnvelope("failure", strikeAge))
+          : alertBase;
+      if (state === "error") alertById.current.set(link.target, alertNow);
+      if (strikeAge >= 0) anyStrike[Math.floor(i / gpu.linkCap)] = true;
       const base = linkBaseIntensity(state, link.visualState.style.opacity);
       const put = (k: number, x: number, y: number, z: number, w: number) => {
         const q = o + k * 4;
@@ -360,13 +390,30 @@ export function RtTopologyContent({
         arr[q + 2] = z;
         arr[q + 3] = w;
       };
-      put(LINK_FIELD.A_CORE, curve.a[0], curve.a[1], curve.a[2], 3.2);
-      put(LINK_FIELD.C_HALO, curve.c[0], curve.c[1], curve.c[2], 16);
+      put(LINK_FIELD.A_CORE, curve.a[0], curve.a[1], curve.a[2], 1.7);
+      put(LINK_FIELD.C_HALO, curve.c[0], curve.c[1], curve.c[2], 11);
       put(LINK_FIELD.B_BASE, curve.b[0], curve.b[1], curve.b[2], base);
       put(LINK_FIELD.COLOR_WOBBLE, lane[0], lane[1], lane[2], reduced ? 0 : 0.0035);
       put(LINK_FIELD.HEADS, heads[0], heads[1], heads[2], 1);
-      put(LINK_FIELD.FLASH_BOLT, flashPos, flashK, boltK, fnv1a(link.id) % LINK_BOLT_VARIANTS);
+      put(LINK_FIELD.FLASH_BOLT, flashPos, flashK, 0, 0);
+      const linkHash = fnv1a(link.id);
+      if (strikeAge >= 0 && rt.strike) {
+        put(
+          LINK_FIELD.STRIKE,
+          strikeAge,
+          STRIKE_CODE[rt.strike.kind],
+          strikeStrength,
+          (linkHash % 997) + rt.strike.n * 7 + LINK_BOLT_VARIANTS * 100
+        );
+      } else if (reduced && (state === "error" || state === "last")) {
+        // Static calm filament in the event colour (soft one-shot colour change).
+        put(LINK_FIELD.STRIKE, 0.3, state === "error" ? -1 : -2, 0.6, linkHash % 997);
+      } else {
+        put(LINK_FIELD.STRIKE, -1, 0, 0, linkHash % 997);
+      }
+      put(LINK_FIELD.STRIKE2, HUB_SHELL_R, ATOM_SHELL_R, (linkHash % 1000) / 1000, 0);
     });
+    gpu.links.forEach((layer, li) => layer.setStrikeVisible(anyStrike[li] === true));
     for (const layer of gpu.links) {
       layer.data.node.clearUpdateRanges();
       layer.data.node.addUpdateRange(0, layer.data.capacity * LINK_FIELDS * 4);

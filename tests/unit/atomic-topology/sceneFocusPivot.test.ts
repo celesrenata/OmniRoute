@@ -39,9 +39,10 @@ test("resolveOrbitTarget: deterministic — same focus → same pivot", () => {
 });
 
 test("resolveOrbitTarget: non-finite coordinates clamp to 0, never corrupt", () => {
-  assert.deepEqual(resolveOrbitTarget({ x: Number.NaN, y: Number.POSITIVE_INFINITY, z: 5 }), [
-    0, 0, 5,
-  ]);
+  assert.deepEqual(
+    resolveOrbitTarget({ x: Number.NaN, y: Number.POSITIVE_INFINITY, z: 5 }),
+    [0, 0, 5]
+  );
   assert.deepEqual(
     resolveOrbitTarget({ x: Number.NEGATIVE_INFINITY, y: Number.NaN, z: Number.NaN }),
     [0, 0, 0]
@@ -87,7 +88,11 @@ test("linkTubeRadius: clamps to the sane band", () => {
   assert.equal(linkTubeRadius(-3), LINK_TUBE_MIN_RADIUS, "negative clamps to the minimum");
   assert.equal(linkTubeRadius(1e9), LINK_TUBE_MAX_RADIUS, "huge clamps to the maximum");
   assert.equal(linkTubeRadius(Number.NaN), LINK_TUBE_MIN_RADIUS, "non-finite → minimum");
-  assert.equal(linkTubeRadius(Number.POSITIVE_INFINITY), LINK_TUBE_MIN_RADIUS, "non-finite -> minimum (never a pipe)");
+  assert.equal(
+    linkTubeRadius(Number.POSITIVE_INFINITY),
+    LINK_TUBE_MIN_RADIUS,
+    "non-finite -> minimum (never a pipe)"
+  );
 });
 
 test("linkTubeRadius: deterministic + monotonic non-decreasing in width", () => {

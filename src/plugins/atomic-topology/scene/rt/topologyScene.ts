@@ -150,6 +150,6 @@ export function linkBaseIntensity(
 ): number {
   const o = Number.isFinite(styleOpacity) ? Math.min(1, Math.max(0, styleOpacity)) : 0.3;
   if (state === "error") return 0.5;
-  if (state === "active") return 0.9 + 0.9 * o;
+  if (state === "active") return 0.7 + 0.6 * o;
   return 0.14 + 0.22 * o;
 }
