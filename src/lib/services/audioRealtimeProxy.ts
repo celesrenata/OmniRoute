@@ -310,7 +310,7 @@ export function initRealtimeAudioProxy(): Promise<http.Server> {
       const sel = selected;
       wss.handleUpgrade(req, socket, head, (clientWs) => {
         activeConnections += 1;
-        bridge(clientWs, up, sel.id, () => {
+        bridgeRealtimeAudioSession(clientWs, up, sel.id, () => {
           activeConnections = Math.max(0, activeConnections - 1);
         });
         console.log(`[realtime-audio] session started on node ${sel.id}`);
@@ -324,55 +324,6 @@ export function initRealtimeAudioProxy(): Promise<http.Server> {
     }
   }
 
-  function bridge(clientWs: WebSocket, up: WebSocket, nodeId: string, onDone: () => void): void {
-    let done = false;
-    const cleanup = () => {
-      if (done) return;
-      done = true;
-      onDone();
-      clientWs.removeAllListeners();
-      up.removeAllListeners();
-      try {
-        clientWs.close();
-      } catch {
-        // already closed
-      }
-      try {
-        up.close();
-      } catch {
-        // already closed
-      }
-    };
-
-    // Client → node: binary audio frames and JSON control frames pass through
-    // untouched (the node protocol is the wire protocol).
-    clientWs.on("message", (data) => {
-      if (up.readyState === WebSocket.OPEN) up.send(data as Buffer);
-    });
-    clientWs.on("close", cleanup);
-    clientWs.on("error", cleanup);
-
-    // Node → client: ready / transcript / session_end pass through; a mid-
-    // session disconnect is surfaced, never silent.
-    up.on("message", (data) => {
-      if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data as Buffer);
-    });
-    up.on("close", () => {
-      if (!done && clientWs.readyState === WebSocket.OPEN) {
-        try {
-          clientWs.send(JSON.stringify({ type: "error", message: "STT node connection closed" }));
-        } catch {
-          // client already gone
-        }
-      }
-      cleanup();
-    });
-    up.on("error", () => {
-      console.warn(`[realtime-audio] upstream error on node ${nodeId}`);
-      cleanup();
-    });
-  }
-
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, () => {
@@ -383,6 +334,73 @@ export function initRealtimeAudioProxy(): Promise<http.Server> {
       httpServer = server;
       resolve(server);
     });
+  });
+}
+
+/**
+ * Bridge a client WS and an upstream node WS, forwarding frames both ways
+ * verbatim. Exported so the frame-opcode round-trip (the node protocol IS the
+ * wire protocol: binary = PCM16, text = JSON control) is unit-testable without
+ * the full upgrade/handshake path.
+ */
+export function bridgeRealtimeAudioSession(
+  clientWs: WebSocket,
+  up: WebSocket,
+  nodeId: string,
+  onDone: () => void
+): void {
+  let done = false;
+  const cleanup = () => {
+    if (done) return;
+    done = true;
+    onDone();
+    clientWs.removeAllListeners();
+    up.removeAllListeners();
+    try {
+      clientWs.close();
+    } catch {
+      // already closed
+    }
+    try {
+      up.close();
+    } catch {
+      // already closed
+    }
+  };
+
+  // Client → node: binary audio frames and JSON control frames pass through
+  // untouched (the node protocol is the wire protocol). The frame OP must be
+  // forwarded verbatim: the node dispatches on it (binary = PCM16, text = JSON
+  // control). Re-sending a control frame as binary made the node drop it —
+  // `end` never landed, so no final flush, no session_end, and every session
+  // leaked an open connection (repro 2026-11-07, live through the ingress).
+  clientWs.on("message", (data, isBinary) => {
+    if (up.readyState === WebSocket.OPEN) up.send(data as Buffer, { binary: isBinary });
+  });
+  clientWs.on("close", cleanup);
+  clientWs.on("error", cleanup);
+
+  // Node → client: ready / transcript / session_end pass through; a mid-
+  // session disconnect is surfaced, never silent.
+  up.on("message", (data, isBinary) => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data as Buffer, { binary: isBinary });
+  });
+  up.on("close", (code: number) => {
+    // A clean node close (1000 after session_end) is the protocol's normal
+    // teardown — forwarding the close is enough. Only an abnormal close gets a
+    // surfaced error frame.
+    if (code !== 1000 && !done && clientWs.readyState === WebSocket.OPEN) {
+      try {
+        clientWs.send(JSON.stringify({ type: "error", message: "STT node connection closed" }));
+      } catch {
+        // client already gone
+      }
+    }
+    cleanup();
+  });
+  up.on("error", () => {
+    console.warn(`[realtime-audio] upstream error on node ${nodeId}`);
+    cleanup();
   });
 }
 
