@@ -160,7 +160,7 @@ export function createRtAtom(
   if (opts.hub) {
     for (let i = 0; i < packed.count; i += 1) {
       const proton = tintsArr[i * 4 + 3] > 0.5;
-      const c = hexToLinear(proton ? "#E5484D" : "#B8A9B4");
+      const c = hexToLinear(proton ? "#E0102C" : "#5A2CE0");
       tintsArr[i * 4] = c[0];
       tintsArr[i * 4 + 1] = c[1];
       tintsArr[i * 4 + 2] = c[2];
@@ -468,6 +468,7 @@ export function createRtAtom(
     const dist = f.camera.position.distanceTo(worldCenter);
     const cr = params.cloudRadius;
     // Close range: bolts/streak back off so they never dominate the frame.
+    const farK = Math.min(1, Math.max(0, (dist / cr - 3.2) / 3.3));
     const closeK = Math.min(
       1,
       Math.max(0.4, f.camera.position.distanceTo(worldCenter) / (cr * 4.2))
@@ -483,6 +484,7 @@ export function createRtAtom(
       (u.camUp.value as Vector3).copy(camUp);
       (u.quadHalf as any).value = half;
       (u.cloudRadius as any).value = cr;
+      (u.far as any).value = farK;
       (u.energy.value as Vector3).set(params.excitation, params.saturation, params.brightness);
       (u.phase as any).value = params.phase;
       // Absorbing plasma body thins out in the low-energy (idle) state so it
@@ -527,6 +529,7 @@ export function createRtAtom(
     (strandU.time as any).value = f.phase;
     (strandU.center.value as Vector3).copy(worldCenter);
     (strandU.cloudR as any).value = cr;
+    (strandU.far as any).value = farK;
     (strandU.rootR as any).value = Math.min(0.4, (nucExtent * 0.8) / cr);
     (strandU.pxScale as any).value = pxScale;
     (strandU.energy.value as Vector3).set(params.excitation, params.saturation, params.brightness);
@@ -541,7 +544,7 @@ export function createRtAtom(
     // Quad sized to the visible band only (fill cost: it is additive over MSAA HDR).
     streak.scale.set(cr * 6, cr * 0.16, 1);
     glow.scale.set(cr * 0.62, cr * 0.62, 1);
-    glowK.value = (0.3 + 1.3 * params.excitation) * params.brightness;
+    glowK.value = (0.3 + 1.3 * params.excitation) * params.brightness * (1 + 0.8 * farK);
     ring.scale.set((2 * reach * cr) / 0.9, (2 * reach * cr) / 0.9, 1);
     ringK.value = (0.3 + 0.7 * params.excitation) * params.brightness;
     // Decorative differential swirl: rate rises with energy, never encodes

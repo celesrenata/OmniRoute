@@ -74,6 +74,8 @@ export interface StrandUniforms {
   swirl: ReturnType<typeof uniform>;
   /** 1 = strand lifecycle/flicker live, 0 = static still-rich frame (reduced motion). */
   lifeOn: ReturnType<typeof uniform>;
+  /** 0 = close range, 1 = default distance and beyond: lifts density/width/gain so the cloud stays filled. */
+  far: ReturnType<typeof uniform>;
 }
 
 export function createStrandUniforms(): StrandUniforms {
@@ -96,6 +98,7 @@ export function createStrandUniforms(): StrandUniforms {
     floorY: uniform(-62),
     swirl: uniform(0),
     lifeOn: uniform(1),
+    far: uniform(0),
   };
 }
 
@@ -235,7 +238,8 @@ export function createStrandMaterial(u: StrandUniforms, mirror = false): MeshBas
   // Hairline in screen space, tapered at both ends.
   const taper = smoothstep(0, 0.1, t).mul(pow(float(1).sub(t), 0.55));
   const widthPx = widthBase.mul(taper.mul(0.8).add(0.2));
-  const drawPx = max(widthPx, 1.05);
+  const farV = u.far as any;
+  const drawPx = max(widthPx, farV.mul(0.85).add(1.05));
   const lit = step(rank, u.active as any);
   const pxWorld = dist.mul(u.pxScale as any);
   const material = new MeshBasicNodeMaterial();
@@ -283,6 +287,7 @@ export function createStrandMaterial(u: StrandUniforms, mirror = false): MeshBas
       .mul(gmV.mul(0.8).add(0.2))
       .mul(tipCap)
       .mul(bri)
+      .mul((u.far as any).mul(2.6).add(1))
       .mul(flick.mul(0.55).add(0.45).add(pulse))
       .mul(fade)
       .mul(depth)
@@ -344,7 +349,8 @@ export function createSparkleMaterial(u: StrandUniforms): MeshBasicNodeMaterial 
       .mul(float(0.6).add(exc.mul(1.4)))
       .mul(bri)
       .mul(vis)
-      .mul(mix(float(5.5), float(16), kindV));
+      .mul(mix(float(5.5), float(16), kindV))
+      .mul((u.far as any).mul(1.3).add(1));
     return vec4(grade(col, sat).mul(k), 1);
   })();
   return finish(material);

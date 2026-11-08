@@ -172,6 +172,8 @@ export interface AtomUniforms {
   peaks: ReturnType<typeof uniform>;
   hues: ReturnType<typeof uniform>[];
   coreColor: ReturnType<typeof uniform>;
+  /** 0 = close, 1 = default distance and beyond (distance-aware cloud density). */
+  far: ReturnType<typeof uniform>;
   /** x excitation, y saturation, z brightness */
   energy: ReturnType<typeof uniform>;
   phase: ReturnType<typeof uniform>;
@@ -217,6 +219,7 @@ export function createAtomUniforms(): AtomUniforms {
       uniform(new Vector3(0.5, 0.2, 0.9)),
     ],
     coreColor: uniform(new Vector3(0.8, 0.6, 1)),
+    far: uniform(0),
     energy: uniform(new Vector3(0.12, 0.35, 0.35)),
     phase: uniform(0),
     steps: uniform(96, "int"),
@@ -259,7 +262,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       const t4 = tint.element(iBest);
       const albedoRaw = t4.xyz;
       const albedoLuma = dot(albedoRaw, vec3(0.2126, 0.7152, 0.0722));
-      const albedo = max(mix(vec3(albedoLuma), albedoRaw, 1.55), 0).mul(
+      const albedo = max(mix(vec3(albedoLuma), albedoRaw, 2.1), 0).mul(
         mix(float(1), saturation.mul(0.5).add(0.5), 1)
       );
       const isP = t4.w;
@@ -335,21 +338,26 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       const ext = (u.glassRadius as any).div(1.14);
       const dc = length(p.sub(center)).div(ext);
       const coreLight = exp(dc.mul(dc).mul(-2.0));
-      const crystal = mix(albedo, vec3(1.0, 0.3, 0.7), 0.22)
-        .mul(coreLight.mul(1.8).add(edge.mul(0.7)))
+      const crystal = mix(albedo, vec3(1.0, 0.3, 0.7), 0.12)
+        .mul(coreLight.mul(1.1).add(edge.mul(0.5)))
         .mul(float(0.3).add(excitation.mul(0.9)));
       // Self-illumination in each ball's own model hue (energy-scaled: idle is
       // dim and greys via `saturation`, excited is bright). Hue-preserving, so
       // it never washes the balls to white.
       const emissive = albedo.mul(
-        float(0.12)
-          .add(excitation.mul(0.62))
+        float(0.1)
+          .add(excitation.mul(0.38))
           .mul(brightness)
           .mul(float(0.75).add(edge.mul(0.5)))
       );
       const color2 = color.add(crystal).add(emissive);
       const cl = dot(color2, vec3(0.2126, 0.7152, 0.0722));
-      const vivid = max(mix(vec3(cl), color2, 2.6), 0).mul(0.6);
+      const vividRaw = max(mix(vec3(cl), color2, 2.5), 0).mul(0.6);
+      // Hue-preserving soft curve: bright channels are scaled down together instead of
+      // clipping toward white, so glowing balls stay deeply saturated.
+      const vivid = vividRaw
+        .div(max(vividRaw.x, max(vividRaw.y, vividRaw.z)).mul(0.5).add(1))
+        .mul(1.25);
       out.assign(vec4(vivid, tBest));
     });
     return out;
@@ -410,6 +418,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       // Inner plume: dense and bright near the nucleus, thinning outward.
       .mul(mix(float(1.9), float(0.55), smoothstep(0.08, 0.7, r)))
       .mul(float(0.5).add(excitation.mul(0.5)))
+      .mul((u.far as any).mul(1.9).add(1))
       .mul(0.45);
     // Hot core plasma near the nucleus.
     const core = exp(r.mul(r).mul(-90))
