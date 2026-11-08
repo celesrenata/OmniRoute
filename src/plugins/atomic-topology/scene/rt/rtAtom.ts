@@ -5,7 +5,18 @@
  * uniform storage; there is no React state and no per-frame allocation of GPU
  * resources.
  */
-import { Group, Mesh, PlaneGeometry, Quaternion, Vector3, type Camera } from "three/webgpu";
+import {
+  AdditiveBlending,
+  Group,
+  Mesh,
+  PlaneGeometry,
+  Quaternion,
+  Sprite,
+  SpriteNodeMaterial,
+  Vector3,
+  type Camera,
+} from "three/webgpu";
+import { abs, exp, float, uniform, uv, vec3, vec4 } from "three/tsl";
 import { fnv1a } from "../cloudShells";
 import type { EnergyState } from "../energyState";
 import { desaturateLinear, hexToLinear, packNucleus, type PackedNucleus } from "../nucleonPack";
@@ -77,6 +88,16 @@ const NEUTRAL_PALETTE: [number, number, number][] = [
   [0.6, 0.7, 0.95],
 ];
 const BOLT_VARIANTS = 3;
+/**
+ * Visual nucleus scale relative to the packed production cluster: idea5 shows
+ * a small crystalline gem (~1/4 of the cloud diameter), not a large ball.
+ */
+export const NUCLEUS_VISUAL_SCALE = 0.58;
+/** Deterministic hash in [0, 1) (bolt directions; no Math.random). */
+function hash01(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
 /** Extinction of the absorbing cloud body at full (excited) brightness. */
 const MEDIUM_K = 0.16;
 const NEUTRAL_HUES: [number, number, number][] = [
@@ -99,6 +120,12 @@ export function createRtAtom(
 ): RtAtom {
   const seed = fnv1a(opts.id);
   const packed = packNucleus({ seed, hub: opts.hub, observedModelIds: opts.observedModelIds });
+  // Positions shrink more than radii, so nucleons fuse into one lumpy gem.
+  for (let i = 0; i < packed.count; i += 1) {
+    for (let k = 0; k < 3; k += 1) packed.centers[i * 4 + k] *= NUCLEUS_VISUAL_SCALE;
+    packed.centers[i * 4 + 3] *= NUCLEUS_VISUAL_SCALE * 1.18;
+  }
+  const nucExtent = packed.extent * NUCLEUS_VISUAL_SCALE;
   const orbitals: Orbital[] = orbitalLayout(seed);
   const wiresDef: OrbitWire[] = orbitWires(seed, opts.wireCount ?? 14);
   const group = new Group();
@@ -160,7 +187,7 @@ export function createRtAtom(
   const hueSet: [number, number, number][] = opts.hub
     ? hubHues
     : known
-      ? [mix3(lane, [0.55, 0.2, 1.0], 0.55), [0.8, 0.22, 0.95], [0.12, 0.65, 1.0]]
+      ? [mix3(lane, [0.55, 0.2, 1.0], 0.7), [0.8, 0.22, 0.95], [0.95, 0.32, 0.85]]
       : NEUTRAL_HUES;
   uniforms.hues.forEach((h, i) => (h.value as Vector3).set(...hueSet[i]));
   (uniforms.inner.value as Vector3).set(
@@ -221,17 +248,17 @@ export function createRtAtom(
   }
   (uniforms.nucleonCount as any).value = packed.count;
   (mirrorUniforms.nucleonCount as any).value = packed.count;
-  (uniforms.glassRadius as any).value = packed.extent * 1.14;
-  (mirrorUniforms.glassRadius as any).value = packed.extent * 1.14;
+  (uniforms.glassRadius as any).value = nucExtent * 1.14;
+  (mirrorUniforms.glassRadius as any).value = nucExtent * 1.14;
 
   // Wires + electrons.
   const wireU: WireUniforms = createWireUniforms();
-  (wireU.occluderRadius as any).value = packed.extent * 0.92;
+  (wireU.occluderRadius as any).value = nucExtent * 0.92;
   const wireGroup = new Group();
   group.add(wireGroup);
   const palette = opts.neutral ? NEUTRAL_PALETTE : LANE_PALETTE;
   wiresDef.forEach((w, i) => {
-    const m = createWireMesh(w, i, wireU, 0.12, palette[i % palette.length]);
+    const m = createWireMesh(w, i, wireU, i % 4 === 0 ? 0.22 : 0.15, palette[i % palette.length]);
     wireGroup.add(m);
     registry.add(m.geometry);
     registry.add(m.material as { dispose: () => void });
@@ -260,7 +287,9 @@ export function createRtAtom(
     meshes: Mesh[];
     variants: ReturnType<typeof createBoltVariants>;
     variant: number;
-    electron: number;
+    /** Unit direction core -> cloud for the current discharge. */
+    dir: Vector3;
+    shot: number;
   }[] = [];
   for (let s = 0; s < BOLT_SLOTS; s += 1) {
     const bu = createBoltUniforms();
@@ -269,21 +298,44 @@ export function createRtAtom(
     const bc = (opts.neutral ? NEUTRAL_PALETTE : LANE_PALETTE)[(s % 5) % (opts.neutral ? 3 : 5)];
     const halo = new Mesh(
       variants[0],
-      createBoltMaterial(bu, { halo: true, color: bc, width: 1.0, coreRatio: 0.24 })
+      createBoltMaterial(bu, { halo: true, color: bc, width: 0.42, coreRatio: 0.3 })
     );
     halo.frustumCulled = false;
     halo.renderOrder = 12;
     registry.add(halo.material as { dispose: () => void });
     boltGroup.add(halo);
-    (bu.occluderRadius as any).value = packed.extent * 0.92;
-    boltSlots.push({
-      u: bu,
-      meshes: [halo],
-      variants,
-      variant: 0,
-      electron: (s * 5 + 1) % electrons.length,
-    });
+    (bu.occluderRadius as any).value = nucExtent * 0.92;
+    boltSlots.push({ u: bu, meshes: [halo], variants, variant: -1, dir: new Vector3(), shot: 0 });
   }
+
+  // Wide anamorphic equatorial streak (camera-facing, HDR -> bloom), the
+  // horizontal cyan flare of the reference. Brightness follows excitation.
+  const streakK = uniform(0);
+  const streakMat = new SpriteNodeMaterial();
+  streakMat.colorNode = (() => {
+    const p = uv().sub(0.5).mul(2);
+    const ax = abs(p.x);
+    const core = exp(p.y.div(0.11).pow(2).negate()).mul(exp(ax.mul(-2.6)));
+    const wide = exp(p.y.div(0.38).pow(2).negate())
+      .mul(exp(ax.mul(-5)))
+      .mul(0.5);
+    const fade = float(1).sub(ax).max(0);
+    return vec4(
+      vec3(0.2, 0.8, 1.0)
+        .mul(core.add(wide))
+        .mul(fade)
+        .mul(streakK as any),
+      1
+    );
+  })();
+  streakMat.transparent = true;
+  streakMat.blending = AdditiveBlending;
+  streakMat.depthWrite = false;
+  streakMat.depthTest = false;
+  const streak = new Sprite(streakMat);
+  streak.renderOrder = 13;
+  group.add(streak);
+  registry.add(streakMat);
 
   const camRight = new Vector3();
   const camUp = new Vector3();
@@ -292,6 +344,7 @@ export function createRtAtom(
   const axis = new Vector3(...packed.spinAxis).normalize();
   let flickerClock = 0;
   const worldCenter = new Vector3();
+  const viewDir = new Vector3();
 
   function update(f: RtAtomFrame): void {
     group.getWorldPosition(worldCenter);
@@ -373,6 +426,11 @@ export function createRtAtom(
       electrons[i].glow.position.copy(tmp);
     }
 
+    // Anamorphic streak: spans well beyond the cloud, brighter when excited.
+    // Quad sized to the visible band only (fill cost: it is additive over MSAA HDR).
+    streak.scale.set(cr * 6, cr * 0.16, 1);
+    streakK.value = (0.25 + 1.6 * params.excitation) * params.brightness;
+
     // Bolt ribbons carry world-space endpoints: cancel the group's translation.
     boltGroup.position.copy(worldCenter).negate();
 
@@ -390,12 +448,22 @@ export function createRtAtom(
         : ((Math.floor(flickerClock * 7 + s * 2) % BOLT_VARIANTS) + BOLT_VARIANTS) % BOLT_VARIANTS;
       if (v !== slot.variant) {
         slot.variant = v;
+        slot.shot += 1;
         slot.meshes.forEach((m) => (m.geometry = slot.variants[v]));
+        // New discharge: seeded direction from the core out to the cloud,
+        // biased perpendicular to the view so it reads as a radiating tendril.
+        const hs = seed * 0.001 + s * 17.3 + slot.shot * 3.7;
+        const zz = hash01(hs) * 2 - 1;
+        const az = hash01(hs + 9.1) * Math.PI * 2;
+        const rr = Math.sqrt(1 - zz * zz);
+        slot.dir.set(rr * Math.cos(az), zz, rr * Math.sin(az));
+        viewDir.copy(f.camera.position).sub(worldCenter).normalize();
+        slot.dir.addScaledVector(viewDir, -0.75 * slot.dir.dot(viewDir)).normalize();
       }
       slot.meshes.forEach((m) => (m.visible = on));
-      const e = electrons[slot.electron];
+      const reach = cr * (0.78 + 0.16 * hash01(s * 5.3 + slot.shot));
       (slot.u.a.value as Vector3).copy(worldCenter);
-      (slot.u.b.value as Vector3).copy(e.core.position).add(worldCenter);
+      (slot.u.b.value as Vector3).copy(worldCenter).addScaledVector(slot.dir, reach);
       (slot.u.occluderCenter.value as Vector3).copy(worldCenter);
     });
   }

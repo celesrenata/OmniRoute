@@ -38,41 +38,63 @@ Capture (headed Chrome, real GPU, never headless): `scripts/ad-hoc/pw-atomic-gat
 
 Also fixed: bench remount reused a canvas whose WebGL2 context had been lost by `dispose()` (StrictMode / param change); it now creates a fresh canvas per mount. Idle absorption scales with brightness^2 so the low-energy atom greys and calms instead of reading as a dark sooty ball.
 
+## Round 3: changes against every gateA-r2 finding
+
+| #   | Finding (gateA-r2.md)                             | What changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Evidence                                                              |
+| --- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| 1   | Cloud is an even hair-sphere, no petals/voids/rim | View-aligned petal "flower": `petalField()` cuts the pixel's polar angle (swept with radius, ALU-jittered) into `PETAL_COUNT = 13` wedges, evaluated once per pixel at the ray's closest approach. Wedge borders are dark violet voids (filaments x0.015, haze x0.05 there); petal tips bulge the silhouette (`rEdge = 0.8 + tip*(0.08..0.16)`), borders notch in. Rim follows the petal edge: 72^3 particulate cell grid, 45% of cells lit (was 30%), sparkle 5.5 -> 15, plus a churn-modulated glow band. The rejected first attempt (spherical Voronoi over 18 axes) did not read as a flower and was removed. | `gateA-provider-default-3c`, `sidebyside-idea5-default-3c`            |
+| 2   | Close-up is a lavender radial smear               | Plasma grade `pow(c, 1.4)` -> `pow(c, 1.7)` (deeper violet, less pastel); strand gain 30 -> 24; the absorbing medium now also attenuates emission behind it (`trans *= exp(-(0.03w + 0.07m) dt)`), so near petals occlude far ones and the interior gets depth; medium colour contributes deep violet inside petals. Medium body narrowed (`interior` 0.93..0.99 -> 0.76..0.90) so the rim stays luminous.                                                                                                                                                                                                        | `gateA-provider-close-3c`, `sidebyside-idea5-close-3c`                |
+| 3   | Nucleus too large, glossy marbles                 | `NUCLEUS_VISUAL_SCALE = 0.58` in `rtAtom.ts`: nucleon centres x0.58, radii x0.68, so nucleons fuse into one lumpy gem about a quarter of the cloud diameter (production `buildNucleusCluster` untouched; glass shell, wire and bolt occluders follow the scaled extent). Faceting 2.2/0.28 -> 3.2/0.55 (gem cuts). Internal pink-white core light (`exp(-2 dc^2)`, plus facet edges) makes it one translucent crystal. Core flare is a tight pink-white star (round core + 4 thin spikes).                                                                                                                        | `gateA-provider-close-3c`, `gateA-hub-close`                          |
+| 4   | Bolts are white squiggles pasted on nucleons      | Bolts now radiate from the core out to the cloud: each discharge gets a seeded direction (`hash01`, no `Math.random`) biased perpendicular to the view, reach 0.78..0.94 of the cloud radius. Thinner (width 1.0 -> 0.42), one branch level, roughness 0.14, lane-hued with cores only 12% toward white (was 30%).                                                                                                                                                                                                                                                                                                | `gateA-gpu-close-3c`, `gateA-provider-close-3c`                       |
+| 5   | Environment monochrome teal                       | Warmer grade: stronger orange edge lighting (threshold 0.42), pink LED option in the racks, receding orange light bars down the corridor, more circuit traces and floor streaks, warm floor tint, flatter grid dome (y 0.38). Split-tone shadow/high tints moved toward teal/warm (`rendererFactory.ts`).                                                                                                                                                                                                                                                                                                         | `gateA-provider-default-3c` background, `sidebyside-idea5-default-3c` |
+| 6   | Equatorial streak faint; wires thin/uniform       | Anamorphic streak is its own additive camera-facing sprite (cyan, HDR into bloom, brightness follows excitation), spanning 6x the cloud radius; the quad covers only the visible band (`cr*6 x cr*0.16`), a full-height quad cost ~4 ms of fill at close-up. Wires 0.12 -> 0.22 (every 4th) / 0.15, brighter on the camera-facing half (`mix(0.5, 1.7, front)`).                                                                                                                                                                                                                                                  | `gateA-provider-default-3c`, `gateA-provider-close-3c`                |
+| 7   | Resemblance 3; all rows must reach 4              | Re-scored below with fresh side-by-sides. Not every row is claimed at 4.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | `sidebyside-idea5-*`, `sidebyside-neon_gpu_atom-*`                    |
+
+Third provider lane hue changed from sky blue to pink-magenta `[0.95, 0.32, 0.85]` (lane mix 0.55 -> 0.7) so the cloud palette stays violet/magenta like idea5. Round-1 fixes are kept: no pastel washout (1c close-up still saturated), 8 bolts and 14 wires, three distinct model colours, hub cloud, hex bokeh, all 19 conditions recaptured.
+
 ## Evidence (real GPU)
 
 Hardware: Apple M5 Max, Chrome (`channel: "chrome"`, headed), WebGPU adapter `apple / metal-3`. Viewport 1672x941 CSS at DPR 2 = 3344x1882 px. Full-resolution PNGs are on disk (git-ignored); tracked JPEG previews live in `screenshots/gateA/preview/`.
 
 - Condition matrix (all 19 recaptured, all `state=ok`): `gateA-provider-{default,close}-{1c,3c,unknown,stale}`, `gateA-provider-{default,close}-3c-idle`, `gateA-gpu-{default,close}-3c`, `gateA-hub-{default,close}`, `gateA-idle-vs-excited`, `gateA-3c-az{90,180,270}`, `gateA-webgl2-fallback` (`data-backend=webgl`).
 - Side-by-side with idea5: `sidebyside-idea5-{default-3c,close-3c,idle-vs-excited,hub-close,count20}`; with neon_gpu_atom: `sidebyside-neon_gpu_atom-{default,close}-3c`.
-- Live, animated, uncapped frame pairs: `live/r2-*-{a,b}.png` (previews `preview/live_r2-*`).
+- Live, animated, uncapped frame pairs: `live/r3-*-{a,b}.png` (previews `preview/live_r3-*`; round 2 kept as `preview/live_r2-*`).
+- Contact sheet of all conditions was reviewed (default/close x 1c/3c/unknown/stale/idle, gpu, hub, az, count20, WebGL2): the petal flower, gem nucleus and warm room read in every condition. Unknown and stale stay neutral grey-lavender by design, since there is no model hue to show. Idle is the same atom dimmer, greyer and calmer, with no bolts.
 
-### Measured frame times, UNCAPPED (rAF deltas over 5 s, 3344x1882 DPR 2, vsync and frame-rate limit disabled)
+### Measured frame times, round 3, UNCAPPED (rAF deltas over 5 s, 3344x1882 DPR 2, vsync and frame-rate limit disabled)
 
-| Case                                              | p50     | p95     | p99     | ~fps (p50) |
-| ------------------------------------------------- | ------- | ------- | ------- | ---------- |
-| 1 atom excited, default distance, WebGPU          | 4.3 ms  | 4.8 ms  | 21.8 ms | 233        |
-| 1 atom idle, default                              | 3.5 ms  | 3.8 ms  | 15.2 ms | 286        |
-| idle + excited pair, default                      | 4.4 ms  | 4.7 ms  | 22.7 ms | 227        |
-| 1 atom excited, default, forced WebGL2            | 5.8 ms  | 7.4 ms  | 11.6 ms | 172        |
-| provider close-up (atom fills the frame), excited | 9.6 ms  | 10.0 ms | 44.6 ms | 104        |
-| hub close-up, excited                             | 10.5 ms | 10.8 ms | 45.3 ms | 95         |
-| 20 atoms excited (`count=20`, grid)               | 5.6 ms  | 6.6 ms  | 12.5 ms | 179        |
-| 32 atoms excited (`count=32`, grid)               | 9.1 ms  | 10.0 ms | 10.5 ms | 110        |
+Mean = 5000 ms / frames. It is added this round because p50 alone hides a bimodal distribution.
 
-Round 1 close-up was 34.2 / 51.1 ms (capped run). Targets (~120 fps at ~20 atoms, >=60 fps at 32) are met in the bench at full DPR + AA. Caveats, stated: the multi-atom grid camera sits farther back so each atom covers fewer pixels than in a close-up (it is a load test, not the production layout); atoms are not depth-sorted against each other yet (Gate B); p99 spikes in the single-atom runs coincide with the screenshot taken at the start of sampling. Profiling breakdown at close-up before the bolt merge: bloom ~4 ms, bolts ~4.5 ms, march steps 96 -> 12 saves only ~2 ms (fill/overdraw bound, not step bound).
+| Case                                              | p50     | p95     | p99     | mean    | ~fps (mean) | round 2 p50 / p95 |
+| ------------------------------------------------- | ------- | ------- | ------- | ------- | ----------- | ----------------- |
+| 1 atom excited, default distance, WebGPU          | 3.8 ms  | 4.1 ms  | 15.9 ms | 3.8 ms  | 265         | 4.3 / 4.8         |
+| 1 atom idle, default                              | 2.7 ms  | 3.0 ms  | 11.9 ms | 2.8 ms  | 362         | 3.5 / 3.8         |
+| idle + excited pair, default                      | 3.5 ms  | 3.8 ms  | 15.4 ms | 3.6 ms  | 280         | 4.4 / 4.7         |
+| 1 atom excited, default, forced WebGL2            | 4.1 ms  | 6.1 ms  | 8.4 ms  | 4.2 ms  | 240         | 5.8 / 7.4         |
+| provider close-up (atom fills the frame), excited | 13.2 ms | 13.5 ms | 65.6 ms | 13.2 ms | 76          | 9.6 / 10.0        |
+| hub close-up, excited                             | 13.2 ms | 13.5 ms | 65.9 ms | 13.2 ms | 76          | 10.5 / 10.8       |
+| 20 atoms excited (`count=20`, grid)               | 6.0 ms  | 14.9 ms | 41.8 ms | 7.2 ms  | 140         | 5.6 / 6.6         |
+| 32 atoms excited (`count=32`, grid)               | 9.1 ms  | 10.1 ms | 10.7 ms | 9.0 ms  | 111         | 9.1 / 10.0        |
 
-## Scorecard (self-assessment; reviewer scores independently)
+Targets (~120 fps at ~20 atoms, >=60 fps at 32) are still met on the mean, at full DPR + AA. Two regressions against round 2, stated:
 
-| Criterion                                            | Default | Close | Notes                                                                                                                                                            |
-| ---------------------------------------------------- | ------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Saturated distinguishable model-colored nucleons     | 4       | 4     | Green / blue / magenta separate in excited and idle; 1-model atom is a saturated blue, not near-white.                                                           |
-| 3D luminous electron cloud and orbital trails        | 4       | 3     | Default now reads as a deep violet volume with darker petal gaps and a cyan rim. Close-up is still a lavender radial field; it lacks idea5's large swept petals. |
-| Hairline electric filaments and transient discharges | 4       | 4     | 8 lane-hued branching bolts, 14 lane-coloured wires.                                                                                                             |
-| Rich lighting, depth, bloom without washout          | 4       | 3     | Bloom and additive haze cut; close-up interior is still brighter than idea5's.                                                                                   |
-| Overall resemblance to target                        | 3       | 3     | Structure matches; idea5's flower-petal plasma and small crystalline nucleus are not reproduced (our nucleus is larger relative to the cloud).                   |
-| Immersion / sense of place                           | 4       | 4     | Corridor, reflective floor with mirrored atom, pedestal, hex bokeh; the 20/32-atom grid reads as a server hall.                                                  |
+- Close-up 9.6 -> 13.2 ms (still 76 fps). It is fill bound, not step bound (`steps=8` 12.0 ms, `steps=48` 12.6 ms). Bisected by swapping single files back to round 2: the impostor shader accounts for ~3 ms (petal field, wider rim band, crystal light, flare spikes). The streak sprite, wider wires and bolts in `rtAtom.ts` account for ~1.8 ms. Shrinking the streak quad already removed ~4 ms from the first round-3 version (15.8 -> 13.2 ms).
+- `count=20` p95 6.6 -> 12-17 ms (3 runs: 13.1 / 17.5 / 12.0), with p50 unchanged at ~6 ms. Round-2 code re-measured in the same session gives p95 6.6-8.3 ms, so this is real, not noise. An 8 s warm-up does not remove it, so it is not late pipeline compiles. Reverting any single file (impostor, rtAtom, environment, or wires+bolts+post together) does not remove it either. The added per-atom GPU cost pushes the 20-atom frame past the CPU submit time, and frame pacing turns bimodal (GPU-bound queueing). `count=32`, already GPU bound in round 2, is unchanged and smooth. Recovering the 20-atom headroom is a Gate B optimisation item. Per-atom LOD by screen coverage is excluded by the no-low-tier rule; the candidates are an early-out of the rim sparkle term outside the rim band and one streak pass shared across atoms.
 
-Not claimed as >= 4 everywhere: close-up cloud, close-up washout and overall resemblance remain 3.
+Round 1 close-up was 34.2 / 51.1 ms (capped run). Caveats, stated: the multi-atom grid camera sits farther back, so each atom covers fewer pixels than in a close-up (it is a load test, not the production layout). Atoms are not depth-sorted against each other yet (Gate B). p99 spikes in the single-atom runs coincide with the screenshot taken at the start of sampling.
+
+## Scorecard (self-assessment, round 3; reviewer scores independently)
+
+| Criterion                                            | Default | Close | Notes                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | ------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Saturated distinguishable model-colored nucleons     | 4       | 4     | Green / blue / magenta still separate at the smaller gem scale, excited and idle.                                                                                                                                                      |
+| 3D luminous electron cloud and orbital trails        | 4       | 3     | Default reads as a 13-petal violet flower with dark voids and a particulate cyan rim. Close-up shows deep violet petals and voids, but the camera sits inside the flower, so idea5's whole silhouette is not visible at that distance. |
+| Hairline electric filaments and transient discharges | 4       | 4     | Thin lane-hued bolts radiate from the core to the cloud; 14 wires, brighter on the camera-facing half.                                                                                                                                 |
+| Rich lighting, depth, bloom without washout          | 4       | 4     | Deeper `pow 1.7` plasma grade; medium occludes far petals; core is a hot pink-white star, not a white wash.                                                                                                                            |
+| Overall resemblance to target                        | 4       | 3     | Default: flower plasma, small crystalline gem, core flare, anamorphic streak, warm/teal room all match idea5. Close-up: the bolts and wire highlights are busier than idea5 and the framing is much tighter.                           |
+| Immersion / sense of place                           | 4       | 4     | Warm-lit corridor with orange light bars and pink LEDs, reflective floor with orange streaks and traces, pedestal; the 20/32-atom grid reads as a server hall.                                                                         |
+
+Not claimed as >= 4 everywhere: close-up cloud and close-up resemblance remain 3.
 
 ## Deviations from the plan (stated, not hidden)
 
@@ -80,8 +102,18 @@ Not claimed as >= 4 everywhere: close-up cloud, close-up washout and overall res
 - Environment is an analytic procedural neon studio function evaluated in the shader, not a PMREM/HDRI; no TAA yet; MSAA via renderer `antialias`.
 - Filament noise is a baked 64^3 tileable value-noise 3D texture (round 2; was per-sample hashed lattice).
 - Production quality tiers and sprite caps (`quality.ts`, `cloudShells.ts`, `cloudHaze.ts`) were NOT removed: the RT path has no tiers, and the legacy path stays until Gate B replaces it.
+- Legacy tier removal plan (Gate B): when the RT renderer replaces the production atom path, delete the tier switch in `quality.ts` and the sprite caps in `cloudShells.ts` / `cloudHaze.ts` together with the legacy sprite renderer; the fallbacks kept are reduced motion, WebGPU -> WebGL2, device-loss recovery and the 2D renderer.
 - Provider observed-model adapter (Part B) is not part of Gate A; the bench feeds model ids directly.
 - Bugs found only by the live (unpaused) run and fixed: negative first-frame dt made the bolt-variant index negative (crash on WebGL2 live); bolt ribbons were offset by the atom position (pair case). Paused-only captures hid both.
+
+## Commands run (round 3, from the worktree)
+
+- `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts`: 432 tests, 431 pass, 0 fail, 1 skipped.
+- `npm run typecheck:core`: 45 errors, all pre-existing, none in atomic files (same count as round 2).
+- `npm run lint`: 7 errors, the same pre-existing scriptVault files as round 2. `npx eslint src/plugins/atomic-topology src/app/dev/atomic-bench tests/unit/atomic-topology`: 0 errors.
+- Frozen files (`layout.ts`, `cameraFit.ts`, `SceneOrbitControls.tsx`, `AtomicLabels.tsx`, `AtomicControls.tsx`, 2D renderer): `git diff 689178516` empty. Round 3 touches only `scene/shaders/{atomImpostor,boltStrand,environment,orbitWire}.ts` and `scene/rt/{rtAtom,rendererFactory}.ts`.
+- `zsh scripts/ad-hoc/pw-atomic-gateA-all.sh`: 19/19 `state=ok`, adapter `apple/metal-3`. Side-by-sides rebuilt with ImageMagick from those captures.
+- `UNCAPPED=1 node scripts/ad-hoc/pw-atomic-gateA-live.mjs OR_ATOM_010_RAYTRACED/screenshots/gateA/live r3-<case> "<query>"` for each row of the frame-time table, on the final shader state. Bisect runs (single files swapped back to round 2 with `git show HEAD:<file>`, then restored) went to `/tmp` and are summarised above.
 
 ## Commands run (round 2, from the worktree)
 

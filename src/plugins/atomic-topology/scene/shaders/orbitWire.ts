@@ -19,6 +19,7 @@ import {
   pow,
   saturate,
   sin,
+  smoothstep,
   uniform,
   uv,
   vec3,
@@ -107,8 +108,15 @@ export function createWireMesh(
       ? vec3(...laneColor)
       : mix(vec3(0.12, 0.8, 1.0), vec3(0.6, 0.35, 1.0), float((index % 3) / 3));
     const tintCol = mix(col, u.tint as any, laneColor ? 0.1 : 0.35);
+    // Camera-facing highlight: the near half of each orbit (between the atom
+    // and the viewer) is brighter, as in the reference.
+    const radial = normalize(positionWorld.sub(u.occluderCenter as any));
+    const front = smoothstep(-0.35, 0.85, dot(radial, view));
     const bright = float(0.9).add(pulse.mul(2.6)).add(edge.mul(0.4));
-    const k = bright.mul((u.energy as any).x).mul(vis);
+    const k = bright
+      .mul(mix(float(0.5), float(1.7), front))
+      .mul((u.energy as any).x)
+      .mul(vis);
     const luma = dot(tintCol, vec3(0.2126, 0.7152, 0.0722));
     const graded = pow(max(mix(vec3(luma), tintCol, (u.energy as any).y), 0.0001), vec3(1.25));
     return vec4(graded.mul(k).mul(0.3), 1);

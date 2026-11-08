@@ -90,8 +90,8 @@ export async function createRtRenderer(opts: RtRendererOptions): Promise<RtRende
     const hdr = shifted.rgb.add(bloomNode.rgb.mul(bloomOn));
     // Filmic split-tone: cool teal in shadows, warm magenta/orange in highlights.
     const luma = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
-    const shadowTint = vec3(0.92, 1.0, 1.08);
-    const highTint = vec3(1.08, 0.97, 0.98);
+    const shadowTint = vec3(0.9, 1.0, 1.1);
+    const highTint = vec3(1.12, 0.95, 1.03);
     const graded = hdr.mul(mix(shadowTint, highTint, smoothstep(0.1, 1.2, luma)));
     // Vignette.
     const v = length(screenUV.sub(0.5).mul(vec2(1.0, 0.9)));

@@ -74,7 +74,7 @@ const wallPattern = Fn(([a, b, dist, tm]: [any, any, any, any]) => {
   const h2 = h21(cell.add(7.7));
   const dEdge = min(min(f.x, float(1).sub(f.x)).mul(cs.x), min(f.y, float(1).sub(f.y)).mul(cs.y));
   const base = vec3(0.012, 0.02, 0.05).mul(float(0.6).add(h.mul(0.9)));
-  const edgeCol = mix(vec3(0.05, 0.55, 0.8), vec3(1.0, 0.45, 0.1), step(0.7, h2));
+  const edgeCol = mix(vec3(0.05, 0.55, 0.8), vec3(1.0, 0.45, 0.1), step(0.42, h2));
   const edge = exp(dEdge.negate().div(blur.mul(0.9)))
     .mul(edgeCol)
     .mul(float(0.25).add(h.mul(0.55)));
@@ -96,14 +96,25 @@ const wallPattern = Fn(([a, b, dist, tm]: [any, any, any, any]) => {
   const lf = fract(lg).sub(0.5);
   const lh = h21(lcell.add(13.1));
   const ledOn = step(0.92, lh);
-  const ledCol = mix(vec3(1.0, 0.5, 0.12), vec3(0.15, 0.85, 1.0), step(0.5, h21(lcell.add(3.3))));
+  const lsel = h21(lcell.add(3.3));
+  const ledCol = mix(
+    mix(vec3(1.0, 0.5, 0.12), vec3(1.0, 0.2, 0.65), step(0.82, lsel)),
+    vec3(0.15, 0.85, 1.0),
+    step(0.6, lsel)
+  );
   const blink = float(0.7).add(sin(tm.mul(2.0).add(lh.mul(60))).mul(0.3));
   const led = ledOn
     .mul(exp(dot(lf, lf).mul(-22).div(blur)))
     .mul(ledCol)
     .mul(blink)
     .mul(3.5);
-  return base.add(edge).add(screen).add(led);
+  // Long warm light bars running down the corridor (receding orange lines).
+  const bf = fract(a.div(170)).sub(0.5);
+  const bar = exp(bf.abs().mul(170).negate().div(blur.mul(1.4)))
+    .mul(vec3(1.0, 0.5, 0.16))
+    .mul(step(0.35, h21(vec2(floor(a.div(170)), 4.4))))
+    .mul(2.2);
+  return base.add(edge).add(screen).add(led.mul(1.3)).add(bar);
 });
 
 /** Reflective tech floor: x,z in world units. */
@@ -129,11 +140,11 @@ const floorPattern = Fn(([x, z, dist, tm]: [any, any, any, any]) => {
   const tc = floor(p.div(40));
   const th = h21(tc);
   const tf = fract(p.div(40));
-  const trace = step(0.62, th)
+  const trace = step(0.5, th)
     .mul(exp(abs(tf.y.sub(0.5)).mul(-40).mul(40).div(blur.mul(14))))
     .mul(step(tf.x, 0.8))
-    .mul(vec3(0.0, 0.6, 0.85))
-    .mul(0.5);
+    .mul(mix(vec3(0.0, 0.6, 0.85), vec3(1.0, 0.5, 0.15), step(0.78, th)))
+    .mul(1.0);
   // Orange streaks running down the corridor (along z), animated.
   const sx = floor(x.div(55));
   const sh = h21(vec2(sx, 3.3));
@@ -144,11 +155,11 @@ const floorPattern = Fn(([x, z, dist, tm]: [any, any, any, any]) => {
       .add(tm.mul(0.05).mul(sh.add(0.4)))
       .add(sh.mul(9))
   );
-  const streak = step(0.8, sh)
-    .mul(exp(sf.mul(sf).mul(-1400).div(blur)))
+  const streak = step(0.55, sh)
+    .mul(exp(sf.mul(sf).mul(-700).div(blur)))
     .mul(smoothstep(0.0, 0.1, run).mul(smoothstep(0.8, 0.2, run)))
     .mul(vec3(1.0, 0.48, 0.12))
-    .mul(2.6);
+    .mul(4.2);
   // Ripple rings around the pedestal.
   const rad = length(vec2(x, z));
   let rings = vec3(0).toVar();
@@ -207,7 +218,7 @@ const bokeh = Fn(([d, tm]: [any, any]) => {
       .mul(float(0.55).add(h2.mul(0.9)))
       .mul(float(1.0 + 0.5 * (1 - soft)));
     const on = step(0.82, h);
-    const col = mix(vec3(1.0, 0.5, 0.15), vec3(0.15, 0.8, 1.0), step(0.45, h2)).mul(
+    const col = mix(vec3(1.0, 0.5, 0.15), vec3(0.15, 0.8, 1.0), step(0.58, h2)).mul(
       mix(float(1), float(0.5), step(0.85, h2))
     );
     acc.addAssign(col.mul(disc).mul(on).mul(pr.i));
@@ -270,12 +281,12 @@ export function createEnvironment(): Environment {
       .mul(0.5)
       .add(
         exp(abs(rd.y).mul(-14))
-          .mul(vec3(0.15, 0.2, 0.3))
-          .mul(0.35)
+          .mul(vec3(0.38, 0.17, 0.12))
+          .mul(0.4)
       );
     col.addAssign(haze);
     col.addAssign(bokeh(rd, time).mul(1.4));
-    return vec4(col.mul(0.16), 1);
+    return vec4(col.mul(0.2), 1);
   });
 
   const roomMat = new MeshBasicNodeMaterial();
@@ -310,7 +321,7 @@ export function createEnvironment(): Environment {
     ).add(exp(abs(fract(lon.mul(8.5 / Math.PI))).mul(-80)));
     const grid = max(latLine, lonLine)
       .mul(vec3(0.15, 0.85, 1.0))
-      .mul(0.55);
+      .mul(mix(float(0.5), float(1.1), lat));
     const view = normalize(cameraPosition.sub(positionWorld));
     const wn = normalize(vec3(positionLocal.x, positionLocal.y.div(0.3), positionLocal.z));
     const fres = pow(float(1).sub(saturate(dot(wn, view))), 3);
@@ -325,7 +336,7 @@ export function createEnvironment(): Environment {
   domeMat.side = DoubleSide;
   const dome = new Mesh(domeGeo, domeMat);
   dome.position.y = FLOOR_Y;
-  dome.scale.y = 0.3;
+  dome.scale.y = 0.38;
   dome.renderOrder = 5;
   disposables.push(domeGeo, domeMat);
 

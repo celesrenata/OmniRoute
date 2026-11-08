@@ -133,7 +133,7 @@ export function createBoltMaterial(
     const haloTerm = hot.mul(exp(s2.mul(-2.2)));
     const coreTerm =
       coreW > 0
-        ? mix(hot, vec3(1, 1, 1), 0.3).mul(exp(s2.mul(-1.2 / (coreW * coreW))).mul(2.6 / 2.8))
+        ? mix(hot, vec3(1, 1, 1), 0.12).mul(exp(s2.mul(-1.2 / (coreW * coreW))).mul(2.6 / 2.8))
         : vec3(0);
     const core = opts.halo
       ? haloTerm.add(coreTerm)
@@ -163,7 +163,12 @@ export function createBoltMaterial(
 export function createBoltVariants(seed: number, count: number): BufferGeometry[] {
   return Array.from({ length: count }, (_, i) =>
     boltRibbonGeometry(
-      buildBolt([0, 0, 0], [0, 0, 1], { seed: seed + i * 7919, levels: 5, branchDepth: 2 })
+      buildBolt([0, 0, 0], [0, 0, 1], {
+        seed: seed + i * 7919,
+        levels: 5,
+        branchDepth: 1,
+        roughness: 0.14,
+      })
     )
   );
 }
