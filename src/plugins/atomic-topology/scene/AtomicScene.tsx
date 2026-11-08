@@ -102,13 +102,21 @@ export function AtomicScene(props: AtomicSceneProps) {
 }
 
 /** Dev-only query flags (`atomic-fx=legacy`, `bloom=0`, `backend=webgl`). */
-function readDevFx(): { legacy: boolean; bloom: boolean; forceWebGL: boolean } {
-  if (typeof window === "undefined") return { legacy: false, bloom: true, forceWebGL: false };
+function readDevFx(): {
+  legacy: boolean;
+  bloom: boolean;
+  forceWebGL: boolean;
+  failRestore: boolean;
+} {
+  if (typeof window === "undefined")
+    return { legacy: false, bloom: true, forceWebGL: false, failRestore: false };
   const q = new URLSearchParams(window.location.search);
   return {
     legacy: q.get("atomic-fx") === "legacy",
     bloom: q.get("bloom") !== "0",
     forceWebGL: q.get("backend") === "webgl",
+    // Dev only: every renderer rebuild after the first fails (drives the 2D fallback).
+    failRestore: q.get("restore-fail") === "1" && process.env.NODE_ENV !== "production",
   };
 }
 
@@ -162,6 +170,8 @@ function RtAtomicScene({
   const [epoch, setEpoch] = useState(0);
   const failures = useRef(0);
   const forceWebGL = useMemo(() => readDevFx().forceWebGL, []);
+  const failRestore = useMemo(() => readDevFx().failRestore, []);
+  const builds = useRef(0);
   const dpr = useMemo(() => deviceDpr(), []);
 
   const onLost = useCallback(() => {
@@ -178,6 +188,8 @@ function RtAtomicScene({
   const glFactory = useCallback(
     async (defaults: { canvas: HTMLCanvasElement | OffscreenCanvas }) => {
       const disposed = { value: false };
+      builds.current += 1;
+      if (failRestore && builds.current > 1) throw new Error("dev: forced restore failure");
       const { renderer, device } = await createRtCanvasRenderer(defaults.canvas, {
         forceWebGL,
         onDeviceLost: (reason) => {
@@ -196,7 +208,7 @@ function RtAtomicScene({
       installLossHook(renderer, device);
       return renderer as never;
     },
-    [forceWebGL, onLost]
+    [forceWebGL, failRestore, onLost]
   );
 
   return (

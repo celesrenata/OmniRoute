@@ -97,8 +97,7 @@ export function cloudShells(seed: number, count = SHELL_COUNT): CloudShell[] {
  * *total* at `total`. This is the bridge between the 007 fixed shell
  * geometry and the release's quality-scaled `cloudParticles` budget
  * (`QUALITY_BUDGETS[quality].cloudParticles`): same deterministic shell
- * structure, but the electron count follows the quality tier so the per-atom
- * draw-call budget stays flat.
+ * structure, but the electron count is fixed (no quality ladder).
  *
  * The fixed ratio is inherently deterministic, so `_seed` is a no-op today —
  * it is kept for positional API symmetry with `cloudShells(seed, …)` (and as

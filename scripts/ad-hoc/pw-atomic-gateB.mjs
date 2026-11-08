@@ -39,7 +39,10 @@ const browser = await chromium.launch({
   ],
 });
 
-async function newPage(viewport = { width: 1600, height: 1000 }, opts = {}) {
+async function newPage(
+  viewport = { width: Number(process.env.VW ?? 1600), height: Number(process.env.VH ?? 1000) },
+  opts = {}
+) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, ...opts });
   const page = await ctx.newPage();
   const errors = [];
@@ -55,9 +58,11 @@ async function frameStats(page, ms = 5000) {
     (dur) =>
       new Promise((resolve) => {
         const d = [];
+        const spikeAt = [];
         let last = performance.now();
         const end = last + dur;
         const tick = (t) => {
+          if (t - last > 30) spikeAt.push(t);
           d.push(t - last);
           last = t;
           if (t < end) requestAnimationFrame(tick);
@@ -70,6 +75,11 @@ async function frameStats(page, ms = 5000) {
               p50: +q(0.5).toFixed(2),
               p95: +q(0.95).toFixed(2),
               p99: +q(0.99).toFixed(2),
+              spikes: spikeAt.length,
+              spikeEveryMs:
+                spikeAt.length > 1
+                  ? +((spikeAt[spikeAt.length - 1] - spikeAt[0]) / (spikeAt.length - 1)).toFixed(0)
+                  : null,
               heapMB: performance.memory
                 ? +(performance.memory.usedJSHeapSize / 1048576).toFixed(1)
                 : null,
@@ -227,6 +237,53 @@ if (mode === "toggle") {
       heapMB: heap,
       heapCurveMB: heapCurve,
       errors: [...new Set(errors)].slice(0, 10),
+    })
+  );
+}
+
+if (mode === "fallback") {
+  // Two failed restores -> host returns to the 2D renderer (dev flag ?restore-fail=1).
+  const { page, errors } = await newPage({ width: 1440, height: 900 });
+  await page.goto(`${BASE}/home?restore-fail=1`);
+  const group = page.locator('[role="group"][aria-label="Topology view mode"]');
+  await group.waitFor({ timeout: 120000 });
+  await group.getByRole("button", { name: "Atomic" }).click();
+  await page.waitForFunction(
+    () => document.querySelectorAll(".atomic-scene-canvas canvas").length === 1,
+    null,
+    { timeout: 60000 }
+  );
+  await page.waitForTimeout(2500);
+  await page.screenshot({ path: path.join(OUT, "fallback-before.png") });
+  const how = await page.evaluate(() => window.__atomicForceContextLoss?.() ?? "no hook");
+  const t0 = Date.now();
+  const back = await page
+    .waitForFunction(
+      () => document.querySelectorAll(".atomic-scene-canvas canvas").length === 0,
+      null,
+      {
+        timeout: 60000,
+      }
+    )
+    .then(() => true)
+    .catch(() => false);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: path.join(OUT, "fallback-after.png") });
+  const state = await page.evaluate(() => ({
+    atomicCanvases: document.querySelectorAll(".atomic-scene-canvas canvas").length,
+    pressed: [
+      ...document.querySelectorAll('[role="group"][aria-label="Topology view mode"] button'),
+    ].map((b) => `${b.textContent}:${b.getAttribute("aria-pressed")}`),
+    body2d: !!document.querySelector("svg"),
+  }));
+  console.log(
+    JSON.stringify({
+      mode,
+      forced: how,
+      returnedTo2D: back,
+      ms: Date.now() - t0,
+      ...state,
+      errors: [...new Set(errors)].slice(0, 6),
     })
   );
 }

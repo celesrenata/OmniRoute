@@ -41,10 +41,8 @@ export const HUB_BRAND_ACCENT = "#6366f1";
 export const PROTON_COLOR = "#bfdbfe";
 export const NEUTRON_COLOR = "#94a3b8";
 
-/** Number of particles in the dense cluster at the default quality tier. */
+/** Number of particles in the dense cluster (the only profile). */
 export const PARTICLE_COUNT_HIGH = 48;
-/** Number of particles in the dense cluster at the low quality tier. */
-export const PARTICLE_COUNT_LOW = 24;
 
 /** The fraction of the core radius the particle cluster occupies. */
 export const NUCLEUS_CLUSTER_RADIUS_FACTOR = 0.72;
@@ -62,8 +60,6 @@ export const NUCLEUS_PARTICLE_RADIUS_FACTOR = 0.22;
  * smaller body, and the per-atom draw budget must stay flat across a fleet.
  */
 export const ATOM_NUCLEUS_COUNT_HIGH = 12;
-/** Particle count for a ring-atom nucleus at the low quality tier. */
-export const ATOM_NUCLEUS_COUNT_LOW = 6;
 
 /** Fixed world radius of one ring-atom nucleus particle. */
 export const ATOM_NUCLEUS_PARTICLE_RADIUS = 2.6;
@@ -83,7 +79,7 @@ export const ATOM_NUCLEUS_CLUSTER_RADIUS_FACTOR = 0.78;
  *
  * Pure: same `count` / `radius` / `colors` → same positions + colors.
  *
- * @param count   particle count (the quality tier decides 6 vs 12); clamped to 0.
+ * @param count   particle count (legacy renderer: fixed 12); clamped to 0.
  * @param radius  cluster radius in world units.
  * @param colors  observed in-flight model colors (may be empty → neutral).
  */
@@ -133,7 +129,7 @@ function fibonacciSpherePosition(index: number, count: number, radius: number): 
  * randomness, no wall clock), so the nucleus looks identical on every render
  * and in tests.
  *
- * @param count      number of particles (the quality tier decides 24 vs 48);
+ * @param count      number of particles (legacy renderer: fixed 48);
  *                   clamped to 0 or more (0 → empty cluster).
  * @param radius     cluster radius in world units (the caller passes
  *                   `NUCLEUS_RADIUS * NUCLEUS_CLUSTER_RADIUS_FACTOR`).

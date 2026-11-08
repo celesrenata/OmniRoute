@@ -17,7 +17,6 @@ import {
   PROTON_COLOR,
   NEUTRON_COLOR,
   ATOM_NUCLEUS_COUNT_HIGH,
-  ATOM_NUCLEUS_COUNT_LOW,
   ATOM_NUCLEUS_PARTICLE_RADIUS,
   nucleusParticleField,
   atomNucleusParticleField,
@@ -102,7 +101,6 @@ test("atomNucleusParticleField: clamps count, stays inside the cluster radius", 
   assert.equal(atomNucleusParticleField(0, 10, ["#123456"]).length, 0);
   assert.equal(atomNucleusParticleField(-1, 10, ["#123456"]).length, 0);
   assert.equal(atomNucleusParticleField(ATOM_NUCLEUS_COUNT_HIGH, 10, []).length, 12);
-  assert.equal(atomNucleusParticleField(ATOM_NUCLEUS_COUNT_LOW, 10, []).length, 6);
 
   const field = atomNucleusParticleField(8, 10, ["#123456"]);
   assertAllFinite(field);

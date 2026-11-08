@@ -37,7 +37,7 @@
  * so pause/reduced-motion freezes the haze exactly like the electrons. The
  * haze renders at a lower `renderOrder` than the electron sprites, so the
  * crisp moving points stay legible on top of the soft luminous volume.
- * Sprite budget: 38 atoms × 3 haze sprites (high tier) = 114, keeping the
+ * Sprite budget: 38 atoms × 3 haze sprites  = 114, keeping the
  * scene under the ~700 total-sprite budget.
  */
 import { useMemo, useRef } from "react";

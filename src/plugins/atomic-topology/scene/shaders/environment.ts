@@ -337,6 +337,7 @@ export function createEnvironment(
       col.assign(
         w
           .mul(ribDark)
+          .mul(1.9)
           .add(rib)
           .mul(exp(tHit.div(sc).mul(-0.0009)))
       );
@@ -350,10 +351,17 @@ export function createEnvironment(
       const fk = fract(float(1).div(fd.add(0.06)).mul(1.6));
       const frame = exp(fk.mul(-14)).mul(smoothstep(0.0, 0.12, fd));
       const frameCol = mix(vec3(0.1, 0.45, 0.9), vec3(1.0, 0.5, 0.15), smoothstep(0.1, 0.6, fd));
+      // Back wall: a real rack wall (panels, vents, LEDs) on the plane z = farZ,
+      // with a bright central doorway so the corridor still ends in light.
+      const tBack = D.z.sub(ro.z).div(rd.z.min(-0.0005));
+      const pb = ro.add(rd.mul(tBack));
+      const rack = wallPattern(pb.x.div(sc), pb.y.div(sc), tBack.div(sc), time);
+      const door = smoothstep(0.55, 0.2, max(abs(fxy.x.mul(0.55)), abs(fxy.y)));
       col.assign(
         vec3(0.012, 0.03, 0.09)
-          .add(frameCol.mul(frame).mul(4.5))
-          .add(vec3(0.5, 0.85, 1.0).mul(g).mul(0.6))
+          .add(rack.mul(2.2).mul(float(1).sub(door.mul(0.85))))
+          .add(frameCol.mul(frame).mul(1.1))
+          .add(vec3(0.5, 0.85, 1.0).mul(g).mul(0.9))
       );
     });
     // Volumetric haze: cyan toward the vanishing point + warm low haze.

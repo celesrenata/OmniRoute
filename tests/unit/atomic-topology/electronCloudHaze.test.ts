@@ -1,8 +1,7 @@
 /**
  * Unit tests for the pure orbital-haze math (OR-ATOM-008 S8.2, `cloudHaze.ts`).
  *
- * Pure helpers only — no `three`, no DOM, no clock: deterministic tier
- * resolution, sprite budgets, counter-rotation bounds, and breathing math.
+ * Pure helpers only — no `three`, no DOM, no clock: sprite budgets, counter-rotation bounds, and breathing math.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -14,29 +13,11 @@ import {
   hazeBreathScale,
   hazeSpinRadians,
   hazeSprites,
-  resolveHazeQualityTier,
 } from "../../../src/plugins/atomic-topology/scene/cloudHaze";
 import { fnv1a } from "../../../src/plugins/atomic-topology/scene/cloudShells";
 
-test("resolveHazeQualityTier maps core counts to tiers (stable, no flicker)", () => {
-  // 1–7 cores → low, 8–11 → medium, ≥12 → high (floor(cores/4) clamped 1..3).
-  assert.equal(resolveHazeQualityTier(1), "low");
-  assert.equal(resolveHazeQualityTier(4), "low");
-  assert.equal(resolveHazeQualityTier(7), "low");
-  assert.equal(resolveHazeQualityTier(8), "medium");
-  assert.equal(resolveHazeQualityTier(11), "medium");
-  assert.equal(resolveHazeQualityTier(12), "high");
-  assert.equal(resolveHazeQualityTier(16), "high");
-  assert.equal(resolveHazeQualityTier(128), "high");
-  // Falsy / absent → 8-core default (medium) — SSR-safe fallback.
-  assert.equal(resolveHazeQualityTier(), "medium");
-  assert.equal(resolveHazeQualityTier(0), "medium");
-  // Same input always yields the same tier (stable for the module lifetime).
-  assert.equal(resolveHazeQualityTier(16), resolveHazeQualityTier(16));
-});
-
 test("HAZE_TIER_TABLE constants stay inside the S8.2 spec envelopes", () => {
-  for (const tier of ["high", "medium", "low"] as const) {
+  for (const tier of ["high"] as const) {
     const p = HAZE_TIER_TABLE[tier];
     // Bounded sprite budget (web-quality-performance): 1–3 per atom.
     assert.ok(p.spriteCount >= 1 && p.spriteCount <= 3, `${tier}: count ${p.spriteCount}`);
@@ -73,13 +54,11 @@ test("hazeSprites is deterministic per seed and tier (FNV-1a driven)", () => {
   const c = hazeSprites(fnv1a("atom-beta"), "high");
   assert.notDeepEqual(a, c); // different seed → different params
   assert.equal(a.length, 3);
-  assert.equal(hazeSprites(fnv1a("atom-alpha"), "medium").length, 2);
-  assert.equal(hazeSprites(fnv1a("atom-alpha"), "low").length, 1);
 });
 
 test("hazeSprites bounds: scale, counter-spin, phases, opacity jitter", () => {
   for (const seed of [0, 1, 777, 0x811c9dc5, fnv1a("provider-gpu-0")]) {
-    for (const tier of ["high", "medium", "low"] as const) {
+    for (const tier of ["high"] as const) {
       const params = HAZE_TIER_TABLE[tier];
       for (const p of hazeSprites(seed, tier)) {
         // Scale stays inside [2.6, 3.4]× the base cloud radius.
@@ -130,7 +109,7 @@ test("hazeSpinRadians is absolute, [0, 2π), and pure in t (exact freeze)", () =
 });
 
 test("hazeBreathScale stays in [1 − amp, 1 + amp] and is period-stable", () => {
-  for (const tier of ["high", "medium", "low"] as const) {
+  for (const tier of ["high"] as const) {
     const params = HAZE_TIER_TABLE[tier];
     const p = hazeSprites(fnv1a("atom-breath"), tier)[0];
     // Sweep well beyond one period — the envelope never leaves ±amplitude.
@@ -155,8 +134,7 @@ test("HAZE_RENDER_ORDER is below the electron sprites (renderOrder 0)", () => {
   assert.ok(HAZE_RENDER_ORDER < 0);
 });
 
-test("HAZE_TIER resolves once at module scope to a valid tier (SSR-safe)", () => {
-  assert.ok(["high", "medium", "low"].includes(HAZE_TIER));
-  // Under SSR (no navigator) it must be the 8-core default → medium.
-  assert.equal(HAZE_TIER, resolveHazeQualityTier());
+test("haze has one fixed profile (no hardware probe, no quality ladder)", () => {
+  assert.equal(HAZE_TIER, "high");
+  assert.deepEqual(Object.keys(HAZE_TIER_TABLE), ["high"]);
 });

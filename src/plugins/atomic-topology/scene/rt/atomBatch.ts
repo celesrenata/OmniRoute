@@ -265,6 +265,9 @@ export interface AtomBatch {
   dispose: () => void;
 }
 
+/** Per-unit-overlap gain divisor: atoms whose discs interpenetrate are subdued (no pink-white stack). */
+const OVERLAP_SUBDUE = 0.7;
+
 export function createAtomBatch(
   capacity: number,
   registry: RtRegistry = createRtRegistry()
@@ -316,6 +319,9 @@ export function createAtomBatch(
   const rot = new Quaternion();
   const dyn = data.dynArr;
   const bucketOfRow: number[] = [];
+  // Screen-space overlap scratch (per row): x, y (view-plane), r (angular radius).
+  let projBuf = new Float32Array(0);
+  let overlapBuf = new Float32Array(0);
   const stat = data.statArr;
 
   function put4(arr: Float32Array, o: number, x: number, y: number, z: number, w: number): void {
@@ -430,6 +436,43 @@ export function createAtomBatch(
     const pxH = ctx.pixelHeight > 0 ? ctx.pixelHeight : 1882;
     const pxScale = (2 * Math.tan((fov * Math.PI) / 360)) / pxH;
     const n = Math.min(states.length, Math.max(0, frames.length - offset));
+    // Overlap pre-pass: atoms whose projected discs interpenetrate stack additive
+    // light into pink-white. Each atom is subdued by how much of its disc is
+    // covered by neighbours of comparable or larger projected size, so a lone
+    // or well-separated atom (approved single/pair/close views) is unchanged.
+    if (projBuf.length < n * 3) {
+      projBuf = new Float32Array(n * 3);
+      overlapBuf = new Float32Array(n);
+    }
+    for (let row = 0; row < n; row += 1) {
+      const fr = frames[offset + row];
+      const scl = fr.scale != null && Number.isFinite(fr.scale) && fr.scale > 0 ? fr.scale : 1;
+      const mul = Number.isFinite(fr.energy.cloudRadiusMul) ? fr.energy.cloudRadiusMul : 0.8;
+      const rr = Math.min(1, Math.max(0.5, mul)) * CLOUD_BOUND_RADIUS * scl;
+      const dx = fr.position[0] - camPos.x;
+      const dy = fr.position[1] - camPos.y;
+      const dz = fr.position[2] - camPos.z;
+      const depth = Math.max(1e-3, dx * camFwd.x + dy * camFwd.y + dz * camFwd.z) || 1e-3;
+      projBuf[row * 3] = (dx * camRight.x + dy * camRight.y + dz * camRight.z) / Math.abs(depth);
+      projBuf[row * 3 + 1] = (dx * camUp.x + dy * camUp.y + dz * camUp.z) / Math.abs(depth);
+      projBuf[row * 3 + 2] = rr / Math.abs(depth);
+    }
+    for (let i = 0; i < n; i += 1) {
+      let acc = 0;
+      const xi = projBuf[i * 3];
+      const yi = projBuf[i * 3 + 1];
+      const ri = projBuf[i * 3 + 2];
+      for (let j = 0; j < n; j += 1) {
+        if (j === i) continue;
+        const rj = projBuf[j * 3 + 2];
+        const d = Math.hypot(projBuf[j * 3] - xi, projBuf[j * 3 + 1] - yi);
+        const reachSum = ri + rj;
+        if (d >= reachSum) continue;
+        const cover = Math.min(1, (reachSum - d) / Math.max(1e-6, Math.min(ri, rj) * 2));
+        acc += cover * Math.min(1.2, rj / Math.max(1e-6, ri));
+      }
+      overlapBuf[i] = acc;
+    }
     for (let row = 0; row < n; row += 1) {
       const st = states[row];
       const f = frames[offset + row];
@@ -488,7 +531,8 @@ export function createAtomBatch(
       // Overdraw subdue is for bright (excited) clouds; a dim idle cloud keeps
       // more of its gain when small on screen so it still reads as an atom.
       const idleK = Math.min(1, Math.max(0, 1 - (exc - 0.12) / 0.88));
-      const crowdG = crowd + (1 - crowd) * 0.3 * idleK;
+      const crowdS = crowd + (1 - crowd) * 0.3 * idleK;
+      const crowdG = Math.max(0.12, crowdS / (1 + OVERLAP_SUBDUE * overlapBuf[row]));
       const bri = params.brightness;
 
       // Decorative differential swirl: rate rises with energy, never encodes

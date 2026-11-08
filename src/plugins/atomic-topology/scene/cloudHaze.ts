@@ -9,21 +9,18 @@
  * same construction as `cloudShells.ts`), so the scene must not depend on
  * array order or wall-clock time.
  *
- * Quality tiers (web-quality-performance: bounded sprite budget): worst case
- * is 38 ring atoms × 3 haze sprites (high tier) = 114 haze sprites, keeping
- * the whole scene under the ~700 total-sprite budget. The tier is resolved
- * ONCE at module scope (stable for the lifetime of the module — it never
- * flickers mid-session) from `navigator.hardwareConcurrency`.
+ * Legacy renderer only (dev `?atomic-fx=legacy` A/B). One fixed profile: worst
+ * case 38 ring atoms × 3 haze sprites = 114 sprites. No hardware probe.
  */
 
 import { fnv1a } from "./cloudShells";
 
-/** The three haze quality tiers. */
-export type HazeQualityTier = "high" | "medium" | "low";
+/** The one haze profile (legacy renderer only; there is no quality ladder). */
+export type HazeQualityTier = "high";
 
 /** Per-tier haze parameters (module-scope constants — the only place tier numbers live). */
 export interface HazeTierParams {
-  /** Haze billboards per atom (high 3 / medium 2 / low 1). */
+  /** Haze billboards per atom (3). */
   spriteCount: number;
   /**
    * Base per-sprite additive opacity (0.03–0.08 — very low so the cloud reads
@@ -54,22 +51,6 @@ export const HAZE_TIER_TABLE: Record<HazeQualityTier, HazeTierParams> = {
     breathAmplitude: 0.05,
     breathPeriodSeconds: 9,
   },
-  medium: {
-    spriteCount: 2,
-    spriteOpacity: 0.05,
-    radiusMultiplier: 2.9,
-    spinRadPerSecond: 0.07,
-    breathAmplitude: 0.04,
-    breathPeriodSeconds: 10,
-  },
-  low: {
-    spriteCount: 1,
-    spriteOpacity: 0.04,
-    radiusMultiplier: 2.7,
-    spinRadPerSecond: 0.06,
-    breathAmplitude: 0.03,
-    breathPeriodSeconds: 11,
-  },
 };
 
 /**
@@ -78,27 +59,8 @@ export const HAZE_TIER_TABLE: Record<HazeQualityTier, HazeTierParams> = {
  */
 export const HAZE_RENDER_ORDER = -1;
 
-/**
- * Resolve the haze quality tier from a CPU-core count (stable heuristic, no
- * flicker). 1–7 cores → low, 8–11 → medium, ≥12 → high. An absent/falsy core
- * count (SSR, headless) falls back to the 8-core default (medium).
- */
-export function resolveHazeQualityTier(hardwareConcurrency?: number): HazeQualityTier {
-  const cores = hardwareConcurrency || 8;
-  const steps = Math.min(3, Math.max(1, Math.floor(cores / 4)));
-  return steps >= 3 ? "high" : steps === 2 ? "medium" : "low";
-}
-
-/**
- * The scene's haze tier, resolved ONCE at module scope — stable for the
- * lifetime of the module (never re-evaluated per frame, per atom, or per
- * render; the browser's `navigator.hardwareConcurrency` is read at most once
- * here, guarded for SSR — Node ≥22 exposes a global `navigator`, so the SSR
- * signal is `window`, not `navigator`).
- */
-export const HAZE_TIER: HazeQualityTier = resolveHazeQualityTier(
-  typeof window === "undefined" ? undefined : navigator.hardwareConcurrency
-);
+/** The scene's single haze profile (no hardware probe, no quality ladder). */
+export const HAZE_TIER: HazeQualityTier = "high";
 
 /** One haze billboard around an atom (deterministic per seed + slot index). */
 export interface HazeSpriteParams {
