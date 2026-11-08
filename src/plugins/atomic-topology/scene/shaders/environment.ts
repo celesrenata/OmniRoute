@@ -26,7 +26,7 @@ import {
   min,
   mix,
   normalize,
-  positionLocal,
+  positionGeometry,
   positionWorld,
   pow,
   saturate,
@@ -42,6 +42,9 @@ import {
 import {
   AdditiveBlending,
   BackSide,
+  InstancedMesh,
+  Matrix4,
+  Vector4,
   CylinderGeometry,
   Mesh,
   MeshBasicNodeMaterial,
@@ -50,14 +53,40 @@ import {
   CircleGeometry,
   type Object3D,
 } from "three/webgpu";
+import { floorY as sharedFloorY } from "../rt/sharedUniforms";
 
+/** Bench floor height (world units); the topology host derives its own from layout bounds. */
 export const FLOOR_Y = -66;
 const WALL_X = 420;
 const CEIL_Y = 300;
+const FAR_Z = -1700;
+const ROOM_RADIUS = 2500;
+/** Max pedestals (instanced; one per atom). */
+export const MAX_PEDESTALS = 256;
+
+/** Room/pedestal placement. All optional; defaults reproduce the Gate A bench room. */
+export interface EnvironmentLayout {
+  /** Pedestal centres (x, z) on the floor, with optional scale (hub = larger). */
+  pedestals: { x: number; z: number; y?: number; scale?: number }[];
+  /** Corridor half-width (world units). */
+  wallX?: number;
+  /** Ceiling height (world units). */
+  ceilY?: number;
+  /** Z of the far (vanishing) end of the corridor. */
+  farZ?: number;
+  /** Pattern scale: grid/rack/LED sizes and depth falloffs multiply by this. */
+  scale?: number;
+  /** Floor height (world units). */
+  floorY?: number;
+}
 
 export interface Environment {
   objects: Object3D[];
   time: { value: number };
+  /** Re-place the room + pedestals (layout change); no shader rebuild. */
+  setLayout: (layout: EnvironmentLayout) => void;
+  /** Keep the room shell centred on the camera and inside its far plane. */
+  follow: (camera: { position: { x: number; y: number; z: number }; far: number }) => void;
   dispose: () => void;
 }
 
@@ -251,24 +280,31 @@ const bokeh = Fn(([d, tm]: [any, any]) => {
   return acc;
 });
 
-export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Environment {
+export function createEnvironment(
+  layoutIn: EnvironmentLayout | [number, number][] = [[0, 0]]
+): Environment {
   const time = uniform(0);
+  // x wallX, y ceilY, z farZ, w pattern scale.
+  const dims = uniform(new Vector4(WALL_X, CEIL_Y, FAR_Z, 1));
+  const floorU = sharedFloorY;
   const disposables: { dispose: () => void }[] = [];
 
   // --- room sphere ------------------------------------------------------
   const room = Fn(() => {
     const ro = cameraPosition;
     const rd = normalize(positionWorld.sub(cameraPosition));
-    const fy = float(FLOOR_Y);
+    const fy = floorU as any;
+    const D = dims as any;
+    const sc = D.w;
     const col = vec3(0.004, 0.007, 0.02).toVar();
     const tFloor = select(rd.y.lessThan(-0.0005), fy.sub(ro.y).div(rd.y), float(1e9));
-    const tCeil = select(rd.y.greaterThan(0.0005), float(CEIL_Y).sub(ro.y).div(rd.y), float(1e9));
-    const tWallR = select(rd.x.greaterThan(0.0005), float(WALL_X).sub(ro.x).div(rd.x), float(1e9));
-    const tWallL = select(rd.x.lessThan(-0.0005), float(-WALL_X).sub(ro.x).div(rd.x), float(1e9));
+    const tCeil = select(rd.y.greaterThan(0.0005), D.y.sub(ro.y).div(rd.y), float(1e9));
+    const tWallR = select(rd.x.greaterThan(0.0005), D.x.sub(ro.x).div(rd.x), float(1e9));
+    const tWallL = select(rd.x.lessThan(-0.0005), D.x.negate().sub(ro.x).div(rd.x), float(1e9));
     const tWall = min(tWallR, tWallL);
     const tHit = min(min(tFloor, tCeil), tWall);
     const p = ro.add(rd.mul(tHit));
-    const far = p.z.lessThan(-1700);
+    const far = p.z.lessThan(D.z);
     const hitFloor = tFloor.lessThanEqual(tHit).and(far.not());
     const hitCeil = tCeil.lessThanEqual(tHit).and(tFloor.greaterThan(tHit)).and(far.not());
     const hitWall = tWall
@@ -277,7 +313,7 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
       .and(tCeil.greaterThan(tHit))
       .and(far.not());
     If(hitFloor, () => {
-      const f = floorPattern(p.x, p.z, tHit, time);
+      const f = floorPattern(p.x.div(sc), p.z.div(sc), tHit.div(sc), time);
       // Grazing-angle gloss: reflective sheen toward the horizon.
       const gl = pow(float(1).sub(abs(rd.y)), 3);
       col.assign(
@@ -287,13 +323,13 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
       );
     });
     If(hitCeil, () => {
-      const w = wallPattern(p.x, p.z, tHit, time).mul(0.5);
+      const w = wallPattern(p.x.div(sc), p.z.div(sc), tHit.div(sc), time).mul(0.5);
       col.assign(vec3(0.004, 0.008, 0.02).add(w));
     });
     If(hitWall, () => {
-      const w = wallPattern(p.y, p.z, tHit, time);
+      const w = wallPattern(p.y.div(sc), p.z.div(sc), tHit.div(sc), time);
       // Receding structural ribs (lit orange edges) so the corridor has depth.
-      const rz = fract(p.z.div(260));
+      const rz = fract(p.z.div(sc.mul(260)));
       const rib = exp(abs(rz.sub(0.5)).sub(0.5).abs().mul(-0.0).sub(rz.mul(55)))
         .mul(vec3(1.0, 0.5, 0.15))
         .mul(1.4);
@@ -302,7 +338,7 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
         w
           .mul(ribDark)
           .add(rib)
-          .mul(exp(tHit.mul(-0.0009)))
+          .mul(exp(tHit.div(sc).mul(-0.0009)))
       );
     });
     // Far end of the corridor: luminous vanishing glow.
@@ -341,7 +377,7 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
   roomMat.depthWrite = false;
   roomMat.depthTest = false;
   roomMat.fog = false;
-  const roomGeo = new SphereGeometry(2500, 32, 16);
+  const roomGeo = new SphereGeometry(ROOM_RADIUS, 32, 16);
   const roomMesh = new Mesh(roomGeo, roomMat);
   roomMesh.renderOrder = -100;
   roomMesh.frustumCulled = false;
@@ -352,7 +388,7 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
   const domeGeo = new SphereGeometry(domeRadius, 96, 32, 0, Math.PI * 2, 0, Math.PI / 2);
   const domeMat = new MeshBasicNodeMaterial();
   domeMat.fragmentNode = Fn(() => {
-    const n = normalize(positionLocal);
+    const n = normalize(positionGeometry);
     const lat = n.y;
     const lon = atan(n.z, n.x);
     const latLine = exp(abs(fract(lat.mul(9)).sub(0.5).sub(0.5)).mul(-70)).add(
@@ -369,7 +405,9 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
       .mul(vec3(0.15, 0.85, 1.0))
       .mul(mix(float(0.3), float(0.65), lat));
     const view = normalize(cameraPosition.sub(positionWorld));
-    const wn = normalize(vec3(positionLocal.x, positionLocal.y.div(0.47), positionLocal.z));
+    const wn = normalize(
+      vec3(positionGeometry.x, positionGeometry.y.div(0.47), positionGeometry.z)
+    );
     const fres = pow(float(1).sub(saturate(dot(wn, view))), 3);
     const rim = fres.mul(vec3(0.2, 0.7, 1.0)).mul(0.3);
     const fade = smoothstep(0.0, 0.18, lat);
@@ -380,17 +418,13 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
   domeMat.blending = AdditiveBlending;
   domeMat.depthWrite = false;
   domeMat.side = DoubleSide;
-  const dome = new Mesh(domeGeo, domeMat);
-  dome.position.y = FLOOR_Y;
-  dome.scale.y = 0.95;
-  dome.renderOrder = 5;
   disposables.push(domeGeo, domeMat);
 
   // Pedestal base: glass cylinder wall + glowing under-disc.
   const baseGeo = new CylinderGeometry(50, 58, 7, 96, 1, true);
   const baseMat = new MeshBasicNodeMaterial();
   baseMat.fragmentNode = Fn(() => {
-    const y = positionLocal.y.add(3.5).div(7);
+    const y = positionGeometry.y.add(3.5).div(7);
     const lines = exp(
       abs(fract(y.mul(3)).sub(0.5))
         .mul(-1)
@@ -400,7 +434,7 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
     void lines;
     const view = normalize(cameraPosition.sub(positionWorld));
     const fres = pow(
-      float(1).sub(abs(dot(normalize(vec3(positionWorld.x, 0, positionWorld.z)), view))),
+      float(1).sub(abs(dot(normalize(vec3(positionGeometry.x, 0, positionGeometry.z)), view))),
       2
     );
     const ring = exp(abs(y.sub(0.5)).mul(-6));
@@ -410,16 +444,13 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
   baseMat.blending = AdditiveBlending;
   baseMat.depthWrite = false;
   baseMat.side = DoubleSide;
-  const base = new Mesh(baseGeo, baseMat);
-  base.position.y = FLOOR_Y + 3.5;
-  base.renderOrder = 4;
   disposables.push(baseGeo, baseMat);
 
   const discGeo = new CircleGeometry(50, 96);
   discGeo.rotateX(-Math.PI / 2);
   const discMat = new MeshBasicNodeMaterial();
   discMat.fragmentNode = Fn(() => {
-    const p = vec2(positionLocal.x, positionLocal.z);
+    const p = vec2(positionGeometry.x, positionGeometry.z);
     const r = length(p).div(50);
     const gx = exp(
       abs(fract(p.x.div(7)).sub(0.5))
@@ -442,27 +473,56 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
   discMat.transparent = true;
   discMat.blending = AdditiveBlending;
   discMat.depthWrite = false;
-  const disc = new Mesh(discGeo, discMat);
-  disc.position.y = FLOOR_Y + 0.4;
-  disc.renderOrder = 3;
   disposables.push(discGeo, discMat);
   void clamp;
   void cos;
 
+  // Instanced pedestals (disc + base + dome): three draws for any atom count.
+  const parts = [
+    { geo: discGeo, mat: discMat, y: 0.4, order: 3 },
+    { geo: baseGeo, mat: baseMat, y: 3.5, order: 4 },
+    { geo: domeGeo, mat: domeMat, y: 0, order: 5 },
+  ].map((p) => {
+    const m = new InstancedMesh(p.geo, p.mat, MAX_PEDESTALS);
+    m.frustumCulled = false;
+    m.renderOrder = p.order;
+    m.count = 0;
+    return { mesh: m, y: p.y };
+  });
+  const mtx = new Matrix4();
+  const setLayout = (l: EnvironmentLayout): void => {
+    (dims.value as Vector4).set(
+      l.wallX ?? WALL_X,
+      l.ceilY ?? CEIL_Y,
+      l.farZ ?? FAR_Z,
+      l.scale ?? 1
+    );
+    const fy = l.floorY ?? FLOOR_Y;
+    (floorU as { value: number }).value = fy;
+    const n = Math.min(l.pedestals.length, MAX_PEDESTALS);
+    for (const part of parts) {
+      for (let i = 0; i < n; i += 1) {
+        const ped = l.pedestals[i];
+        const k = ped.scale ?? 1;
+        mtx.makeScale(k, k * (part.mesh.geometry === domeGeo ? 0.95 : 1), k);
+        mtx.setPosition(ped.x, (ped.y ?? fy) + part.y * k, ped.z);
+        part.mesh.setMatrixAt(i, mtx);
+      }
+      part.mesh.count = n;
+      part.mesh.instanceMatrix.needsUpdate = true;
+    }
+  };
+  setLayout(
+    Array.isArray(layoutIn) ? { pedestals: layoutIn.map(([x, z]) => ({ x, z })) } : layoutIn
+  );
   return {
-    // One pedestal (disc + base + dome) under every atom; clones share geometry/materials.
-    objects: [
-      roomMesh,
-      ...pedestals.flatMap(([px, pz]) =>
-        [disc, base, dome].map((m) => {
-          const c = m.clone();
-          c.position.x += px;
-          c.position.z += pz;
-          return c;
-        })
-      ),
-    ],
+    objects: [roomMesh, ...parts.map((p) => p.mesh)],
     time,
+    setLayout,
+    follow(camera) {
+      roomMesh.position.set(camera.position.x, camera.position.y, camera.position.z);
+      roomMesh.scale.setScalar(Math.max(0.01, (camera.far * 0.8) / ROOM_RADIUS));
+    },
     dispose: () => disposables.forEach((d) => d.dispose()),
   };
 }

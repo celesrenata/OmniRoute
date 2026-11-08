@@ -24,7 +24,8 @@ import {
   type EnergyState,
 } from "../scene/energyState";
 import { createEnvironment, FLOOR_Y } from "../scene/shaders/environment";
-import { createRtAtom, type RtAtom } from "../scene/rt/rtAtom";
+import { createAtomBatchSet, type BatchAtomFrame } from "../scene/rt/atomBatch";
+import { batchCapacityFor } from "../scene/rt/atomData";
 import { createRtRegistry } from "../scene/rt/rtRegistry";
 import { createRtRenderer, type RtRenderer } from "../scene/rt/rendererFactory";
 import { laneHue } from "../visualEncoding";
@@ -120,33 +121,37 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
     const cols = Math.ceil(Math.sqrt(kinds.length));
     const rows = Math.ceil(kinds.length / cols);
     const spacing = 150;
-    const atoms: {
-      atom: RtAtom;
-      energy: EnergyState;
-      kind: "idle" | "excited";
-      phase: number;
-      spin: number;
-    }[] = [];
-    kinds.forEach((kind, i) => {
+    const webgl =
+      params.backend === "webgl" || typeof (navigator as { gpu?: unknown }).gpu === "undefined";
+    const batch = createAtomBatchSet(batchCapacityFor(webgl ? 16384 : 65536), registry);
+    scene.add(batch.group);
+    const atoms: { energy: EnergyState; kind: "idle" | "excited"; phase: number; spin: number }[] =
+      [];
+    const positions: [number, number, number][] = [];
+    const configs = kinds.map((kind, i) => {
       const ids = MODEL_SETS[params.models];
       const gx = (i % cols) - (cols - 1) / 2;
       const gz = Math.floor(i / cols) - (rows - 1) / 2;
       const x = multi ? gx * spacing : pair ? (i === 0 ? -78 : 78) : 0;
       const z = multi ? gz * spacing : 0;
-      const atom = createRtAtom(
-        {
-          id: multi ? `${params.golden}:bench-${i}` : `${params.golden}:bench-${params.golden}`,
-          hub: params.golden === "hub",
-          observedModelIds: params.golden === "hub" ? undefined : ids,
-          laneHue: laneHue("prefill"),
-          position: [x, 0, z],
-          neutral: params.golden === "hub" ? false : !ids || stale,
-        },
-        registry
-      );
-      env.objects.length && scene.add(atom.group);
-      atoms.push({ atom, energy: energyFor(kind, stale, reduced), kind, phase: 0, spin: 0 });
+      positions.push([x, 0, z]);
+      atoms.push({ energy: energyFor(kind, stale, reduced), kind, phase: 0, spin: 0 });
+      return {
+        id: multi ? `${params.golden}:bench-${i}` : `${params.golden}:bench-${params.golden}`,
+        hub: params.golden === "hub",
+        observedModelIds: params.golden === "hub" ? undefined : ids,
+        laneHue: laneHue("prefill"),
+        neutral: params.golden === "hub" ? false : !ids || stale,
+      };
     });
+    batch.configure(configs);
+    const atomFrames: BatchAtomFrame[] = atoms.map((a, i) => ({
+      position: positions[i],
+      energy: a.energy,
+      phase: 0,
+      spinAngle: 0,
+      marchSteps: 48,
+    }));
 
     const dist = multi
       ? 255 * Math.max(cols, rows) * 0.9
@@ -168,6 +173,10 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
     const steps =
       Number(new URLSearchParams(location.search).get("steps")) ||
       (params.dist === "close" ? 48 : 48);
+    // Dev-only profiling: ?hide=strands,wires,... hides named batched layers.
+    const hidden = new Set(
+      (new URLSearchParams(location.search).get("hide") ?? "").split(",").filter(Boolean)
+    );
     let last = performance.now();
     let frames = 0;
 
@@ -176,7 +185,7 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
       const dt = Math.min(Math.max((nowMs - last) / 1000, 0), 0.1);
       last = nowMs;
       camera.updateMatrixWorld(true);
-      for (const a of atoms) {
+      atoms.forEach((a, i) => {
         if (params.t != null) {
           a.phase = params.t * a.energy.speedMul;
           a.spin = a.energy.measured ? params.t * tpsToRadiansPerSecond(140) : 0;
@@ -184,18 +193,18 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
           a.phase = advanceAnimationPhase(a.phase, dt, a.energy.speedMul, reduced);
           a.spin += a.energy.measured && !reduced ? tpsToRadiansPerSecond(140) * dt : 0;
         }
-        a.atom.update({
-          dt: params.paused || params.t != null ? 0 : dt,
-          camera,
-          energy: a.energy,
-          phase: a.phase,
-          spinAngle: a.spin,
-          reducedMotion: reduced,
-          marchSteps: steps,
-          time: nowMs / 1000,
-          pixelHeight: params.height * (window.devicePixelRatio || 1),
-        });
-      }
+        const fr = atomFrames[i];
+        fr.phase = a.phase;
+        fr.spinAngle = a.spin;
+        fr.marchSteps = steps;
+      });
+      batch.update(atomFrames, {
+        dt: params.paused || params.t != null ? 0 : dt,
+        camera,
+        reducedMotion: reduced,
+        pixelHeight: params.height * (window.devicePixelRatio || 1),
+      });
+      if (hidden.size) batch.group.traverse((o) => hidden.has(o.name) && (o.visible = false));
       (env.time as { value: number }).value = reduced ? 0 : (params.t ?? nowMs / 1000);
       rtRenderer.render();
       frames += 1;

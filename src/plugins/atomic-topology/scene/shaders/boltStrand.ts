@@ -1,8 +1,16 @@
 /**
  * Emissive procedural lightning (TSL): camera-facing ribbons built from the
  * seeded fractal geometry in `boltGeometry.ts`. Geometry lives in a unit bolt
- * space (start (0,0,0) -> end (0,0,1)); per-bolt uniforms A/B place and scale
+ * space (start (0,0,0) -> end (0,0,1)); per-bolt endpoints A/B place and scale
  * it in world space, so endpoints are always exactly A and B.
+ *
+ * Batched (Gate B C7a): ONE instanced draw for every bolt slot of every atom
+ * (instance `i` = slot `i % 8` of atom row `floor(i / 8)`). The geometry holds
+ * all canonical variants back to back (`aVar`); a slot shows only the variant
+ * its data texel selects and collapses to zero area when it is not firing. The
+ * instance count is fixed per configuration, so a discharge never touches a
+ * GPU buffer besides the per-frame atom data texture (re-listing instances
+ * per variant caused ~40 ms stalls every flicker on the M5 Max).
  */
 import {
   Fn,
@@ -11,6 +19,8 @@ import {
   cross,
   exp,
   float,
+  instanceIndex,
+  int,
   length,
   max,
   mix,
@@ -20,29 +30,25 @@ import {
   varying,
   vec3,
   vec4,
-  uniform,
 } from "three/tsl";
 import {
   AdditiveBlending,
   BufferAttribute,
-  BufferGeometry,
+  InstancedBufferGeometry,
   Mesh,
   MeshBasicNodeMaterial,
-  Vector3,
 } from "three/webgpu";
 import { buildBolt, type Bolt } from "../boltGeometry";
+import { atomFields, type AtomData } from "../rt/atomData";
+import { BOLT_SLOTS_PER_ATOM, BOLT_VARIANT_COUNT } from "../rt/atomLayout";
 import { sphereVisibility } from "./raySphere";
 
-export interface BoltUniforms {
-  a: ReturnType<typeof uniform>;
-  b: ReturnType<typeof uniform>;
-  intensity: ReturnType<typeof uniform>;
-  occluderCenter: ReturnType<typeof uniform>;
-  occluderRadius: ReturnType<typeof uniform>;
-}
+/** Halo width (world units) and the embedded white-hot core fraction. */
+const BOLT_WIDTH = 0.17;
+const BOLT_CORE_RATIO = 0.3;
 
 /** Ribbon geometry (4 vertices per segment) for a bolt in unit bolt space. */
-export function boltRibbonGeometry(bolt: Bolt): BufferGeometry {
+export function boltRibbonGeometry(bolt: Bolt, variant = 0): InstancedBufferGeometry {
   const segs = [...bolt.segments, ...bolt.sparks.map((s) => ({ ...s, generation: 9 }))];
   const n = segs.length;
   const pos = new Float32Array(n * 4 * 3);
@@ -68,38 +74,28 @@ export function boltRibbonGeometry(bolt: Bolt): BufferGeometry {
     const b = i * 4;
     idx.set([b, b + 1, b + 2, b + 1, b + 3, b + 2], i * 6);
   }
-  const g = new BufferGeometry();
+  const g = new InstancedBufferGeometry();
   g.setAttribute("position", new BufferAttribute(pos, 3));
   g.setAttribute("aOther", new BufferAttribute(other, 3));
   g.setAttribute("aSide", new BufferAttribute(side, 1));
   g.setAttribute("aGen", new BufferAttribute(gen, 1));
+  g.setAttribute("aVar", new BufferAttribute(new Float32Array(n * 4).fill(variant), 1));
   g.setIndex(new BufferAttribute(idx, 1));
+  g.instanceCount = 0;
   return g;
 }
 
-export function createBoltUniforms(): BoltUniforms {
-  return {
-    a: uniform(new Vector3()),
-    b: uniform(new Vector3(0, 0, 1)),
-    intensity: uniform(0),
-    occluderCenter: uniform(new Vector3()),
-    occluderRadius: uniform(10),
-  };
-}
-
-/** Build core + halo ribbon materials for a bolt's uniforms. */
-export function createBoltMaterial(
-  u: BoltUniforms,
-  opts: {
-    halo: boolean;
-    color: [number, number, number];
-    width: number;
-    /** Core width as a fraction of the halo width; > 0 embeds the core in the halo. */
-    coreRatio?: number;
-  }
-): MeshBasicNodeMaterial {
-  const A = u.a as any;
-  const B = u.b as any;
+/** Build the batched halo+core ribbon material (colour/endpoints/intensity per instance). */
+export function createBoltMaterial(data: AtomData): MeshBasicNodeMaterial {
+  const ref = int(instanceIndex);
+  const row = ref.div(BOLT_SLOTS_PER_ATOM);
+  const slot = ref.sub(row.mul(BOLT_SLOTS_PER_ATOM));
+  const U = atomFields(data, row, false);
+  const t0 = U.bolt(slot, 0);
+  const t1 = U.bolt(slot, 1);
+  const t2 = U.bolt(slot, 2);
+  const A = t0.xyz;
+  const B = t1.xyz;
   const axis = normalize(B.sub(A));
   const L = length(B.sub(A));
   const upRef = select(axis.y.abs().lessThan(0.95), vec3(0, 1, 0), vec3(1, 0, 0));
@@ -119,36 +115,27 @@ export function createBoltMaterial(
   const perp = normalize(cross(dir, eye));
   const isSpark = aGen.greaterThan(8.5);
   const gw = select(isSpark, float(0.55), float(1).div(aGen.add(1).pow(0.6)));
-  const width = gw.mul(opts.width);
+  const width = gw.mul(BOLT_WIDTH);
+  // Show only the selected variant of a firing slot; everything else collapses.
+  const aVar = attribute("aVar", "float");
+  const shown = t0.w.greaterThan(0).and(aVar.sub(t1.w).abs().lessThan(0.5));
   const material = new MeshBasicNodeMaterial();
-  material.positionNode = P.add(perp.mul(aSide.mul(width)));
+  material.positionNode = select(shown, P.add(perp.mul(aSide.mul(width))), A);
   const sideV = varying(aSide);
   const genV = varying(aGen);
   material.fragmentNode = Fn(() => {
-    const hot = vec3(...opts.color);
-    // Halo ribbons also carry the hot core in their centre (one draw per bolt
+    const hot = t2.xyz;
+    // The halo ribbon also carries the hot core in its centre (one draw per bolt
     // instead of two overlapping additive ribbons: half the bolt overdraw).
     const s2 = sideV.mul(sideV);
-    const coreW = opts.coreRatio ?? 0;
     const haloTerm = hot.mul(exp(s2.mul(-2.2)));
-    const coreTerm =
-      coreW > 0
-        ? mix(hot, vec3(1, 1, 1), 0.03).mul(exp(s2.mul(-1.2 / (coreW * coreW))).mul(2.0 / 2.8))
-        : vec3(0);
-    const core = opts.halo
-      ? haloTerm.add(coreTerm)
-      : mix(hot, vec3(1, 1, 1), 0.3).mul(exp(s2.mul(-1.2)));
-    const falloff = float(1).div(genV.add(1).mul(0.6).add(0.4));
-    const vis = sphereVisibility(
-      cameraPosition,
-      positionWorld,
-      u.occluderCenter as any,
-      u.occluderRadius as any
+    const coreTerm = mix(hot, vec3(1, 1, 1), 0.03).mul(
+      exp(s2.mul(-1.2 / (BOLT_CORE_RATIO * BOLT_CORE_RATIO))).mul(2.0 / 2.8)
     );
-    const k = falloff
-      .mul(u.intensity as any)
-      .mul(vis)
-      .mul(opts.halo ? 1.9 : 1.8);
+    const core = haloTerm.add(coreTerm);
+    const falloff = float(1).div(genV.add(1).mul(0.6).add(0.4));
+    const vis = sphereVisibility(cameraPosition, positionWorld, U.center, U.occluderR);
+    const k = falloff.mul(t0.w).mul(vis).mul(1.9);
     return vec4(core.mul(k), 1);
   })();
   material.transparent = true;
@@ -160,17 +147,74 @@ export function createBoltMaterial(
   return material;
 }
 
-export function createBoltVariants(seed: number, count: number): BufferGeometry[] {
-  return Array.from({ length: count }, (_, i) =>
+/** All canonical bolt variants merged into one geometry (tagged by `aVar`). */
+export function createBoltGeometry(count = BOLT_VARIANT_COUNT): InstancedBufferGeometry {
+  const parts = Array.from({ length: count }, (_, i) =>
     boltRibbonGeometry(
       buildBolt([0, 0, 0], [0, 0, 1], {
-        seed: seed + i * 7919,
+        seed: 0xb017 + i * 7919,
         levels: 5,
         branchDepth: 1,
         roughness: 0.14,
-      })
+      }),
+      i
     )
   );
+  const names = ["position", "aOther", "aSide", "aGen", "aVar"];
+  const out = new InstancedBufferGeometry();
+  let vtx = 0;
+  let idx = 0;
+  for (const p of parts) {
+    vtx += p.getAttribute("position").count;
+    idx += p.index!.count;
+  }
+  for (const name of names) {
+    const size = parts[0].getAttribute(name).itemSize;
+    const arr = new Float32Array(vtx * size);
+    let o = 0;
+    for (const p of parts) {
+      const a = p.getAttribute(name).array as Float32Array;
+      arr.set(a, o);
+      o += a.length;
+    }
+    out.setAttribute(name, new BufferAttribute(arr, size));
+  }
+  const index = new Uint32Array(idx);
+  let io = 0;
+  let base = 0;
+  for (const p of parts) {
+    const src = p.index!.array as Uint32Array;
+    for (let i = 0; i < src.length; i += 1) index[io + i] = src[i] + base;
+    io += src.length;
+    base += p.getAttribute("position").count;
+    p.dispose();
+  }
+  out.setIndex(new BufferAttribute(index, 1));
+  out.instanceCount = 0;
+  return out;
+}
+
+export interface BoltLayer {
+  mesh: Mesh;
+  material: MeshBasicNodeMaterial;
+  geometry: InstancedBufferGeometry;
+  setCount: (atoms: number) => void;
+}
+
+export function createBoltLayer(data: AtomData): BoltLayer {
+  const material = createBoltMaterial(data);
+  const geometry = createBoltGeometry();
+  const mesh = new Mesh(geometry, material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 12;
+  return {
+    mesh,
+    material,
+    geometry,
+    setCount: (atoms: number) => {
+      geometry.instanceCount = atoms * BOLT_SLOTS_PER_ATOM;
+    },
+  };
 }
 
 export { Mesh };
