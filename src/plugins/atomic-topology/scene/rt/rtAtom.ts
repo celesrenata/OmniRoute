@@ -18,7 +18,7 @@ import {
   Vector3,
   type Camera,
 } from "three/webgpu";
-import { abs, exp, float, smoothstep, uniform, uv, vec3, vec4 } from "three/tsl";
+import { abs, exp, float, length, smoothstep, uniform, uv, vec3, vec4 } from "three/tsl";
 import { fnv1a } from "../cloudShells";
 import type { EnergyState } from "../energyState";
 import { desaturateLinear, hexToLinear, packNucleus, type PackedNucleus } from "../nucleonPack";
@@ -95,7 +95,7 @@ const BOLT_VARIANTS = 3;
  * Visual nucleus scale relative to the packed production cluster: idea5 shows
  * a small crystalline gem (~1/4 of the cloud diameter), not a large ball.
  */
-export const NUCLEUS_VISUAL_SCALE = 0.58;
+export const NUCLEUS_VISUAL_SCALE = 0.48;
 /** Deterministic hash in [0, 1) (bolt directions; no Math.random). */
 function hash01(n: number): number {
   const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
@@ -329,7 +329,7 @@ export function createRtAtom(
     const bc = (opts.neutral ? NEUTRAL_PALETTE : LANE_PALETTE)[(s % 5) % (opts.neutral ? 3 : 5)];
     const halo = new Mesh(
       variants[0],
-      createBoltMaterial(bu, { halo: true, color: bc, width: 0.3, coreRatio: 0.28 })
+      createBoltMaterial(bu, { halo: true, color: bc, width: 0.17, coreRatio: 0.3 })
     );
     halo.frustumCulled = false;
     halo.renderOrder = 12;
@@ -379,9 +379,10 @@ export function createRtAtom(
   glowMat.colorNode = (() => {
     const p = uv().sub(0.5).mul(2);
     const r2 = p.x.mul(p.x).add(p.y.mul(p.y));
-    const g = exp(r2.mul(-7))
-      .mul(0.8)
-      .add(exp(r2.mul(-40)).mul(0.9));
+    const g = exp(r2.mul(-5))
+      .mul(0.9)
+      .add(exp(r2.mul(-26)).mul(1.5))
+      .add(exp(r2.mul(-110)).mul(1.8));
     return vec4(
       vec3(1.0, 0.5, 0.85)
         .mul(g)
@@ -397,12 +398,37 @@ export function createRtAtom(
   glow.renderOrder = 7;
   group.add(glow);
   registry.add(glowMat);
+  // Faint cyan rim-light on the cloud outline (closed silhouette, blooms).
+  const ringK = uniform(0);
+  const ringMat = new SpriteNodeMaterial();
+  ringMat.colorNode = (() => {
+    const p = uv().sub(0.5).mul(2);
+    const r = length(p);
+    const band = exp(r.sub(0.9).div(0.014).pow(2).negate())
+      .mul(0.22)
+      .add(exp(r.sub(0.9).div(0.07).pow(2).negate()).mul(0.07));
+    return vec4(
+      vec3(0.1, 0.85, 1.0)
+        .mul(band)
+        .mul(ringK as any),
+      1
+    );
+  })();
+  ringMat.transparent = true;
+  ringMat.blending = AdditiveBlending;
+  ringMat.depthWrite = false;
+  ringMat.depthTest = false;
+  const ring = new Sprite(ringMat);
+  ring.renderOrder = 7;
+  group.add(ring);
+  registry.add(ringMat);
   const camRight = new Vector3();
   const camUp = new Vector3();
   const tmp = new Vector3();
   const rot = new Quaternion();
   const axis = new Vector3(...packed.spinAxis).normalize();
   let flickerClock = 0;
+  let swirlClock = 0;
   const worldCenter = new Vector3();
   const viewDir = new Vector3();
 
@@ -514,8 +540,16 @@ export function createRtAtom(
     // Anamorphic streak: spans well beyond the cloud, brighter when excited.
     // Quad sized to the visible band only (fill cost: it is additive over MSAA HDR).
     streak.scale.set(cr * 6, cr * 0.16, 1);
-    glow.scale.set(cr * 0.5, cr * 0.5, 1);
-    glowK.value = (0.25 + 0.75 * params.excitation) * params.brightness;
+    glow.scale.set(cr * 0.62, cr * 0.62, 1);
+    glowK.value = (0.2 + 0.95 * params.excitation) * params.brightness;
+    ring.scale.set((2 * reach * cr) / 0.9, (2 * reach * cr) / 0.9, 1);
+    ringK.value = (0.3 + 0.7 * params.excitation) * params.brightness;
+    // Decorative differential swirl: rate rises with energy, never encodes
+    // throughput; frozen (still-rich frame) under reduced motion.
+    swirlClock +=
+      f.reducedMotion || !(f.dt > 0) ? 0 : Math.min(f.dt, 0.25) * (0.1 + 0.16 * params.excitation);
+    (strandU.swirl as any).value = swirlClock;
+    (strandU.lifeOn as any).value = f.reducedMotion ? 0 : 1;
     streakK.value = (0.2 + 1.0 * params.excitation) * params.brightness * closeK;
 
     // Bolt ribbons carry world-space endpoints: cancel the group's translation.
@@ -523,14 +557,15 @@ export function createRtAtom(
 
     // Lightning: only for excited, measured state; static in reduced motion.
     flickerClock += f.reducedMotion || !(f.dt > 0) ? 0 : Math.min(f.dt, 0.25);
-    const slotThreshold = [0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.92];
+    // Fewer, thinner bolts: only the first four slots ever fire.
+    const slotThreshold = [0.4, 0.6, 0.8, 0.92, 2, 2, 2, 2];
     boltSlots.forEach((slot, s) => {
       const on = f.energy.measured && f.energy.excitation > slotThreshold[s];
       const flick = f.reducedMotion
         ? 0.7
         : 0.65 + 0.35 * Math.abs(Math.sin(flickerClock * (9 + s * 3) + s));
       (slot.u.intensity as any).value = on
-        ? flick * (0.55 + 0.7 * f.energy.excitation) * closeK * closeK
+        ? flick * (0.4 + 0.5 * f.energy.excitation) * closeK * closeK
         : 0;
       const v = f.reducedMotion
         ? 0

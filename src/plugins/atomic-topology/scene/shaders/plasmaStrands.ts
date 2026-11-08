@@ -14,6 +14,7 @@ import {
   Fn,
   attribute,
   cameraPosition,
+  cos,
   cross,
   dot,
   exp,
@@ -69,6 +70,10 @@ export interface StrandUniforms {
   camUp: ReturnType<typeof uniform>;
   occluderRadius: ReturnType<typeof uniform>;
   floorY: ReturnType<typeof uniform>;
+  /** Decorative differential-swirl angle (rad). Never encodes throughput. */
+  swirl: ReturnType<typeof uniform>;
+  /** 1 = strand lifecycle/flicker live, 0 = static still-rich frame (reduced motion). */
+  lifeOn: ReturnType<typeof uniform>;
 }
 
 export function createStrandUniforms(): StrandUniforms {
@@ -89,6 +94,8 @@ export function createStrandUniforms(): StrandUniforms {
     camUp: uniform(new Vector3(0, 1, 0)),
     occluderRadius: uniform(10),
     floorY: uniform(-62),
+    swirl: uniform(0),
+    lifeOn: uniform(1),
   };
 }
 
@@ -169,8 +176,22 @@ export function createStrandMaterial(u: StrandUniforms, mirror = false): MeshBas
   const e1 = normalize(cross(d, upRef));
   const e2 = cross(d, e1);
   const root = u.rootR as any;
-  // Per-strand breathing reach: strands grow and recede slowly (deterministic).
-  const reach = len.mul(u.reach as any).mul(sin(time.mul(0.55).add(fl)).mul(0.06).add(0.94));
+  // Staggered lifecycle (born -> full -> fades), deterministic from the baked
+  // per-strand phase; reach/brightness breathe with it, tips stay on the envelope.
+  const lifeRate = fl.mul(1.7).fract().mul(0.06).add(0.035);
+  const life = time.mul(lifeRate).add(rank.mul(7.3)).fract();
+  const grow = smoothstep(0, 0.28, life).mul(float(1).sub(smoothstep(0.72, 1, life)));
+  const gm = mix(float(1), grow, u.lifeOn as any);
+  const reach = len
+    .mul(u.reach as any)
+    .mul(sin(time.mul(0.55).add(fl)).mul(0.05).add(0.95))
+    .mul(gm.mul(0.1).add(0.9));
+  // Counter-rotating layers with differential swirl (inner faster than outer).
+  const layer = select(fl.lessThan(3.1), float(1), float(-0.65));
+  const swirlAt = (tt: any) => {
+    const a = (u.swirl as any).mul(layer).mul(float(1.3).sub(tt.mul(0.9)));
+    return a;
+  };
   const curve = (tt: any) => {
     const r = root.add(reach.sub(root).mul(tt));
     const bend = curl.mul(tt.mul(tt)).mul(0.5);
@@ -185,10 +206,18 @@ export function createStrandMaterial(u: StrandUniforms, mirror = false): MeshBas
     const w2 = sin(tt.mul(wob.mul(0.7)).add(fl.mul(1.3)).add(time.mul(0.3)))
       .mul(0.03)
       .mul(tt);
-    return d
-      .mul(r)
-      .add(e1.mul(bend.add(w1)))
-      .add(e2.mul(w2));
+    // Curl bends the direction, but the radius stays r: tips lie on a closed
+    // spherical envelope (no fray past the silhouette).
+    const bent = normalize(
+      d
+        .mul(r)
+        .add(e1.mul(bend.add(w1)))
+        .add(e2.mul(w2))
+    ).mul(r);
+    const a = swirlAt(tt);
+    const c = cos(a);
+    const sn = sin(a);
+    return vec3(bent.x.mul(c).add(bent.z.mul(sn)), bent.y, bent.z.mul(c).sub(bent.x.mul(sn)));
   };
   const cloudR = u.cloudR as any;
   const p0 = curve(t).mul(cloudR);
@@ -213,6 +242,7 @@ export function createStrandMaterial(u: StrandUniforms, mirror = false): MeshBas
   material.positionNode = pL.add(perp.mul(side.mul(0.5).mul(drawPx).mul(pxWorld).mul(lit)));
   // Energy-conserving thin lines: sub-pixel strands are drawn 1 px wide, dimmer.
   const coverV = varying(widthPx.div(drawPx).mul(lit));
+  const gmV = varying(gm);
   const tV = varying(t);
   const sideV = varying(side);
   const flV = varying(fl);
@@ -247,9 +277,10 @@ export function createStrandMaterial(u: StrandUniforms, mirror = false): MeshBas
     const depth = smoothstep(-0.8, 0.6, frontV).mul(0.7).add(0.3);
     const vis = sphereVisibility(cameraPosition, positionWorld, center, u.occluderRadius as any);
     // Bright cyan tip cap: strand ends form the luminous silhouette of the cloud.
-    const tipCap = smoothstep(0.84, 0.97, tV).mul(2.2).add(1);
-    const k = float(0.55)
-      .add(exc.mul(1.5))
+    const tipCap = smoothstep(0.84, 0.97, tV).mul(3.2).add(1);
+    const k = float(0.28)
+      .add(exc.mul(1.05))
+      .mul(gmV.mul(0.8).add(0.2))
       .mul(tipCap)
       .mul(bri)
       .mul(flick.mul(0.55).add(0.45).add(pulse))
@@ -274,10 +305,14 @@ export function createSparkleMaterial(u: StrandUniforms): MeshBasicNodeMaterial 
   const corner = attribute("aCorner", "vec3");
   const d = normalize((u.orient as any).mul(attribute("position", "vec3")));
   const center = u.center as any;
-  const pL = d
+  const sa = (u.swirl as any).mul(float(1.3).sub(shape.x.mul(0.9)));
+  const sc = cos(sa);
+  const ss = sin(sa);
+  const pr = d
     .mul(shape.x)
     .mul(u.reach as any)
     .mul(u.cloudR as any);
+  const pL = vec3(pr.x.mul(sc).add(pr.z.mul(ss)), pr.y, pr.z.mul(sc).sub(pr.x.mul(ss)));
   const dist = length(cameraPosition.sub(center).sub(pL));
   const lit = step(corner.z, u.active as any);
   const sizeWorld = shape.y
@@ -300,14 +335,16 @@ export function createSparkleMaterial(u: StrandUniforms): MeshBasicNodeMaterial 
         .add(0.5),
       3
     );
-    const col = mix(u.rim as any, vec3(1.0, 0.45, 0.3), kindV);
+    // Motes alternate hot pink / orange; the rim fringe stays cyan.
+    const moteCol = mix(vec3(1.0, 0.35, 0.65), vec3(1.0, 0.55, 0.2), twV.mul(3).fract());
+    const col = mix(u.rim as any, moteCol, kindV);
     const vis = sphereVisibility(cameraPosition, positionWorld, center, u.occluderRadius as any);
     const k = dot0
       .mul(tw.mul(0.8).add(0.2))
       .mul(float(0.6).add(exc.mul(1.4)))
       .mul(bri)
       .mul(vis)
-      .mul(9.0);
+      .mul(mix(float(11), float(16), kindV));
     return vec4(grade(col, sat).mul(k), 1);
   })();
   return finish(material);

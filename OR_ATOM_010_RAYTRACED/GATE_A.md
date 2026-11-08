@@ -205,3 +205,31 @@ Side-by-sides vs idea5: `screenshots/gateA/sidebyside-idea5-{default-3c,close-3c
 - `npm run lint`: 7 pre-existing scriptVault errors; `npx eslint src/plugins/atomic-topology`: 0 errors
 - `zsh scripts/ad-hoc/pw-atomic-gateA-all.sh`: 19/19 state=ok (headed Chrome, WebGPU apple/metal-3)
 - `UNCAPPED=1 node scripts/ad-hoc/pw-atomic-gateA-live.mjs ...`: table above
+
+## Round 8 (r2 review fixes, addendum 3)
+
+Reviewer r7 findings and what changed (shaders under `src/plugins/atomic-topology/scene`):
+
+| #   | Finding / addendum item         | Change                                                                                                                                                                                                                                                                                                       | Evidence                                     |
+| --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| 1   | No closed silhouette / cyan rim | Strand tips now lie on a closed spherical envelope (`plasmaStrands.ts`: curl bends the direction, radius stays `r`, so tips cannot fray past the boundary). Rim particulate band raised from 3.4k to 11k sparkles in a thin 0.93..1.05 shell, brighter HDR; faint cyan rim-light ring sprite on the outline. | `sidebyside-idea5-default-3c`, `-close-3c`   |
+| 2   | Interior pale lilac, no motes   | Strand body gain 0.55/1.5 -> 0.28/1.05 (deeper violet between bundles); pink/orange motes 2.6-5 px, HDR x16, alternating pink and orange.                                                                                                                                                                    | same                                         |
+| 3   | Nucleus flare weak              | `NUCLEUS_VISUAL_SCALE` 0.58 -> 0.48 (atom-internal only, footprint unchanged); balls self-illuminated in their own hue (`emissive` in `atomImpostor.ts`, scales with excitation x brightness, greys when idle); core glow sprite larger and hotter (pink-white).                                             | `gateA-provider-close-3c`                    |
+| A3  | Alive, non-uniform, rotating    | GPU lifecycle per strand (born/fade, staggered, `lifeOn=0` under reduced motion); counter-rotating layers with differential swirl (inner faster); swirl rate rises with energy but is a separate clock from nucleus spin (spin stays bound to measured tok/s).                                               | `video/*.webm`, `preview/motion-strip-*.jpg` |
+| A4  | Lightning                       | 4 slots instead of 8 (thresholds 0.4/0.6/0.8/0.92), halo width 0.3 -> 0.17, intensity lowered.                                                                                                                                                                                                               | captures                                     |
+| A5  | Environment                     | Unchanged this round: corridor with receding gantry frames, warm floor streaks and light bars were already in place (r7).                                                                                                                                                                                    | captures                                     |
+| A6  | Evidence                        | 12 s headed-Chrome recordings: `screenshots/gateA/video/{default,close}-{excited,idle}.webm`; contact strips at t=2/6/10 s show strand pattern, lobes and nucleus changing. All 19 captures and idea5 side-by-sides regenerated; previews under `preview/`.                                                  | files                                        |
+
+Uncapped perf (M5 Max, headed Chrome, DPR 2, 3344x1882, `UNCAPPED=1`):
+
+| Case      | p50    | p95     | p99     | fps (p50) |
+| --------- | ------ | ------- | ------- | --------- |
+| default   | 2.6 ms | 2.9 ms  | 11.5 ms | 385       |
+| close     | 7.9 ms | 8.4 ms  | 25.2 ms | 127       |
+| hub close | 8.3 ms | 8.6 ms  | 42.3 ms | 120       |
+| 20 atoms  | 7.4 ms | 8.6 ms  | 42.3 ms | 135       |
+| 32 atoms  | 9.5 ms | 17.2 ms | 45.0 ms | 105       |
+
+32-atom p95 improved from ~24 ms to 17.2 ms (not root-caused; p99 tails remain). Not done: petal-bundle morphing over time (lifecycle plus differential swirl carry the motion); environment unchanged.
+
+Commands: `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts` 437 tests, 436 pass, 0 fail, 1 skipped; `npm run typecheck:core` 0 atomic-topology errors; `npm run lint` 7 pre-existing errors outside the plugin; `zsh scripts/ad-hoc/pw-atomic-gateA-all.sh` 19/19 state=ok (apple/metal-3); `python3 scripts/ad-hoc/atomic-gateA-compose.py`; `scripts/ad-hoc/pw-atomic-gateA-video.mjs`; `UNCAPPED=1 pw-atomic-gateA-live.mjs` for the table.

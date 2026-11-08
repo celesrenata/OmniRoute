@@ -21,7 +21,7 @@ export const STRAND_PETALS = 13;
 /** Fraction of strands that ignore the petals (sparse fill inside the voids). */
 export const STRAND_LOOSE_FRACTION = 0.1;
 /** Rim sparkle count per atom (fine particulate fringe + pink/orange motes). */
-export const SPARKLE_COUNT = 3400;
+export const SPARKLE_COUNT = 11000;
 
 /** Seeded mulberry32 stream (deterministic; no Math.random). */
 export function mulberry32(seed: number): () => number {
@@ -155,17 +155,18 @@ export function bakeSparkles(count = SPARKLE_COUNT, seed = 0x5a4c1e): SparkleBak
     [-1, 1],
   ];
   for (let s = 0; s < count; s += 1) {
-    const mote = rnd() < 0.22;
+    const mote = rnd() < 0.1;
     const axis = axes[Math.floor(rnd() * axes.length) % axes.length];
     const j = randomDir(rnd);
-    const spread = mote ? 0.6 : 0.2 + 0.25 * rnd();
+    // Rim particles hug the petal tips in a closed band (petal-biased, not axis-locked).
+    const spread = mote ? 0.6 : 0.5 + 0.5 * rnd();
     const d = normalize([
       axis[0] + j[0] * spread,
       axis[1] + j[1] * spread,
       axis[2] + j[2] * spread,
     ]);
-    const radius = mote ? 0.22 + 0.5 * rnd() : 0.8 + 0.2 * Math.sqrt(rnd());
-    const size = mote ? 1.6 + 1.6 * rnd() : 0.9 + 1.6 * rnd() * rnd();
+    const radius = mote ? 0.2 + 0.65 * rnd() : 0.93 + 0.09 * rnd() * rnd() + 0.03 * rnd();
+    const size = mote ? 2.6 + 2.4 * rnd() : 1.0 + 1.8 * rnd() * rnd();
     const tw = rnd() * 6.2831853;
     const rank = rnd();
     for (let k = 0; k < 4; k += 1) {

@@ -338,7 +338,16 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       const crystal = mix(albedo, vec3(1.0, 0.3, 0.7), 0.22)
         .mul(coreLight.mul(1.8).add(edge.mul(0.7)))
         .mul(float(0.3).add(excitation.mul(0.9)));
-      const color2 = color.add(crystal);
+      // Self-illumination in each ball's own model hue (energy-scaled: idle is
+      // dim and greys via `saturation`, excited is bright). Hue-preserving, so
+      // it never washes the balls to white.
+      const emissive = albedo.mul(
+        float(0.12)
+          .add(excitation.mul(0.62))
+          .mul(brightness)
+          .mul(float(0.75).add(edge.mul(0.5)))
+      );
+      const color2 = color.add(crystal).add(emissive);
       const cl = dot(color2, vec3(0.2126, 0.7152, 0.0722));
       const vivid = max(mix(vec3(cl), color2, 2.1), 0).mul(0.62);
       out.assign(vec4(vivid, tBest));
