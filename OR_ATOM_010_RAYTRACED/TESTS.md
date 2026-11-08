@@ -44,3 +44,10 @@ overlays/AtomicControls.tsx src/app/(dashboard)/home/ProviderTopology2D.tsx` is 
 
 - `atomBatchDispose.test.ts` (new) checks the batched layers register their resources and `dispose()` releases them, idempotently. The overlap subdue has no unit test; it is covered by the captures only.
 - No automated visual-regression diff in CI; visual evidence is the captured screenshots.
+
+## Legacy renderer deletion (after round 2)
+
+After deleting the legacy renderer: `npm run typecheck:core` 45 errors (all pre-existing, 0 in plugin/dev), eslint plugin+dev+tests 0 problems,
+`node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts` 431 tests, 430 pass, 0 fail, 1 skipped (three legacy-only test files removed),
+`npm run test:vitest` 493 passed, `npm run build` ok. Live (headed Chrome, M5 Max): default + close-up render, `atoms=20/32` uncapped 226 / 206 fps (p50 3.9 / 4.2 ms),
+two-failed-restores fallback to 2D (1.7 s), forced loss x3 WebGPU and WebGL2 recovered, 2D<->Atomic x10 ok, `?atomic-fx=legacy` renders the ray-traced scene.

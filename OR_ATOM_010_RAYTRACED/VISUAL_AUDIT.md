@@ -1,7 +1,7 @@
 # VISUAL_AUDIT: why the Step 8/9 Atomic topology looked flat, and what changed
 
-Branch `feat/atomic-raytraced-renderer`. Source SHA is in `TESTS.md`. Before = the legacy renderer, still
-reachable for A/B only with `?atomic-fx=legacy`. After = the default.
+Branch `feat/atomic-raytraced-renderer`. Source SHA is in `TESTS.md`. Before = the legacy renderer, since deleted (the
+before images are historical captures). After = the default.
 
 Evidence (all from headed Chrome on the Apple M5 Max, real GPU, DEMO data, same viewport and the production camera):
 `screenshots/gateB/preview/before-after-default.jpg`, `before-after-close.jpg`, `sidebyside-idea5-default.jpg`,
@@ -28,7 +28,7 @@ Evidence (all from headed Chrome on the Apple M5 Max, real GPU, DEMO data, same 
 | `scene/shaders/linkStrand.ts`, `scene/RtTopologyScene.tsx`                            | Rebuilt links: screen-space plasma ribbon, proven-only packets, teal completion impulse, red branching failure bolt plus nucleus red flash.                          |
 | `scene/shaders/environment.ts`, `scene/shaders/motes.ts`, `scene/rt/topologyScene.ts` | idea5 atmosphere scaled from layout bounds (read only): corridor, reflective grid floor, instanced holographic pedestals, world-space DOF bokeh motes.               |
 | `scene/rt/rendererFactory.ts`                                                         | `WebGPURenderer` (WebGL2 backend fallback) plus the HDR post chain: bloom, edge RGB shift, split-tone grade, vignette, grain, ACES.                                  |
-| `scene/AtomicScene.tsx`                                                               | `RtAtomicScene` (default), loss recovery, `LegacyAtomicScene` (dev A/B only). `CameraRig` and `CameraStateWriter` are byte-identical to `689178516`.                 |
+| `scene/AtomicScene.tsx`                                                               | `RtAtomicScene` (default), loss recovery, (legacy scene deleted). `CameraRig` and `CameraStateWriter` are byte-identical to `689178516`.                             |
 | `quality.ts`, `capabilities.ts`, `index.ts`, `AtomicTopologyRenderer.tsx`             | Tiers removed. Single full-fidelity profile (uncapped DPR, AA, bloom). GPU gate is WebGPU or WebGL2, 2D otherwise.                                                   |
 
 ## Honest limits
@@ -37,7 +37,7 @@ Evidence (all from headed Chrome on the Apple M5 Max, real GPU, DEMO data, same 
 - At the frozen default framing a 20-atom topology is small on screen, so per-atom detail reads mostly at close range.
   The default view shows glowing domed atoms, links and the room. The close-ups show the idea5 detail.
 - The room corridor is rendered as a shader over a camera-following shell, so its racks are procedural, not modelled.
-- Legacy path is kept until Gate B is approved, then deleted (plan decision 10). Its quality-tier remnants (hardware probe, medium/low haze, LOW particle constants) were removed in round 2.
+- The legacy path was deleted after round 2 (operator: "delete now"). Its quality-tier remnants (hardware probe, medium/low haze, LOW particle constants) were removed in round 2.
 
 ## Round 2 (review findings)
 
