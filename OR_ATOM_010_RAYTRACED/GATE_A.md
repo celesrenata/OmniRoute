@@ -23,6 +23,15 @@ Capture (headed Chrome, real GPU, never headless): `scripts/ad-hoc/pw-atomic-gat
 - Post (`rendererFactory.ts`): HDR scene pass, bloom (threshold 1.0), edge RGB shift, split-tone grade, vignette, grain, ACES + sRGB. Full retina DPR, no cap, hardware MSAA (`antialias: true`).
 - Pure models, unit tested: `energyState.ts` (idle = lower energy state: brightness/saturation floor 0.35, tighter cloud 0.8x, slow decorative drift, no spin and no bolts unless measured), `shaderParams.ts` (bounds), `nucleonPack.ts` (packs the production `buildNucleusCluster` into 24+10 / 40+16 packed nucleons), `orbitalDensity.ts`, `boltGeometry.ts`, `rt/rtRegistry.ts` (disposal).
 
+## Round 7: changes against gateA-r2 (r6 review)
+
+1. Silhouette and cyan rim: non-loose strands now reach 0.8-1.0 of the cloud with a bright HDR cyan tip cap (tip fade 80% -> 25%); loose strands 22% -> 10%; petal bundles tighter; petal mask sharper with floor 0.05 -> 0.015 (darker voids); sparkles 1400 -> 3400, rim sparkles at 0.8-1.0 radius, brighter (x1.5).
+2. Orbital wires: 11 wires (was 14), radius 1.18x the cloud so they loop beyond it, 1.5-2.0 px, far side 0.7x width and 0.55x brightness (was 0.18x), brightness ~3.2x HDR, tint mixed 60% toward cyan.
+3. Close-up veil: medium emissive 0.9 -> 0.4 with petal floor 0.02; inner plume density 1.9x near the nucleus falling to 0.55x outward; rim glow 0.15 -> 0.55.
+4. Nucleus flare: restrained pink-white glow sprite behind the gem (follows excitation/brightness); motes fraction 16% -> 22% with wider interior radius. Nucleon spheres unchanged.
+
+Evidence: 19/19 captures regenerated on Apple M5 Max, headed Chrome, WebGPU apple/metal-3 (WebGL2 capture ok); side-by-sides `preview/sidebyside-idea5-{default,close}-3c.jpg` regenerated. Uncapped perf: default p50 2.6 / p95 2.8 ms (~385 fps); close p50 7.8 / p95 8.1 ms (~128 fps). Tests: 437 (436 pass, 0 fail, 1 skipped); typecheck: 0 atomic-topology errors; lint: 7 pre-existing errors outside the plugin. Remaining gap: at the frozen default distance the atom is small, so wires/rim read subtly there; close-up shows them clearly.
+
 ## Round 6: technique switch (gateA-r2 addendum 2, with the operator override on item A)
 
 Review previews (all under 0.53 MB): `screenshots/gateA/preview/`. idea5 side-by-sides were regenerated from this round's captures: `preview/sidebyside-idea5-{default-3c,close-3c,hub-close,hub-default,idle-vs-excited,count20,count32,unknown-close,webgl2,az90}.jpg`. Full-resolution PNGs sit next to them.

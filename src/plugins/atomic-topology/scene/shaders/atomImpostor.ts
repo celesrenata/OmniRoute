@@ -386,7 +386,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     // 3D petal bundles: closeness to the nearest bundle axis.
     let petalMax: any = float(0);
     for (const a of petalAxesN) petalMax = max(petalMax, dot(dir, a));
-    const petal = smoothstep(0.86, 0.975, petalMax);
+    const petal = smoothstep(0.9, 0.985, petalMax);
     const churn = noise4(dir.mul(3.1), phase.mul(0.35).add(r.mul(2.3)))
       .mul(0.4)
       .add(0.75);
@@ -397,7 +397,9 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       .mul(shell)
       .mul(churn)
       .mul(interior)
-      .mul(petal.mul(1.0).add(0.05))
+      .mul(petal.mul(1.0).add(0.015))
+      // Inner plume: dense and bright near the nucleus, thinning outward.
+      .mul(mix(float(1.9), float(0.55), smoothstep(0.08, 0.7, r)))
       .mul(float(0.5).add(excitation.mul(0.5)))
       .mul(0.45);
     // Hot core plasma near the nucleus.
@@ -408,7 +410,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const rimBand = exp(pow(r.sub(edgeR.mul(0.84)).div(0.06), 2).negate())
       .mul(churn.sub(0.55).max(0))
       .mul(petal.mul(0.9).add(0.1))
-      .mul(0.15);
+      .mul(0.55);
     const density = bodyD.add(core).add(rimBand);
     const rimT = smoothstep(edgeR.mul(0.62), edgeR.mul(0.9), r);
     const interiorCol = mix(hueMix, u.inner as any, 0.5);
@@ -428,7 +430,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       .mul(u.mediumK as any);
     const mediumCol = pow(max(mix(vec3(luma), u.inner as any, saturation), 0.0001), vec3(1.6));
     return {
-      col: graded.mul(density).add(mediumCol.mul(medium).mul(petal.mul(0.8).add(0.1)).mul(0.9)),
+      col: graded.mul(density).add(mediumCol.mul(medium).mul(petal.mul(0.8).add(0.02)).mul(0.4)),
       w: density,
       m: medium,
     };

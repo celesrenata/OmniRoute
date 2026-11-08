@@ -152,7 +152,7 @@ export function createWireMesh(
   const h1 = headD(e.x);
   const h2 = headD(e.y);
   const headV = exp(h1.mul(h1).mul(-1800)).add(exp(h2.mul(h2).mul(-1800)));
-  const w = mix(float(widthPx * 0.45), float(widthPx), nearK).add(headV.mul(2.2));
+  const w = mix(float(widthPx * 0.7), float(widthPx), nearK).add(headV.mul(2.2));
   const drawPx = max(w, 1.0);
   const material = new MeshBasicNodeMaterial();
   material.positionNode = pL.add(
@@ -183,15 +183,15 @@ export function createWireMesh(
       8
     );
     const vis = sphereVisibility(cameraPosition, positionWorld, center, u.occluderRadius as any);
-    const tintCol = mix(vec3(...laneColor), u.tint as any, 0.35);
+    const tintCol = mix(vec3(...laneColor), u.tint as any, 0.6);
     const luma = dot(tintCol, vec3(0.2126, 0.7152, 0.0722));
     const graded = pow(max(mix(vec3(luma), tintCol, (u.energy as any).y), 0.0001), vec3(1.25));
     // Attenuate with depth: far side of the orbit fades into the cloud.
-    const k = float(0.35)
-      .add(pulse.mul(0.9))
-      .mul(mix(float(0.18), float(1.0), nearV))
+    const k = float(0.9)
+      .add(pulse.mul(1.2))
+      .mul(mix(float(0.55), float(1.0), nearV))
       .mul((u.energy as any).x)
-      .mul(1.5);
+      .mul(3.2);
     // Electron heads: small sharp HDR points with short fading trails.
     const tb1 = behind(e.x);
     const tb2 = behind(e.y);

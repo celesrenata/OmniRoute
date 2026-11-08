@@ -130,7 +130,7 @@ export function createRtAtom(
   }
   const nucExtent = packed.extent * NUCLEUS_VISUAL_SCALE;
   const orbitals: Orbital[] = orbitalLayout(seed);
-  const wiresDef: OrbitWire[] = orbitWires(seed, opts.wireCount ?? 14);
+  const wiresDef: OrbitWire[] = orbitWires(seed, opts.wireCount ?? 11);
   const group = new Group();
   group.position.set(...opts.position);
 
@@ -269,7 +269,7 @@ export function createRtAtom(
       w,
       i,
       wireU,
-      i % 4 === 0 ? 1.7 : 1.25,
+      i % 4 === 0 ? 2.0 : 1.5,
       palette[i % palette.length],
       electronHot
     );
@@ -373,6 +373,30 @@ export function createRtAtom(
   group.add(streak);
   registry.add(streakMat);
 
+  // Restrained pink-white inner glow behind/around the gem (idea5 core flare).
+  const glowK = uniform(0);
+  const glowMat = new SpriteNodeMaterial();
+  glowMat.colorNode = (() => {
+    const p = uv().sub(0.5).mul(2);
+    const r2 = p.x.mul(p.x).add(p.y.mul(p.y));
+    const g = exp(r2.mul(-7))
+      .mul(0.8)
+      .add(exp(r2.mul(-40)).mul(0.9));
+    return vec4(
+      vec3(1.0, 0.5, 0.85)
+        .mul(g)
+        .mul(glowK as any),
+      1
+    );
+  })();
+  glowMat.transparent = true;
+  glowMat.blending = AdditiveBlending;
+  glowMat.depthWrite = false;
+  glowMat.depthTest = false;
+  const glow = new Sprite(glowMat);
+  glow.renderOrder = 7;
+  group.add(glow);
+  registry.add(glowMat);
   const camRight = new Vector3();
   const camUp = new Vector3();
   const tmp = new Vector3();
@@ -455,7 +479,8 @@ export function createRtAtom(
     const fov = (f.camera as { fov?: number }).fov ?? 32;
     const pxH = f.pixelHeight && f.pixelHeight > 0 ? f.pixelHeight : 1882;
     const pxScale = (2 * Math.tan((fov * Math.PI) / 360)) / pxH;
-    (wireU.scale as any).value = params.cloudRadius / CLOUD_BOUND_RADIUS;
+    // Wires loop beyond the cloud (idea5): radius 1.18x the cloud.
+    (wireU.scale as any).value = (params.cloudRadius / CLOUD_BOUND_RADIUS) * 1.18;
     (wireU.pxScale as any).value = pxScale;
     (wireU.time as any).value = f.phase * 2.2;
     (wireU.energy.value as Vector3).set(0.35 + 0.9 * params.brightness, params.saturation, 0);
@@ -489,6 +514,8 @@ export function createRtAtom(
     // Anamorphic streak: spans well beyond the cloud, brighter when excited.
     // Quad sized to the visible band only (fill cost: it is additive over MSAA HDR).
     streak.scale.set(cr * 6, cr * 0.16, 1);
+    glow.scale.set(cr * 0.5, cr * 0.5, 1);
+    glowK.value = (0.25 + 0.75 * params.excitation) * params.brightness;
     streakK.value = (0.2 + 1.0 * params.excitation) * params.brightness * closeK;
 
     // Bolt ribbons carry world-space endpoints: cancel the group's translation.

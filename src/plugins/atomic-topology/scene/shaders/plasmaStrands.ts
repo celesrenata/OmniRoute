@@ -242,12 +242,15 @@ export function createStrandMaterial(u: StrandUniforms, mirror = false): MeshBas
     const fade = smoothstep(0.04, 0.45, tV)
       .mul(0.85)
       .add(0.15)
-      .mul(float(1).sub(smoothstep(0.75, 1.0, tV).mul(0.8)));
+      .mul(float(1).sub(smoothstep(0.8, 1.0, tV).mul(0.25)));
     // Far half of the cloud sits behind the plasma body: dimmer (depth cue).
     const depth = smoothstep(-0.8, 0.6, frontV).mul(0.7).add(0.3);
     const vis = sphereVisibility(cameraPosition, positionWorld, center, u.occluderRadius as any);
+    // Bright cyan tip cap: strand ends form the luminous silhouette of the cloud.
+    const tipCap = smoothstep(0.84, 0.97, tV).mul(2.2).add(1);
     const k = float(0.55)
       .add(exc.mul(1.5))
+      .mul(tipCap)
       .mul(bri)
       .mul(flick.mul(0.55).add(0.45).add(pulse))
       .mul(fade)
@@ -304,7 +307,7 @@ export function createSparkleMaterial(u: StrandUniforms): MeshBasicNodeMaterial 
       .mul(float(0.6).add(exc.mul(1.4)))
       .mul(bri)
       .mul(vis)
-      .mul(6.0);
+      .mul(9.0);
     return vec4(grade(col, sat).mul(k), 1);
   })();
   return finish(material);

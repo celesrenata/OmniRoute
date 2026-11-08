@@ -19,9 +19,9 @@ export const STRAND_SEGMENTS = 20;
 /** Petal bundles (the reference flower reads as ~12-14 petals). */
 export const STRAND_PETALS = 13;
 /** Fraction of strands that ignore the petals (sparse fill inside the voids). */
-export const STRAND_LOOSE_FRACTION = 0.22;
+export const STRAND_LOOSE_FRACTION = 0.1;
 /** Rim sparkle count per atom (fine particulate fringe + pink/orange motes). */
-export const SPARKLE_COUNT = 1400;
+export const SPARKLE_COUNT = 3400;
 
 /** Seeded mulberry32 stream (deterministic; no Math.random). */
 export function mulberry32(seed: number): () => number {
@@ -94,7 +94,7 @@ export function bakeStrands(
     const axis = axes[Math.floor(rnd() * axes.length) % axes.length];
     const jitter = randomDir(rnd);
     // Bundle spread varies per strand: a dense core of each petal + a fringe.
-    const spread = 0.14 + 0.36 * rnd() * rnd();
+    const spread = 0.1 + 0.3 * rnd() * rnd();
     const d = loose
       ? randomDir(rnd)
       : normalize([
@@ -102,7 +102,7 @@ export function bakeStrands(
           axis[1] + jitter[1] * spread,
           axis[2] + jitter[2] * spread,
         ]);
-    const len = loose ? 0.45 + 0.35 * rnd() : 0.62 + 0.38 * Math.sqrt(rnd());
+    const len = loose ? 0.4 + 0.3 * rnd() : 0.8 + 0.2 * Math.sqrt(rnd());
     const curl = (rnd() - 0.5) * 1.1;
     const wobble = 2.5 + 5 * rnd();
     const flick = rnd() * 6.2831853;
@@ -155,7 +155,7 @@ export function bakeSparkles(count = SPARKLE_COUNT, seed = 0x5a4c1e): SparkleBak
     [-1, 1],
   ];
   for (let s = 0; s < count; s += 1) {
-    const mote = rnd() < 0.16;
+    const mote = rnd() < 0.22;
     const axis = axes[Math.floor(rnd() * axes.length) % axes.length];
     const j = randomDir(rnd);
     const spread = mote ? 0.6 : 0.2 + 0.25 * rnd();
@@ -164,7 +164,7 @@ export function bakeSparkles(count = SPARKLE_COUNT, seed = 0x5a4c1e): SparkleBak
       axis[1] + j[1] * spread,
       axis[2] + j[2] * spread,
     ]);
-    const radius = mote ? 0.28 + 0.4 * rnd() : 0.7 + 0.32 * Math.sqrt(rnd());
+    const radius = mote ? 0.22 + 0.5 * rnd() : 0.8 + 0.2 * Math.sqrt(rnd());
     const size = mote ? 1.6 + 1.6 * rnd() : 0.9 + 1.6 * rnd() * rnd();
     const tw = rnd() * 6.2831853;
     const rank = rnd();
