@@ -20,7 +20,7 @@ import {
 } from "three/webgpu";
 import { abs, exp, float, length, smoothstep, uniform, uv, vec3, vec4 } from "three/tsl";
 import { fnv1a } from "../cloudShells";
-import type { EnergyState } from "../energyState";
+import { CLOUD_RADIUS_MIN, type EnergyState } from "../energyState";
 import { desaturateLinear, hexToLinear, packNucleus, type PackedNucleus } from "../nucleonPack";
 import { orbitalLayout, orbitWires, type Orbital, type OrbitWire } from "../orbitalDensity";
 import {
@@ -49,6 +49,9 @@ import {
 } from "../shaders/plasmaStrands";
 import { activeStrandFraction } from "../strandField";
 import { FLOOR_Y } from "../shaders/environment";
+
+/** World units an idle (tightest) atom sinks into its dome. */
+const IDLE_SEAT_DROP = 28;
 import { createRtRegistry, type RtRegistry } from "./rtRegistry";
 
 export interface RtAtomOptions {
@@ -445,9 +448,15 @@ export function createRtAtom(
       orbitalWeights: orbitals.map((o) => o.weight),
       phase: f.phase,
     });
-    // Seat the (smaller, idle) cloud on its pedestal: the full-size cloud's base
-    // is the reference, so a tightened cloud drops by the radius it gave up.
-    group.position.y = seatBaseY - (CLOUD_BOUND_RADIUS - params.cloudRadius);
+    // Idle atoms settle INTO the glass dome (apex ~ FLOOR_Y + 44): the drop grows
+    // smoothly with the radius given up, full at the tightest cloud (CLOUD_RADIUS_MIN),
+    // so the nucleus sits inside the glass with the cloud base on the pedestal.
+    const settle = Math.min(
+      1,
+      Math.max(0, CLOUD_BOUND_RADIUS - params.cloudRadius) /
+        (CLOUD_BOUND_RADIUS * (1 - CLOUD_RADIUS_MIN))
+    );
+    group.position.y = seatBaseY - settle * IDLE_SEAT_DROP;
     group.updateMatrixWorld(true);
     group.getWorldPosition(worldCenter);
     f.camera.matrixWorld.extractBasis(camRight, camUp, tmp);
@@ -493,6 +502,7 @@ export function createRtAtom(
       (u.quadHalf as any).value = half;
       (u.cloudRadius as any).value = cr;
       (u.far as any).value = farK;
+      (u.crowd as any).value = crowd;
       (u.energy.value as Vector3).set(params.excitation, params.saturation, params.brightness);
       (u.phase as any).value = params.phase;
       // Absorbing plasma body thins out in the low-energy (idle) state so it
@@ -542,7 +552,7 @@ export function createRtAtom(
     (strandU.center.value as Vector3).copy(worldCenter);
     (strandU.cloudR as any).value = cr;
     (strandU.far as any).value = farK;
-    (strandU.crowd as any).value = crowd;
+    (strandU.crowd as any).value = Math.pow(crowd, 1.4);
     (strandU.rootR as any).value = Math.min(0.4, (nucExtent * 0.8) / cr);
     (strandU.pxScale as any).value = pxScale;
     (strandU.energy.value as Vector3).set(params.excitation, params.saturation, params.brightness);

@@ -174,6 +174,8 @@ export interface AtomUniforms {
   coreColor: ReturnType<typeof uniform>;
   /** 0 = close, 1 = default distance and beyond (distance-aware cloud density). */
   far: ReturnType<typeof uniform>;
+  /** Projected-size overdraw normaliser: 1 at the default view, <1 when small/crowded. */
+  crowd: ReturnType<typeof uniform>;
   /** x excitation, y saturation, z brightness */
   energy: ReturnType<typeof uniform>;
   phase: ReturnType<typeof uniform>;
@@ -220,6 +222,7 @@ export function createAtomUniforms(): AtomUniforms {
     ],
     coreColor: uniform(new Vector3(0.8, 0.6, 1)),
     far: uniform(0),
+    crowd: uniform(1),
     energy: uniform(new Vector3(0.12, 0.35, 0.35)),
     phase: uniform(0),
     steps: uniform(96, "int"),
@@ -409,6 +412,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       .add(0.75);
     const shell = exp(pow(r.sub(0.55).div(0.36), 2).negate());
     const edgeR = u.reach as any;
+    const crowdK = u.crowd as any;
     const interior = float(1).sub(smoothstep(edgeR.mul(0.78), edgeR.mul(0.98), r));
     const bodyD = lobeSum
       .mul(shell)
@@ -418,11 +422,12 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       // Inner plume: dense and bright near the nucleus, thinning outward.
       .mul(mix(float(1.9), float(0.55), smoothstep(0.08, 0.7, r)))
       .mul(float(0.5).add(excitation.mul(0.5)))
-      .mul((u.far as any).mul(1.9).add(1))
+      .mul((u.far as any).mul(1.9).mul(crowdK.mul(crowdK)).add(1))
+      .mul(crowdK.mul(0.5).add(0.5))
       .mul(0.45);
     // Hot core plasma near the nucleus.
     const core = exp(r.mul(r).mul(-90))
-      .mul(3.2)
+      .mul(crowdK.mul(0.45).add(0.55).mul(3.2))
       .add(exp(r.mul(r).mul(-14)).mul(0.25));
     // Faint, churned rim glow (the fine sparkly fringe is instanced geometry).
     const rimBand = exp(pow(r.sub(edgeR.mul(0.84)).div(0.06), 2).negate())

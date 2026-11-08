@@ -55,6 +55,13 @@ Scorecard, round 11. These are self-scored on the r11 images, worst of default a
 
 Commands run (round 11, from the worktree): see the commit message.
 
+## Round 12: crowd wash and idle seating (gateA-r2 round-4 pass, operator item 11)
+
+1. Crowd wash: the projected-size `crowd` factor (1 at the approved default and close views, so those are mathematically unchanged) now also scales the ray-marched body density (`0.5 + 0.5*crowd`), its far boost (`*crowd^2`) and the hot core (`0.55 + 0.45*crowd`), and strands/motes use `crowd^1.4`. The curve is smooth, no steps.
+2. Idle seating: the old drop was only `R - cloudRadius` (~10 units), leaving the nucleus on the dome apex. The group now sinks by up to 28 units, scaled smoothly by the radius given up (full at `CLOUD_RADIUS_MIN`), so the idle nucleus sits inside the glass. Excited atoms are unchanged.
+3. Recaptured all 19 conditions plus `gateA-count20` / `gateA-count32` on the M5 Max (headed Chrome, WebGPU apple/metal-3, WebGL2 separately); side-bys regenerated. count20/count32 bodies now read deep violet/magenta with a cyan rim, no pale pink-white. Uncapped frame times were NOT re-measured this round; the change only removes shading work.
+4. Self-score, stated explicitly: row 4 (lighting/bloom) is 4 for single, pair, close, count20 and count32 on these captures. The 32-atom p95/p99 tail remains Gate B task C7a.
+
 ## Round 7: changes against gateA-r2 (r6 review)
 
 1. Silhouette and cyan rim: non-loose strands now reach 0.8-1.0 of the cloud with a bright HDR cyan tip cap (tip fade 80% -> 25%); loose strands 22% -> 10%; petal bundles tighter; petal mask sharper with floor 0.05 -> 0.015 (darker voids); sparkles 1400 -> 3400, rim sparkles at 0.8-1.0 radius, brighter (x1.5).
