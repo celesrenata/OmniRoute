@@ -22,11 +22,10 @@
  *                   zoom" framing).
  *   - `paused=1|0`  default `1` → frozen frame loop (stable captures).
  *   - `badge=0`     hide the DEMO provenance badge (clean material-only frame).
- *   - `bloom=…`    dev-only bloom override (iteration-e washout isolation):
- *                   `off` → direct render path (isolates the material/
- *                   OutputPass pipeline from bloom), `current` → the shipped
- *                   tier budget, or a named sweep candidate (`strict`, `s110`,
- *                   `s130`, `s160`, `s45130`, `t20`, `t25`, `t30`, `soft16`).
+ *   - `bloom=0`     disable the HDR bloom pass (dev A/B only).
+ *   - `backend=webgl`  force the WebGL2 backend; `restore-fail=1` fails every
+ *                   renderer rebuild (drives the 2D fallback); `atoms=N`, `idle=1`,
+ *                   `failure=cycle` shape the DEMO data.
  *
  * Provenance (T10.8): every frame captured here is synthetic DEMO data — the
  * `data-provenance="DEMO"` attribute and badge say so; it is never a live
@@ -40,7 +39,6 @@ import {
   mapLifecycleToAtomicEvents,
 } from "@/plugins/atomic-topology/eventPool";
 import { AtomicTopologyRenderer } from "@/plugins/atomic-topology/AtomicTopologyRenderer";
-import type { BloomBudget } from "@/plugins/atomic-topology/quality";
 
 import { buildGoldenSnapshot } from "./goldenSnapshot";
 import {
@@ -66,29 +64,6 @@ function parseAtomCount(raw: string | null): number | undefined {
   if (!raw) return undefined;
   const n = Number(raw);
   return n === 8 || n === 16 || n === 20 || n === 32 ? n : undefined;
-}
-
-/**
- * Dev-only `?bloom=` override (iteration-e washout isolation). `current`
- * returns the tier's own budget (a no-op); anything else → the tier budget.
- */
-function parseBloomOverride(raw: string | null): BloomBudget | undefined {
-  if (raw === "off") return { enabled: false, strength: 0, radius: 0, threshold: 1 };
-  // iteration-e washout candidates. Strength is the dominant brightness lever;
-  // the linear-radiance threshold sets how much of the scene is the bloom
-  // SOURCE (ACES pushes true emissives above 1.0, so a low threshold blooms
-  // everything; a high one locks the halo to the neon cores). These sweep the
-  // threshold at a fixed low strength.
-  if (raw === "strict") return { enabled: true, strength: 0.35, radius: 0.4, threshold: 0.9 };
-  if (raw === "s110") return { enabled: true, strength: 0.35, radius: 0.4, threshold: 1.1 };
-  if (raw === "s130") return { enabled: true, strength: 0.35, radius: 0.35, threshold: 1.3 };
-  if (raw === "s160") return { enabled: true, strength: 0.35, radius: 0.3, threshold: 1.6 };
-  if (raw === "s45130") return { enabled: true, strength: 0.45, radius: 0.35, threshold: 1.3 };
-  if (raw === "t20") return { enabled: true, strength: 0.35, radius: 0.3, threshold: 2.0 };
-  if (raw === "t25") return { enabled: true, strength: 0.35, radius: 0.3, threshold: 2.5 };
-  if (raw === "t30") return { enabled: true, strength: 0.35, radius: 0.3, threshold: 3.0 };
-  if (raw === "soft16") return { enabled: true, strength: 0.25, radius: 0.3, threshold: 1.6 };
-  return undefined;
 }
 
 function useBenchScene(
@@ -188,7 +163,6 @@ function BenchBody() {
   const paused = searchParams.get("paused") !== "0";
   const showBadge = searchParams.get("badge") !== "0";
   const atomCount = parseAtomCount(searchParams.get("atoms"));
-  const bloomOverride = parseBloomOverride(searchParams.get("bloom"));
 
   const errorPhase = useFailureCycle(searchParams.get("failure") === "cycle");
   const allIdle = searchParams.get("idle") === "1";
@@ -235,7 +209,6 @@ function BenchBody() {
         focusNodeId={focusNodeId}
         eventPool={eventPool}
         options={{ emptyStateLabel: "Atomic bench: WebGL2 unavailable" }}
-        bloomOverride={bloomOverride}
       />
       {showBadge && (
         <div

@@ -93,7 +93,6 @@ import {
   type AtomicEventPool,
   type AtomicEventKind,
 } from "./eventPool";
-import type { BloomBudget } from "./quality";
 import {
   admitPulseEvents,
   canonicalRouteLinkId,
@@ -731,11 +730,6 @@ export interface AtomicSceneProps {
    */
   sceneContext: AtomicSceneContextValue;
   /**
-   * Dev-probe override for the LEGACY path's bloom (`?atomic-fx=legacy` A/B
-   * only). The production host never passes it.
-   */
-  bloomOverride?: BloomBudget;
-  /**
    * The GPU renderer could not be restored after a device / context loss
    * (two failed rebuilds). The instance then hands the panel back to the 2D
    * renderer through the host's existing update-failure fallback.
@@ -772,11 +766,6 @@ export interface AtomicTopologyRendererProps {
    * tree. Wired by the imperative instance to update its own focus state.
    */
   onFocusRequest?: (nodeId: string) => void;
-  /**
-   * Dev-probe override for the LEGACY path's bloom (`?atomic-fx=legacy` A/B
-   * only). The production host never passes it.
-   */
-  bloomOverride?: BloomBudget;
   /** See {@link AtomicSceneProps.onRendererFatal}. */
   onRendererFatal?: () => void;
 }
@@ -801,7 +790,6 @@ export function AtomicTopologyRenderer({
   onFocusRequest,
   eventPool,
   size,
-  bloomOverride,
   onRendererFatal,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
@@ -951,7 +939,6 @@ export function AtomicTopologyRenderer({
             focusNodeId={focusNodeId}
             emptyStateLabel={options.emptyStateLabel}
             sceneContext={sceneContext}
-            bloomOverride={bloomOverride}
             onRendererFatal={onRendererFatal}
           />
         ) : (

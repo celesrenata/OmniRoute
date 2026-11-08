@@ -47,27 +47,18 @@ import {
   Component,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import * as THREE from "three";
 import type { PerspectiveCamera } from "three";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 import type { AtomicSceneProps } from "../AtomicTopologyRenderer";
 import { computeCameraFit, computeCameraFocus, isUsableCameraFit } from "../cameraFit";
-import { LEGACY_BLOOM, resolveRenderDpr } from "../quality";
+import { resolveRenderDpr } from "../quality";
 
-import { Nucleus } from "./Nucleus";
-import { AtomNode } from "./AtomNode";
-import { EnergyLink } from "./EnergyLink";
 import { SceneOrbitControls } from "./SceneOrbitControls";
 import { ContextGuard } from "./ContextGuard";
 import {
@@ -91,28 +82,21 @@ const SCENE_FOV_DEG = 50;
  * no-op visually (R3F diffs the tree).
  */
 export function AtomicScene(props: AtomicSceneProps) {
-  // Dev A/B only (query params, never a production toggle): `?atomic-fx=legacy`
-  // mounts the pre-Gate-B WebGL renderer until Gate B is approved.
+  // Dev A/B only (query params, never a production toggle): `?bloom=0`,
+  // `?backend=webgl`, `?restore-fail=1`.
   const fx = useMemo(() => readDevFx(), []);
-  return fx.legacy ? (
-    <LegacyAtomicScene {...props} />
-  ) : (
-    <RtAtomicScene {...props} bloom={fx.bloom} />
-  );
+  return <RtAtomicScene {...props} bloom={fx.bloom} />;
 }
 
-/** Dev-only query flags (`atomic-fx=legacy`, `bloom=0`, `backend=webgl`). */
+/** Dev-only query flags (`bloom=0`, `backend=webgl`, `restore-fail=1`). */
 function readDevFx(): {
-  legacy: boolean;
   bloom: boolean;
   forceWebGL: boolean;
   failRestore: boolean;
 } {
-  if (typeof window === "undefined")
-    return { legacy: false, bloom: true, forceWebGL: false, failRestore: false };
+  if (typeof window === "undefined") return { bloom: true, forceWebGL: false, failRestore: false };
   const q = new URLSearchParams(window.location.search);
   return {
-    legacy: q.get("atomic-fx") === "legacy",
     bloom: q.get("bloom") !== "0",
     forceWebGL: q.get("backend") === "webgl",
     // Dev only: every renderer rebuild after the first fails (drives the 2D fallback).
@@ -126,7 +110,7 @@ function deviceDpr(): number {
   return resolveRenderDpr(d);
 }
 
-/** Document-hidden pause shared by both scene paths. */
+/** Document-hidden pause. */
 function useDocumentHidden(): boolean {
   const [documentHidden, setDocumentHidden] = useState<boolean>(() =>
     typeof document !== "undefined" ? document.hidden : false
@@ -304,53 +288,6 @@ class CanvasErrorBoundary extends Component<
 }
 
 /**
- * The pre-Gate-B WebGL renderer, reachable only with `?atomic-fx=legacy` (dev
- * A/B) until Gate B is approved, then deleted. Full retina DPR + antialias; no
- * quality tiers.
- */
-function LegacyAtomicScene({
-  descriptors,
-  linkDescriptors,
-  paused,
-  focusNodeId,
-  sceneContext,
-  bloomOverride,
-}: AtomicSceneProps) {
-  const documentHidden = useDocumentHidden();
-  useReducedMotionSync();
-  const effectivePaused = paused || documentHidden;
-  const context = sceneContext;
-  const bloomBudget = bloomOverride ?? LEGACY_BLOOM;
-  const dpr = useMemo(() => deviceDpr(), []);
-
-  return (
-    <Canvas gl={{ antialias: true, powerPreference: "high-performance", alpha: true }} dpr={dpr}>
-      <AtomicSceneContext.Provider value={context}>
-        <SceneClockDriver paused={effectivePaused} />
-        <ColorScience />
-        {bloomBudget.enabled && (
-          <BloomComposer
-            strength={bloomBudget.strength}
-            radius={bloomBudget.radius}
-            threshold={bloomBudget.threshold}
-          />
-        )}
-        <CanvasContextGuard />
-        <ContextGuard />
-        <CameraRig context={context} />
-        <CameraStateWriter context={context} />
-        <SceneContent
-          descriptors={descriptors}
-          linkDescriptors={linkDescriptors}
-          paused={effectivePaused}
-          focusNodeId={focusNodeId}
-        />
-      </AtomicSceneContext.Provider>
-    </Canvas>
-  );
-}
-
-/**
  * Deterministic camera framing (M6) — now *responsive* (UX correction).
  *
  * Sits inside the `<Canvas>` so it can read the camera via `useThree`. Frames
@@ -438,250 +375,4 @@ function CameraStateWriter({ context }: { context: AtomicSceneContextValue }) {
   });
 
   return null;
-}
-
-/**
-/**
- * OR-ATOM-010 T10.5 — renderer-level color science (NO postprocessing pass).
- *
- * Filmic ACES tone mapping + sRGB output + a modest exposure lift. This
- * gives the additive glow / env-map speculars the "bloom" roll-off the
- * spec asks for WITHOUT a second render target — the no-postFX path of the
- * quality ladder. One-time renderer state: zero per-frame cost, no effect
- * targets, no render-target leaks. Must sit INSIDE the `<Canvas>` so it
- * can read the live WebGL renderer via `useThree`.
- */
-function ColorScience() {
-  const gl = useThree((s) => s.gl);
-  useLayoutEffect(() => {
-    // eslint-disable-next-line react-hooks/immutability -- the three.js WebGLRenderer is imperative state, not React-managed: tone mapping / exposure / color space are set once on the live renderer (the same R3F contract as the camera mutation above), so mutating `gl` IS the contract
-    gl.toneMapping = THREE.ACESFilmicToneMapping;
-    // Exposure lift (OR-ATOM-010 T10.5 retune): the scene's per-atom radiance is
-    // low (emissive ≈0.25–1.2, additive glows ≈0.2–0.4 over near-black), so at
-    // exposure 1.1 ACES lands everything in the desaturated dark-mid band — the
-    // "muted, small, washed-blue" look. Lifting to 1.65 pushes the additive
-    // halos + fresnel rims into the luminous ACES roll-off region so the orbs
-    // read as neon light sources on the dark background, while ACES keeps the
-    // highlights controlled (no washout). Renderer-level only: no post-FX pass,
-    // no layout/camera/label change.
-    // OR-ATOM-010 T10.5d iteration-d: 1.65 → 1.9. The filament core + plasma
-    // ribbon now carry higher opacity/width (EnergyLink), and the atoms'
-    // emissive rims are unchanged — lifting the global exposure a notch
-    // pushes the additive halos into the ACES roll-off so the scene reads as
-    // luminous on the dark background without washing out (ACES keeps the
-    // highlight shoulder controlled). Renderer-level only.
-    gl.toneMappingExposure = 1.9;
-    gl.outputColorSpace = THREE.SRGBColorSpace;
-  }, [gl]);
-  return null;
-}
-
-/**
- * The scene body: lighting + the hub nucleus + the provider/gpu atoms + the
- * route energy links + the orbit controls. Rendered inside the
- * `<AtomicSceneContext.Provider>` so the scene primitives read the ambient
- * context (event pool, focus, reduced motion, quality).
- *
- * Pure with respect to props — R3F diffs the tree, so re-rendering with the
- * same descriptors is a no-op visually.
- */
-/**
- * GPU bloom postprocessing chain — OR-ATOM-010 T10.5e.
- *
- * The per-tier `bloom` budget from {@link QUALITY_BUDGETS} drives a three-pass
- * `EffectComposer` (`RenderPass → UnrealBloomPass → OutputPass`). Disabled
- * tiers (`low` / `none`) keep the direct renderer path: the ACES tone map is
- * applied by the renderer itself on the canvas render (r186
- * `WebGLPrograms.js` tone-maps only when `currentRenderTarget === null`), so
- * `enabled: false` is the cheapest possible path — no composer allocation.
- *
- * **Render takeover (single pass).** The composer renders *instead of* R3F's
- * internal `gl.render()`: the `useFrame(..., 1)` positive render priority
- * increments the canvas store's `internal.priority` counter (r9.8.1
- * `events…esm.js:1159`), which suppresses the auto-render gate at
- * `…esm.js:17419` (`if (!state.internal.priority && state.gl.render)`).
- * Registering a positive-priority subscription is the documented R3F way to
- * "take rendering into your own hands" — so `composer.render()` is the sole
- * render per frame and the scene is never drawn twice. The positive priority
- * also *defends* the contract: any other positive-priority `useFrame` added
- * later to the scene would also take over rendering and double-render unless
- * it renders through the same composer.
- *
- * **Sizing / lifecycle.** `EffectComposer` is NOT auto-resized by R3F's
- * `Canvas` dpr / resize handling, so a `ResizeObserver` on the canvas syncs
- * the internal render-target buffers (DPR-aware: the canvas *drawing*
- * buffer is the physical size; logical width/height = physical / DPR).
- * Disposal mirrors the three r186 pass API: `EffectComposer.dispose()`
- * frees only `renderTarget1/2` + `copyPass`, so the `bloom` and `output`
- * passes are disposed explicitly (their `renderTargetBright` / mips /
- * materials leak otherwise).
- *
- * **Color pipeline.** `OutputPass` is the composer's last pass (the r186
- * tone-map/encoding equivalent of the renderer's built-in tone map) — it
- * re-reads `gl.toneMapping` (ACES), `gl.toneMappingExposure` (1.9) and
- * `gl.outputColorSpace` (sRGB) every frame, so the `ColorScience` retune is
- * honored through the postFX chain instead of being skipped (the renderer
- * tone-maps only on the direct canvas render, never on the composer's
- * HalfFloat render-target passes).
- *
- * **Pause.** `frameloop="always"` drives this `useFrame` regardless of the
- * scene's pause state — the same clock-advancing `SceneClockDriver`
- * subscription contract. The clock accumulates 0 while paused, so the scene
- * holds a static (but bloom-lit) frame, identical to the no-postFX pause
- * behavior.
- */
-function BloomComposer({
-  strength,
-  radius,
-  threshold,
-}: {
-  strength: number;
-  radius: number;
-  threshold: number;
-}) {
-  // Stable object references via selectors — each `useThree` subscription keys
-  // off one slice of the R3F store, so this component does NOT re-render on
-  // per-frame camera writes or unrelated state changes (a full `useThree()`
-  // destructure would). The tier-level numbers arrive as stable props, so the
-  // composer is built exactly once per mount (a quality-tier flip remounts the
-  // scene, which unmounts / remounts this component).
-  const gl = useThree((s) => s.gl);
-  const scene = useThree((s) => s.scene);
-  const camera = useThree((s) => s.camera);
-  const composerRef = useRef<EffectComposer | null>(null);
-  // Reusable temp for `getSize` / `getDrawingBufferSize` (avoids per-resize
-  // allocation). Kept in a ref so a second mounted instance cannot mutate it.
-  const tmpVec2Ref = useRef(new THREE.Vector2());
-  useEffect(() => {
-    const composer = new EffectComposer(gl);
-    composer.addPass(new RenderPass(scene, camera));
-    const initSize = gl.getSize(tmpVec2Ref.current);
-    const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(Math.max(1, initSize.x), Math.max(1, initSize.y)),
-      strength,
-      radius,
-      threshold
-    );
-    composer.addPass(bloomPass);
-    const outputPass = new OutputPass();
-    composer.addPass(outputPass);
-    composerRef.current = composer;
-    return () => {
-      // Dispose the passes explicitly — the composer's own `dispose()`
-      // only frees its buffers and the built-in `copyPass`.
-      bloomPass.dispose();
-      outputPass.dispose();
-      composer.dispose();
-      composerRef.current = null;
-    };
-    // The pass parameters are tier-level constants (a
-    // quality change remounts
-    // this component, not this effect).
-  }, [gl, scene, camera, strength, radius, threshold]);
-  // Keep the composer buffers in step with the canvas drawing buffer
-  // (R3F manages the canvas size / DPR, not the composer — see the module
-  // doc above). The canvas *drawing* buffer is the physical size;
-  // `getPixelRatio` is the canvas DPR R3F sets from the `dpr` prop.
-  useEffect(() => {
-    const canvas = gl.domElement;
-    if (!canvas || typeof ResizeObserver === "undefined") return;
-    let raf = 0;
-    const observer = new ResizeObserver(() => {
-      // Defer to the next frame so the canvas `width` / `height` attributes
-      // (which R3F sets via the resize event) are current.
-      if (raf) cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const composer = composerRef.current;
-        if (!composer) return;
-        const physical = gl.getDrawingBufferSize(tmpVec2Ref.current);
-        const dpr = Math.max(0.0001, gl.getPixelRatio());
-        const w = Math.max(1, Math.floor(physical.x / dpr));
-        const h = Math.max(1, Math.floor(physical.y / dpr));
-        composer.setPixelRatio(dpr);
-        composer.setSize(w, h);
-      });
-    });
-    observer.observe(canvas);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      observer.disconnect();
-    };
-  }, [gl]);
-  // Sole render path (see the render-takeover note above).
-  useFrame((_, delta) => {
-    const composer = composerRef.current;
-    if (!composer) return;
-    composer.render(delta);
-  }, 1);
-  return null;
-}
-
-function SceneContent({
-  descriptors,
-  linkDescriptors,
-  paused,
-  focusNodeId,
-}: {
-  descriptors: AtomicSceneProps["descriptors"];
-  linkDescriptors: AtomicSceneProps["linkDescriptors"];
-  paused: boolean;
-  focusNodeId: string | null;
-}) {
-  const hub = descriptors.find((d) => d.kind === "hub") ?? null;
-  const ringAtoms = descriptors.filter((d) => d.kind !== "hub");
-
-  return (
-    <>
-      <ambientLight intensity={0.4} />
-      {/* A point light at the nucleus gives the atoms a soft core highlight. */}
-      <pointLight
-        position={[0, 0, 0]}
-        intensity={2.4}
-        distance={2600}
-        decay={1.2}
-        color="#dbeafe"
-      />
-      <directionalLight position={[400, 600, 400]} intensity={0.5} />
-      {/* OR-ATOM-010 T10.5d iteration-d — cinematic rim/backlight: a cool
-       *  directional from behind-and-above the nucleus reads as an in-scene
-       *  rim/atmosphere term (lighting only — no post pass, screen-space
-       *  independent, zero render-target cost). It gives the nucleon shells
-       *  and orbital trails a directional falloff the flat ambient key
-       *  cannot, so the scene reads as "lit from behind" like the neon
-       *  references without claiming unavailable bloom postprocessing. */}
-      <directionalLight position={[-380, 260, -420]} intensity={0.7} color="#4f7cff" />
-      {/* OR-ATOM-010 T10.5 — depth cue: exponential fog matched to the host
-       *  canvas background (#05060f) so outer-ring atoms recede into a
-       *  deep-navy atmosphere instead of floating on flat black. Dense
-       *  enough to read as "depth" at the default camera distance
-       *  (~1500–2500 world units from the nucleus) but light enough that
-       *  the hub nucleus and first two rings stay crisp. Fog is a
-       *  scene-level state (three `scene.fog`), not a post pass — zero
-       *  render-target cost, SSR-safe (the fog element is a no-op outside
-       *  a Canvas), and frozen automatically under pause/reduced-motion
-       *  because it is a static material parameter, not a per-frame
-       *  animation. */}
-      <fogExp2 attach="fog" args={["#05060f", 0.00018]} />
-
-      {/* Interactive orbit/zoom/pan around the nucleus. SSR-safe: renders no
-       *  R3F primitive; the three OrbitControls attach to gl.domElement in an
-       *  effect (never during server render). */}
-      <SceneOrbitControls />
-
-      {hub && <Nucleus descriptor={hub} paused={paused} focused={focusNodeId === hub.id} />}
-
-      {ringAtoms.map((atom) => (
-        <AtomNode
-          key={atom.id}
-          descriptor={atom}
-          paused={paused}
-          focused={focusNodeId === atom.id}
-        />
-      ))}
-
-      {linkDescriptors.map((link) => (
-        <EnergyLink key={link.id} descriptor={link} atoms={ringAtoms} paused={paused} />
-      ))}
-    </>
-  );
 }

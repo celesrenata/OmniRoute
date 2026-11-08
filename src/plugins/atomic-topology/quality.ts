@@ -32,22 +32,3 @@ export const RENDER_PROFILE = {
   /** HDR bloom on emissives in the post pipeline. */
   bloom: true,
 } as const;
-
-/**
- * Bloom budget of the LEGACY (pre-Gate-B) EffectComposer path, reachable only
- * through the dev `?atomic-fx=legacy` A/B flag until Gate B is approved.
- */
-export interface BloomBudget {
-  enabled: boolean;
-  strength: number;
-  radius: number;
-  threshold: number;
-}
-
-/** Legacy path default: bloom off (its crisp-material baseline). */
-export const LEGACY_BLOOM: BloomBudget = {
-  enabled: false,
-  strength: 0.35,
-  radius: 0.3,
-  threshold: 3.0,
-};
