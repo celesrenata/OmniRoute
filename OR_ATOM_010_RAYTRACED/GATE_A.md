@@ -22,6 +22,35 @@ Capture (headed Chrome, real GPU, never headless): `scripts/ad-hoc/pw-atomic-gat
 - Post (`rendererFactory.ts`): HDR scene pass, bloom (threshold 1.0), edge RGB shift, split-tone grade, vignette, grain, ACES + sRGB. Full retina DPR, no cap, hardware MSAA (`antialias: true`).
 - Pure models, unit tested: `energyState.ts` (idle = lower energy state: brightness/saturation floor 0.35, tighter cloud 0.8x, slow decorative drift, no spin and no bolts unless measured), `shaderParams.ts` (bounds), `nucleonPack.ts` (packs the production `buildNucleusCluster` into 24+10 / 40+16 packed nucleons), `orbitalDensity.ts`, `boltGeometry.ts`, `rt/rtRegistry.ts` (disposal).
 
+## Round 5: changes against every gateA-r2 finding
+
+1. **Straight rays / moire (close-up)**: fibres now bend per bundle (`curl` grows with radius, a different sign per sector), each fibre has its own start/end radius window (taper) and brightness, whole bundles drop out to dark voids, and the fine layer is 120 (was 190) to stop aliasing. `scene/shaders/atomImpostor.ts` `petalField`.
+2. **Nucleus not a crystal**: facet quantisation stronger (normal blend 0.88, jitter 1.7), per-facet tone contrast, saturation 2.1, internal core light shifted from pastel pink-white to saturated magenta. Known remaining weakness: facets read as a coarse grid mosaic on some spheres; a true convex-hull facet model is a Gate B item.
+3. **Rim dither/lattice**: particulate cells are rotated, per-cell jittered and per-mote brightness-varied, so the regular grid is gone.
+4. **Dome empty in the pair view**: `createEnvironment(pedestals)` now builds one disc+base+dome under every atom (bench passes both pair positions); dome height raised (scale.y 0.6 -> 0.95) so the atom is seated in the glass dome.
+5. **White orbs on wires**: electron core 0.85 -> 0.5, glow 4.6 -> 2.7, glow intensity 0.75 -> 0.55; wire tube radius 0.22/0.15 -> 0.16/0.11.
+6. **Flat back wall**: the far end is now receding rectangular gantry frames (cyan to orange) converging on the vanishing glow. **Oversized captures**: reviewable JPG previews (1800 px wide, under 0.5 MB) are in `screenshots/gateA/preview/`, including side-by-sides with idea5 (`sidebyside-idea5-*.jpg`); review those, not the PNGs.
+
+All 19 conditions recaptured on real GPU (apple/metal-3, WebGPU; webgl2 fallback backend=webgl), state=ok each.
+
+### Measured, round 5, UNCAPPED (vsync + frame-rate limit disabled, 3344x1882 DPR 2, Apple M5 Max, headed Chrome)
+
+| Case                  | p50     | p95     | ~fps |
+| --------------------- | ------- | ------- | ---- |
+| default               | 4.6 ms  | 5.0 ms  | 217  |
+| close-up (full-frame) | 16.9 ms | 17.5 ms | 59   |
+| 20 atoms              | 6.7 ms  | 13.3 ms | 149  |
+| 32 atoms              | 10.9 ms | 28.6 ms | 92   |
+
+Honest note: the full-frame close-up is 59 fps, marginally under the 60 floor (fill-bound; carried-over Gate B optimisation: shared lobe evaluation, per-atom streak pass). 20 and 32 atoms meet their targets at p50; p95 is bimodal. No quality tier exists.
+
+### Commands run (round 5, from the worktree)
+
+- `npm run typecheck:core`: no errors in `src/plugins/atomic-topology` (remaining errors are pre-existing in scriptVault / FlowCanvas).
+- `npm run lint`: 7 errors, all pre-existing outside the plugin (scriptVaultTools, db/scripts, scriptVault).
+- `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts`: 432 tests, 431 pass, 0 fail, 1 skipped.
+- `zsh scripts/ad-hoc/pw-atomic-gateA-all.sh`: 19/19 ok. `UNCAPPED=1 node scripts/ad-hoc/pw-atomic-gateA-live.mjs` for the table above.
+
 ## Round 2: changes against every Gate A finding
 
 | #   | Finding (gateA.md)                       | What changed                                                                                                                                                                                                                                                                                                                                                                                                                      | Evidence                                                                                                    |

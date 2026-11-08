@@ -251,7 +251,7 @@ const bokeh = Fn(([d, tm]: [any, any]) => {
   return acc;
 });
 
-export function createEnvironment(): Environment {
+export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Environment {
   const time = uniform(0);
   const disposables: { dispose: () => void }[] = [];
 
@@ -308,7 +308,17 @@ export function createEnvironment(): Environment {
     // Far end of the corridor: luminous vanishing glow.
     If(far, () => {
       const g = exp(dot(rd.xy, rd.xy).mul(-120));
-      col.assign(vec3(0.03, 0.07, 0.16).add(vec3(0.5, 0.85, 1.0).mul(g).mul(1.2)));
+      // Receding rectangular gantry frames toward the vanishing point (depth cue).
+      const fxy = rd.xy.div(rd.z.negate().max(0.05));
+      const fd = max(abs(fxy.x.mul(0.55)), abs(fxy.y)).max(0.004);
+      const fk = fract(float(1).div(fd.add(0.06)).mul(1.6));
+      const frame = exp(fk.mul(-14)).mul(smoothstep(0.0, 0.12, fd));
+      const frameCol = mix(vec3(0.1, 0.45, 0.9), vec3(1.0, 0.5, 0.15), smoothstep(0.1, 0.6, fd));
+      col.assign(
+        vec3(0.012, 0.03, 0.09)
+          .add(frameCol.mul(frame).mul(4.5))
+          .add(vec3(0.5, 0.85, 1.0).mul(g).mul(1.2))
+      );
     });
     // Volumetric haze: cyan toward the vanishing point + warm low haze.
     const vp = saturate(dot(rd, vec3(0, 0, -1)));
@@ -359,7 +369,7 @@ export function createEnvironment(): Environment {
       .mul(vec3(0.15, 0.85, 1.0))
       .mul(mix(float(0.5), float(1.1), lat));
     const view = normalize(cameraPosition.sub(positionWorld));
-    const wn = normalize(vec3(positionLocal.x, positionLocal.y.div(0.3), positionLocal.z));
+    const wn = normalize(vec3(positionLocal.x, positionLocal.y.div(0.47), positionLocal.z));
     const fres = pow(float(1).sub(saturate(dot(wn, view))), 3);
     const rim = fres.mul(vec3(0.2, 0.7, 1.0)).mul(0.65);
     const fade = smoothstep(0.0, 0.18, lat);
@@ -372,7 +382,7 @@ export function createEnvironment(): Environment {
   domeMat.side = DoubleSide;
   const dome = new Mesh(domeGeo, domeMat);
   dome.position.y = FLOOR_Y;
-  dome.scale.y = 0.6;
+  dome.scale.y = 0.95;
   dome.renderOrder = 5;
   disposables.push(domeGeo, domeMat);
 
@@ -440,7 +450,18 @@ export function createEnvironment(): Environment {
   void cos;
 
   return {
-    objects: [roomMesh, disc, base, dome],
+    // One pedestal (disc + base + dome) under every atom; clones share geometry/materials.
+    objects: [
+      roomMesh,
+      ...pedestals.flatMap(([px, pz]) =>
+        [disc, base, dome].map((m) => {
+          const c = m.clone();
+          c.position.x += px;
+          c.position.z += pz;
+          return c;
+        })
+      ),
+    ],
     time,
     dispose: () => disposables.forEach((d) => d.dispose()),
   };

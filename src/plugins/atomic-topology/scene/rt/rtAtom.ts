@@ -258,7 +258,7 @@ export function createRtAtom(
   group.add(wireGroup);
   const palette = opts.neutral ? NEUTRAL_PALETTE : LANE_PALETTE;
   wiresDef.forEach((w, i) => {
-    const m = createWireMesh(w, i, wireU, i % 4 === 0 ? 0.22 : 0.15, palette[i % palette.length]);
+    const m = createWireMesh(w, i, wireU, i % 4 === 0 ? 0.16 : 0.11, palette[i % palette.length]);
     wireGroup.add(m);
     registry.add(m.geometry);
     registry.add(m.material as { dispose: () => void });
@@ -270,8 +270,8 @@ export function createRtAtom(
     for (let k = 0; k < count; k += 1) {
       const pc = palette[i % palette.length];
       const e = createElectron(wireU, [0.1 + 0.9 * pc[0], 0.1 + 0.9 * pc[1], 0.1 + 0.9 * pc[2]]);
-      e.core.scale.setScalar(0.85);
-      e.glow.scale.setScalar(4.6);
+      e.core.scale.setScalar(0.5);
+      e.glow.scale.setScalar(2.7);
       wireGroup.add(e.core, e.glow);
       registry.add(e);
       electrons.push(e);

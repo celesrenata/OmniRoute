@@ -120,7 +120,7 @@ const noiseNode = texture3D(getNoiseTexture());
 /** Number of view-aligned plasma petals (the reference flower has ~12-14). */
 export const PETAL_COUNT = 13;
 /** Radial hair-line fibre counts around the view axis (fine / coarse layers). */
-const FIBER_FINE = 190;
+const FIBER_FINE = 120;
 const FIBER_COARSE = 44;
 
 /** Signed baked noise in [-1, 1]; `ch` 0 = x, 1 = y. Explicit LOD (safe in divergent loops). */
@@ -265,7 +265,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       const p = ro.add(rd.mul(tBest));
       const nSmooth = normalize(p.sub(c.xyz));
       // Crystalline facets: quantised normals (gem cuts), strongly blended.
-      const nq = floor(nSmooth.mul(2.6).add(0.5));
+      const nq = floor(nSmooth.mul(2.1).add(0.5));
       const fh = fract(
         sin(
           vec3(
@@ -275,8 +275,8 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
           )
         ).mul(43758.5453)
       );
-      const facet = normalize(nSmooth.add(fh.sub(0.5).mul(1.1)));
-      const n = normalize(mix(nSmooth, facet, 0.7));
+      const facet = normalize(nSmooth.add(fh.sub(0.5).mul(1.7)));
+      const n = normalize(mix(nSmooth, facet, 0.88));
       const occ = float(0).toVar();
       const sh = float(1).toVar();
       Loop(count, ({ i: j }: any) => {
@@ -344,12 +344,16 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       const ext = (u.glassRadius as any).div(1.14);
       const dc = length(p.sub(center)).div(ext);
       const coreLight = exp(dc.mul(dc).mul(-2.0));
-      const crystal = mix(albedo, vec3(1.0, 0.55, 0.85), 0.35)
+      const crystal = mix(albedo, vec3(1.0, 0.3, 0.7), 0.22)
         .mul(coreLight.mul(1.8).add(edge.mul(0.7)))
         .mul(float(0.3).add(excitation.mul(0.9)));
       const color2 = color.add(crystal);
       const cl = dot(color2, vec3(0.2126, 0.7152, 0.0722));
-      const vivid = max(mix(vec3(cl), color2, 1.6), 0).mul(0.7);
+      // Per-facet brightness contrast: bright cut faces vs dark internal facets.
+      const facetTone = fh.x.mul(0.9).add(0.45);
+      const vivid = max(mix(vec3(cl), color2, 2.1), 0)
+        .mul(0.62)
+        .mul(facetTone);
       out.assign(vec4(vivid, tBest));
     });
     return out;
@@ -385,21 +389,46 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const swirl = sin(rp.mul(5).add(ang0.mul(2)))
       .mul(0.9)
       .add(rp.mul(2.2));
-    const fineK = ang0.mul(FIBER_FINE / 6.2831853).add(swirl);
+    // Bundles bend: each coarse sector curls a different way with radius, so
+    // fibres are curved, tapered strands (not ruler-straight rays), with dark
+    // voids between bundles.
+    const bundleK = ang0.mul(26 / 6.2831853);
+    const bh = fract(sin(floor(bundleK).mul(37.17).add(2.3)).mul(43758.5453));
+    const curl = bh.sub(0.5).mul(rp.mul(rp).mul(3.4).add(rp.mul(0.9)));
+    const bundleVoid = smoothstep(0.12, 0.4, bh);
+    const fineK = ang0
+      .add(curl)
+      .mul(FIBER_FINE / 6.2831853)
+      .add(swirl);
     const fi1 = floor(fineK);
     const ff1 = fract(fineK).sub(0.5);
     const h1 = fract(sin(fi1.mul(12.9898).add(4.1)).mul(43758.5453));
     const w1 = h1.mul(0.1).add(0.06);
-    const line1 = exp(ff1.mul(ff1).div(w1.mul(w1)).negate()).mul(smoothstep(0.15, 0.5, h1));
+    // Per-fibre length window: strands start and end at varied radii (taper).
+    const st1 = h1.mul(0.45).add(0.1);
+    const len1 = smoothstep(st1, st1.add(0.2), rp).mul(
+      smoothstep(st1.add(0.85), st1.add(0.45), rp)
+    );
+    const line1 = exp(ff1.mul(ff1).div(w1.mul(w1)).negate())
+      .mul(smoothstep(0.15, 0.5, h1))
+      .mul(len1)
+      .mul(h1.mul(0.9).add(0.5))
+      .mul(bundleVoid.mul(0.8).add(0.2));
     const coarseK = ang0
       .mul(FIBER_COARSE / 6.2831853)
       .add(swirl.mul(0.6))
-      .add(1.7);
+      .add(1.7)
+      .add(curl.mul(FIBER_COARSE / 6.2831853));
     const fi2 = floor(coarseK);
     const ff2 = fract(coarseK).sub(0.5);
     const h2 = fract(sin(fi2.mul(78.233).add(9.7)).mul(24634.6345));
     const w2 = h2.mul(0.08).add(0.07);
-    const line2 = exp(ff2.mul(ff2).div(w2.mul(w2)).negate()).mul(smoothstep(0.25, 0.6, h2));
+    const st2 = h2.mul(0.35).add(0.15);
+    const len2 = smoothstep(st2, st2.add(0.25), rp).mul(smoothstep(st2.add(0.8), st2.add(0.4), rp));
+    const line2 = exp(ff2.mul(ff2).div(w2.mul(w2)).negate())
+      .mul(smoothstep(0.25, 0.6, h2))
+      .mul(len2)
+      .mul(bundleVoid);
     const fiber = line1.mul(0.75).add(line2.mul(1.25));
     return vec3(
       wedge.mul(ph.mul(0.5).add(0.6)),
@@ -493,11 +522,20 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     // Bright particulate cyan rim at the (petal-shaped) boundary: dense motes
     // plus a fuzzy glow band, slightly spilling outside the edge.
     const rimShell = exp(pow(r.sub(rEdge).div(0.05), 2).negate());
-    const cell = floor(q.mul(72));
+    // Rotated, per-cell-jittered particulate grid (no visible lattice).
+    const qr = vec3(
+      q.x.mul(0.8).add(q.z.mul(0.6)),
+      q.y.add(q.x.mul(0.15)),
+      q.z.mul(0.8).sub(q.x.mul(0.6))
+    ).mul(61);
+    const cell = floor(qr);
     const cseed = dot(cell, vec3(12.9898, 78.233, 37.719));
     const hsh = fract(sin(cseed).mul(43758.5453));
-    const cf = fract(q.mul(72)).sub(0.5);
-    const sparkDot = exp(dot(cf, cf).mul(-40));
+    const jit3 = vec3(hsh, fract(hsh.mul(57.3)), fract(hsh.mul(131.7)))
+      .sub(0.5)
+      .mul(0.6);
+    const cf = fract(qr).sub(0.5).sub(jit3);
+    const sparkDot = exp(dot(cf, cf).mul(-34)).mul(fract(hsh.mul(91.3)).mul(0.9).add(0.3));
     const fuzz = churn.mul(0.9).add(hsh.mul(0.3));
     const sparkleRim = rimShell.mul(
       float(0.16).mul(fuzz).add(step(0.5, hsh).mul(sparkDot).mul(20.0))

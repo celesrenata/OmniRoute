@@ -180,7 +180,7 @@ export function createElectron(u: WireUniforms, hot: [number, number, number]): 
         .mul(g)
         .mul((u.energy as any).x)
         .mul(vis)
-        .mul(0.75),
+        .mul(0.55),
       1
     );
   })();

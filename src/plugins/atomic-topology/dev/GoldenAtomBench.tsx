@@ -98,11 +98,18 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
 
     const scene = new Scene();
     const camera = new PerspectiveCamera(32, params.width / params.height, 1, 6000);
-    const env = createEnvironment();
+    const pair = params.energy === "both";
+    const env = createEnvironment(
+      pair
+        ? [
+            [-78, 0],
+            [78, 0],
+          ]
+        : [[0, 0]]
+    );
     env.objects.forEach((o) => scene.add(o));
     registry.add(env);
 
-    const pair = params.energy === "both";
     const multi = params.count > 1;
     const single: "idle" | "excited" = params.energy === "idle" ? "idle" : "excited";
     const kinds: ("idle" | "excited")[] = multi
