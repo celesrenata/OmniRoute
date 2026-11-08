@@ -349,7 +349,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       );
       const color2 = color.add(crystal).add(emissive);
       const cl = dot(color2, vec3(0.2126, 0.7152, 0.0722));
-      const vivid = max(mix(vec3(cl), color2, 2.1), 0).mul(0.62);
+      const vivid = max(mix(vec3(cl), color2, 2.6), 0).mul(0.6);
       out.assign(vec4(vivid, tBest));
     });
     return out;
@@ -523,7 +523,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     // the gem. The wide anamorphic equatorial streak is a separate sprite.
     const lc = length(vec3(fx, fyy, 0));
     const coreFlare = exp(lc.div(cloudR.mul(0.03)).negate())
-      .mul(1.2)
+      .mul(2.0)
       .add(exp(lc.div(cloudR.mul(0.12)).negate()).mul(0.12));
     const spikeH = exp(fyy.abs().div(cloudR.mul(0.004)).negate()).mul(
       exp(fx.abs().div(cloudR.mul(0.16)).negate())

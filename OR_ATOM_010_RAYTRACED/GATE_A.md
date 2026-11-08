@@ -233,3 +233,14 @@ Uncapped perf (M5 Max, headed Chrome, DPR 2, 3344x1882, `UNCAPPED=1`):
 32-atom p95 improved from ~24 ms to 17.2 ms (not root-caused; p99 tails remain). Not done: petal-bundle morphing over time (lifecycle plus differential swirl carry the motion); environment unchanged.
 
 Commands: `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts` 437 tests, 436 pass, 0 fail, 1 skipped; `npm run typecheck:core` 0 atomic-topology errors; `npm run lint` 7 pre-existing errors outside the plugin; `zsh scripts/ad-hoc/pw-atomic-gateA-all.sh` 19/19 state=ok (apple/metal-3); `python3 scripts/ad-hoc/atomic-gateA-compose.py`; `scripts/ad-hoc/pw-atomic-gateA-video.mjs`; `UNCAPPED=1 pw-atomic-gateA-live.mjs` for the table.
+
+## Round 9 (response to gateA-r2.md)
+
+Evidence: M5 Max, headed Chrome, WebGPU apple/metal-3, DPR 2, uncapped (`--disable-frame-rate-limit --disable-gpu-vsync`). Side-by-sides vs idea5: `screenshots/gateA/sidebyside-idea5-*.png` (regenerated, 19/19 captures ok).
+
+1. **Pale frosted globe -> deep violet body.** Cyan rim sparkles 11 -> 5.5 gain, strand tip cap 3.2 -> 1.8, strand body gain 0.28/1.05 -> 0.2/0.9, rim-ring band 0.22 -> 0.10, absorbing medium `MEDIUM_K` 0.16 -> 0.30 (darker petal voids). Default frame interior is now violet/magenta with dark voids and a thin cyan fringe.
+2. **Washed palette -> navy-black.** Floor grids/underglow ~45% lower, pedestal dome/disc/base ~50% lower, vanishing glow halved, grade pass adds a 0.012 black-level crush + 1.14 contrast curve, stronger vignette (0.55 -> 0.72), bloom 0.26/1.15 -> 0.15/1.3. The atom is the brightest object; orange accents remain.
+3. **Nucleus.** Operator-approved smooth glossy spheres kept (facets caused the checkerboard artefact in earlier rounds). Saturation boost 2.1 -> 2.6, core flare 1.2 -> 2.0, inner pink-white glow +35%. Hot core visible at default.
+4. **Perf tails root-caused** (`scripts/ad-hoc/pw-atomic-cpuprofile.mjs`, CDP profile, 32 atoms, 5 s): `GPUQueue.writeBuffer` = 2775 ms self time of ~5000 ms, `setVertexBuffer` 551 ms. Each atom owns ~28 render objects (14 wires, strands, mirror strands, sparkles, impostor, mirror impostor, 4 bolts, streak, glow, ring), each with its own object uniform buffer rewritten every frame (~900 small writes/frame at 32 atoms). When the GPU queue is behind, writeBuffer stalls the main thread in ~45 ms steps (longtask observer: 50 ms tasks at the same cadence). Single atom: no spikes, p99 11.6 ms. Disproved: bolt geometry swap (frozen swap, same spikes). Fix belongs to Gate B multi-atom batching (merge the 14 wires into one mesh, share per-atom uniforms). The M5 Max also had load avg ~10 from unrelated processes (Adobe, BTLEServer) during measurement, which inflates tails.
+
+Uncapped frame time (ms, p50/p95/p99): default 2.7/2.9/11.6; close 8.1/8.5/25.3; 20 atoms 7.6/8.7/44.0; 32 atoms 9.5/17.0/47.4 (~105 fps p50). Targets (~120 fps at 20 atoms, >=60 fps at 32) are met at p50.

@@ -102,7 +102,7 @@ function hash01(n: number): number {
   return x - Math.floor(x);
 }
 /** Extinction of the absorbing cloud body at full (excited) brightness. */
-const MEDIUM_K = 0.16;
+const MEDIUM_K = 0.3;
 const NEUTRAL_HUES: [number, number, number][] = [
   [0.42, 0.52, 0.78],
   [0.35, 0.5, 0.85],
@@ -405,8 +405,8 @@ export function createRtAtom(
     const p = uv().sub(0.5).mul(2);
     const r = length(p);
     const band = exp(r.sub(0.9).div(0.014).pow(2).negate())
-      .mul(0.22)
-      .add(exp(r.sub(0.9).div(0.07).pow(2).negate()).mul(0.07));
+      .mul(0.1)
+      .add(exp(r.sub(0.9).div(0.07).pow(2).negate()).mul(0.03));
     return vec4(
       vec3(0.1, 0.85, 1.0)
         .mul(band)
@@ -541,7 +541,7 @@ export function createRtAtom(
     // Quad sized to the visible band only (fill cost: it is additive over MSAA HDR).
     streak.scale.set(cr * 6, cr * 0.16, 1);
     glow.scale.set(cr * 0.62, cr * 0.62, 1);
-    glowK.value = (0.2 + 0.95 * params.excitation) * params.brightness;
+    glowK.value = (0.3 + 1.3 * params.excitation) * params.brightness;
     ring.scale.set((2 * reach * cr) / 0.9, (2 * reach * cr) / 0.9, 1);
     ringK.value = (0.3 + 0.7 * params.excitation) * params.brightness;
     // Decorative differential swirl: rate rises with energy, never encodes

@@ -21,8 +21,10 @@ import {
   float,
   fract,
   length,
+  max,
   mix,
   pass,
+  pow,
   screenUV,
   sin,
   smoothstep,
@@ -84,7 +86,7 @@ export async function createRtRenderer(opts: RtRendererOptions): Promise<RtRende
   const scenePass = pass(opts.scene, opts.camera);
   const sceneColor = scenePass.getTextureNode();
   const bloomOn = uniform(opts.bloom ? 1 : 0);
-  const bloomNode = bloom(sceneColor, 0.26, 0.55, 1.15);
+  const bloomNode = bloom(sceneColor, 0.15, 0.5, 1.3);
   const shifted = rgbShift(sceneColor, 0.0011, 0.0);
   const grade = Fn(() => {
     const hdr = shifted.rgb.add(bloomNode.rgb.mul(bloomOn));
@@ -92,10 +94,12 @@ export async function createRtRenderer(opts: RtRendererOptions): Promise<RtRende
     const luma = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
     const shadowTint = vec3(0.9, 1.0, 1.1);
     const highTint = vec3(1.12, 0.95, 1.03);
-    const graded = hdr.mul(mix(shadowTint, highTint, smoothstep(0.1, 1.2, luma)));
+    const toned = hdr.mul(mix(shadowTint, highTint, smoothstep(0.1, 1.2, luma)));
+    // Deep blacks + contrast: crush the lifted floor so the atom is the brightest object.
+    const graded = pow(max(toned.sub(0.012), 0), vec3(1.14));
     // Vignette.
     const v = length(screenUV.sub(0.5).mul(vec2(1.0, 0.9)));
-    const vig = float(1).sub(smoothstep(0.35, 0.95, v).mul(0.55));
+    const vig = float(1).sub(smoothstep(0.3, 0.9, v).mul(0.72));
     // Grain (static pattern phase; reduced-motion safe because it is subtle and non-flashing).
     const g = fract(sin(dot(screenCoordinate.xy, vec2(12.9898, 78.233))).mul(43758.5453)).sub(0.5);
     return vec4(graded.mul(vig).add(g.mul(0.012)), 1);

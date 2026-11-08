@@ -157,10 +157,10 @@ const floorPattern = Fn(([x, z, dist, tm]: [any, any, any, any]) => {
   );
   const minor = exp(dMinor.negate().div(blur.mul(0.5)))
     .mul(vec3(0.02, 0.22, 0.35))
-    .mul(0.5);
+    .mul(0.28);
   const major = exp(dMajor.negate().div(blur.mul(0.9)))
     .mul(vec3(0.05, 0.6, 0.9))
-    .mul(0.55);
+    .mul(0.3);
   // Circuit traces: thin lines along x / z that turn on per cell.
   const tc = floor(p.div(40));
   const th = h21(tc);
@@ -199,7 +199,7 @@ const floorPattern = Fn(([x, z, dist, tm]: [any, any, any, any]) => {
   }
   const under = exp(rad.mul(rad).mul(-0.00035))
     .mul(vec3(0.0, 0.55, 0.85))
-    .mul(0.55);
+    .mul(0.22);
   const fade = exp(dist.mul(-0.0011));
   return minor.add(major).add(trace).add(streak).add(rings).mul(fade).add(under);
 });
@@ -283,7 +283,7 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
       col.assign(
         vec3(0.005, 0.01, 0.028)
           .add(f)
-          .add(vec3(0.05, 0.2, 0.35).mul(gl).mul(0.6))
+          .add(vec3(0.05, 0.2, 0.35).mul(gl).mul(0.3))
       );
     });
     If(hitCeil, () => {
@@ -317,7 +317,7 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
       col.assign(
         vec3(0.012, 0.03, 0.09)
           .add(frameCol.mul(frame).mul(4.5))
-          .add(vec3(0.5, 0.85, 1.0).mul(g).mul(1.2))
+          .add(vec3(0.5, 0.85, 1.0).mul(g).mul(0.6))
       );
     });
     // Volumetric haze: cyan toward the vanishing point + warm low haze.
@@ -367,11 +367,11 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
     ).add(exp(abs(fract(lon.mul(8.5 / Math.PI))).mul(-80)));
     const grid = max(latLine, lonLine)
       .mul(vec3(0.15, 0.85, 1.0))
-      .mul(mix(float(0.5), float(1.1), lat));
+      .mul(mix(float(0.3), float(0.65), lat));
     const view = normalize(cameraPosition.sub(positionWorld));
     const wn = normalize(vec3(positionLocal.x, positionLocal.y.div(0.47), positionLocal.z));
     const fres = pow(float(1).sub(saturate(dot(wn, view))), 3);
-    const rim = fres.mul(vec3(0.2, 0.7, 1.0)).mul(0.65);
+    const rim = fres.mul(vec3(0.2, 0.7, 1.0)).mul(0.3);
     const fade = smoothstep(0.0, 0.18, lat);
     const col = grid.add(rim).mul(fade);
     return vec4(col, 1);
@@ -404,7 +404,7 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
       2
     );
     const ring = exp(abs(y.sub(0.5)).mul(-6));
-    return vec4(vec3(0.2, 0.8, 1.0).mul(fres.mul(0.9).add(0.15)).mul(ring.mul(0.8).add(0.25)), 1);
+    return vec4(vec3(0.2, 0.8, 1.0).mul(fres.mul(0.6).add(0.08)).mul(ring.mul(0.6).add(0.15)), 1);
   })();
   baseMat.transparent = true;
   baseMat.blending = AdditiveBlending;
@@ -431,8 +431,8 @@ export function createEnvironment(pedestals: [number, number][] = [[0, 0]]): Env
     void gx;
     const gridX = exp(min(fract(p.x.div(6.5)), float(1).sub(fract(p.x.div(6.5)))).mul(-9));
     const gridZ = exp(min(fract(p.y.div(6.5)), float(1).sub(fract(p.y.div(6.5)))).mul(-9));
-    const grid = max(gridX, gridZ).mul(0.7);
-    const glow = exp(r.mul(r).mul(-2.5)).mul(1.4);
+    const grid = max(gridX, gridZ).mul(0.45);
+    const glow = exp(r.mul(r).mul(-2.5)).mul(0.6);
     const ringEdge = exp(abs(r.sub(0.97)).mul(-60)).mul(1.6);
     const col = vec3(0.1, 0.75, 1.0).mul(
       grid.mul(float(1).sub(r).mul(0.9).add(0.15)).add(glow).add(ringEdge)
