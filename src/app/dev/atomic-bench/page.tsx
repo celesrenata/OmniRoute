@@ -164,6 +164,7 @@ function BenchRouter() {
       badge: sp.get("badge") !== "0",
       width: Number(sp.get("w")) || 1672,
       height: Number(sp.get("h")) || 941,
+      count: Math.min(32, Math.max(1, Math.floor(Number(sp.get("count")) || 1))),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sp]);

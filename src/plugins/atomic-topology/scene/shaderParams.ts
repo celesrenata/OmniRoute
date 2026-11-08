@@ -15,7 +15,7 @@ export const CLOUD_BOUND_RADIUS = CLOUD_BASE_RADIUS * CLOUD_OUTER_SHELL_FACTOR -
 
 export const MAX_NUCLEONS = 64;
 export const MAX_ORBITALS = 3;
-export const MAX_WIRES = 8;
+export const MAX_WIRES = 14;
 export const MIN_MARCH_STEPS = 48;
 export const MAX_MARCH_STEPS = 192;
 export const MAX_EXPOSURE = 4;

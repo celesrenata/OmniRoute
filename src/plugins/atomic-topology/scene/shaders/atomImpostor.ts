@@ -47,10 +47,17 @@ import {
   step,
   uniform,
   uniformArray,
+  texture3D,
+  ceil,
   vec3,
   vec4,
 } from "three/tsl";
 import {
+  Data3DTexture,
+  LinearFilter,
+  RepeatWrapping,
+  RGBAFormat,
+  UnsignedByteType,
   MeshBasicNodeMaterial,
   Vector3,
   Vector4,
@@ -67,23 +74,57 @@ void AdditiveBlending;
 const KEY_DIR = vec3(-0.45, 0.72, 0.52).normalize();
 const KEY_COLOR = vec3(1.0, 0.86, 0.95);
 
-/** 3D-noise stand-in for 4D: radial coordinate decorrelates along a fixed diagonal. */
-const lattice = (c: any) =>
-  fract(sin(dot(c, vec3(127.1, 311.7, 74.7))).mul(43758.5453))
-    .mul(2)
-    .sub(1);
-/** Cheap 3D value noise (8 hashed lattice points) - ~2x cheaper than perlin per sample. */
-const vnoise = (p: any) => {
-  const i = floor(p);
-  const f = fract(p);
-  const w = f.mul(f).mul(float(3).sub(f.mul(2)));
-  const x00 = mix(lattice(i), lattice(i.add(vec3(1, 0, 0))), w.x);
-  const x10 = mix(lattice(i.add(vec3(0, 1, 0))), lattice(i.add(vec3(1, 1, 0))), w.x);
-  const x01 = mix(lattice(i.add(vec3(0, 0, 1))), lattice(i.add(vec3(1, 0, 1))), w.x);
-  const x11 = mix(lattice(i.add(vec3(0, 1, 1))), lattice(i.add(vec3(1, 1, 1))), w.x);
-  return mix(mix(x00, x10, w.y), mix(x01, x11, w.y), w.z);
+/** Edge length (voxels) of the baked, tileable filament-noise volume. */
+export const NOISE_SIZE = 64;
+
+/** Deterministic mulberry32 stream (seeded; no Math.random). */
+function mulberry(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Raw RGBA8 white-noise voxels; hardware trilinear filtering makes it value noise. */
+export function bakeNoiseVoxels(size = NOISE_SIZE, seed = 0x0a70b1): Uint8Array {
+  const rnd = mulberry(seed);
+  const data = new Uint8Array(size * size * size * 4);
+  for (let i = 0; i < data.length; i += 1) data[i] = Math.floor(rnd() * 256);
+  return data;
+}
+
+let sharedNoise: Data3DTexture | null = null;
+/** Shared baked noise volume (re-uploaded automatically after a dispose()). */
+export function getNoiseTexture(): Data3DTexture {
+  if (!sharedNoise) {
+    const t = new Data3DTexture(bakeNoiseVoxels(), NOISE_SIZE, NOISE_SIZE, NOISE_SIZE);
+    t.format = RGBAFormat;
+    t.type = UnsignedByteType;
+    t.minFilter = LinearFilter;
+    t.magFilter = LinearFilter;
+    t.wrapS = RepeatWrapping;
+    t.wrapT = RepeatWrapping;
+    t.wrapR = RepeatWrapping;
+    t.generateMipmaps = false;
+    t.needsUpdate = true;
+    sharedNoise = t;
+  }
+  return sharedNoise;
+}
+
+const noiseNode = texture3D(getNoiseTexture());
+/** Signed baked noise in [-1, 1]; `ch` 0 = x, 1 = y. Explicit LOD (safe in divergent loops). */
+const bakedNoise = (p: any, ch: 0 | 1) => {
+  const v = noiseNode.sample(p.div(NOISE_SIZE)).level(0);
+  return (ch === 0 ? v.x : v.y).mul(2).sub(1);
 };
-const noise4 = (p: any, w: any) => vnoise(p.add(vec3(0.73, 0.41, 0.57).mul(w)));
+/** 4D stand-in: the 4th coordinate decorrelates along a fixed diagonal. */
+const noise4 = (p: any, w: any, ch: 0 | 1 = 0) =>
+  bakedNoise(p.add(vec3(0.73, 0.41, 0.57).mul(w)), ch);
 void mx_noise_float;
 
 /** Procedural neon studio environment (HDRI substitute), view-direction function. */
@@ -111,6 +152,9 @@ export const neonEnvironment = Fn(([dirIn, rough]: [any, any]) => {
   return base.add(purple).add(cyan).add(top).add(warm).add(green).add(key).add(strips);
 });
 
+/** Dispose handle for the shared baked-noise volume (GPU copy re-created on demand). */
+export const noiseTextureDisposable = { dispose: () => getNoiseTexture().dispose() };
+
 export interface AtomUniforms {
   center: ReturnType<typeof uniform>;
   camRight: ReturnType<typeof uniform>;
@@ -131,6 +175,8 @@ export interface AtomUniforms {
   energy: ReturnType<typeof uniform>;
   phase: ReturnType<typeof uniform>;
   steps: ReturnType<typeof uniform>;
+  /** Extinction weight of the absorbing plasma medium (deep body, not haze). */
+  mediumK: ReturnType<typeof uniform>;
   stale: ReturnType<typeof uniform>;
   mirror: ReturnType<typeof uniform>;
   inner: ReturnType<typeof uniform>;
@@ -169,6 +215,7 @@ export function createAtomUniforms(): AtomUniforms {
     energy: uniform(new Vector3(0.12, 0.35, 0.35)),
     phase: uniform(0),
     steps: uniform(96, "int"),
+    mediumK: uniform(0.16),
     stale: uniform(0),
     mirror: uniform(0),
     inner: uniform(new Vector3(0.62, 0.22, 1)),
@@ -263,10 +310,10 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       // Crystalline inner light: warm core glow + bright fresnel-edge scattering.
       const edge = pow(float(1).sub(ndv), 2.2);
       const glow = albedo
-        .mul(float(0.3).add(edge.mul(0.8)))
+        .mul(float(0.25).add(edge.mul(0.55)))
         .mul(mix(float(0.45), float(1), isP))
         .mul(ao.mul(0.6).add(0.4))
-        .mul(float(0.3).add(excitation.mul(0.7)));
+        .mul(float(0.25).add(excitation.mul(0.45)));
       const specKey = pow(max(dot(refl, KEY_DIR), 0), mix(float(40), float(260), isP)).mul(
         isP.mul(0.8).add(0.2)
       );
@@ -276,7 +323,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
         .add(bounce.mul(fres.mul(1.1).add(0.06)).mul(ao.mul(0.5).add(0.5)))
         .add(KEY_COLOR.mul(specKey).mul(sh).mul(1.4));
       const cl = dot(color, vec3(0.2126, 0.7152, 0.0722));
-      const vivid = max(mix(vec3(cl), color, 1.35), 0).mul(0.78);
+      const vivid = max(mix(vec3(cl), color, 1.6), 0).mul(0.7);
       out.assign(vec4(vivid, tBest));
     });
     return out;
@@ -317,20 +364,42 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     // radially (the radial coordinate decorrelates slowly; angle quickly).
     const strand = (freq: number, off: number, ex: number) => {
       const n1 = noise4(dir.mul(freq).add(off), rr);
-      const n2 = noise4(dir.mul(freq).add(off + 11.7), rr.mul(1.15).add(off));
+      const n2 = noise4(dir.mul(freq).add(off + 11.7), rr.mul(1.15).add(off), 1);
       return pow(saturate(float(1).sub(n1.abs())), ex).mul(
         pow(saturate(float(1).sub(n2.abs())), ex)
       );
     };
-    const strands = strand(24, 0.0, 15)
-      .mul(1.0)
-      .add(strand(52, 5.1, 18).mul(1.0))
-      .mul(12.0);
+    // Two octaves only: a third (freq ~100) is sub-pixel at default distance and
+    // averages into a pastel wash instead of reading as individual filaments.
+    const strands = strand(16, 0.0, 30)
+      .add(strand(38, 5.1, 40).mul(0.9))
+      .mul(30.0);
     // Strand brightness flickers subtly and is brightest near the nucleus.
     const flick = noise4(dir.mul(9), phase.mul(0.9)).mul(0.25).add(0.85);
     const near = float(0.1).add(exp(r.mul(-2.4)).mul(1.5));
-    const haze = lobeSum.mul(0.0);
-    const body = strands.mul(flick).mul(near).mul(lobeSum.mul(0.9).add(0.3)).add(haze);
+    // Deep plasma body: lobe-weighted luminous volume (violet core -> bright rim)
+    // with slow low-frequency churn, so the cloud reads as a volume, not dots.
+    const churn = noise4(dir.mul(3.1), phase.mul(0.35).add(r.mul(2.3)))
+      .mul(0.35)
+      .add(0.75);
+    const shell = exp(pow(r.sub(0.62).div(0.38), 2).negate())
+      .mul(0.75)
+      .add(smoothstep(0.6, 0.95, r).mul(0.18));
+    const haze = lobeSum
+      .mul(0.05)
+      .mul(shell)
+      .mul(churn)
+      .mul(float(1).add(excitation.mul(0.6)));
+    // Petal voids: a low-frequency angular mask carves dark gaps between bright
+    // filament bundles (the deep-violet contrast of the reference), so the
+    // strands bunch into petals instead of averaging into a uniform wash.
+    const petal = smoothstep(-0.02, 0.22, noise4(dir.mul(2.4).add(3.3), phase.mul(0.12), 1));
+    const body = strands
+      .mul(flick)
+      .mul(near)
+      .mul(lobeSum.mul(0.9).add(0.3))
+      .mul(petal.mul(2.2).add(0.04))
+      .add(haze);
     // Hot core plasma near the nucleus.
     const core = exp(r.mul(r).mul(-55))
       .mul(2.6)
@@ -365,11 +434,58 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const moteCol = vec3(1.0, 0.45, 0.62);
     const base = mix(baseCol, u.coreColor as any, hot);
     const luma = dot(base, vec3(0.2126, 0.7152, 0.0722));
-    const graded = mix(vec3(luma), base, saturation);
+    const graded0 = mix(vec3(luma), base, saturation);
+    // Deepen hue (darken minor channels) so bright plasma stays saturated, not pastel.
+    const graded = pow(max(graded0, 0.0001), vec3(1.4));
     const moteGraded = mix(vec3(dot(moteCol, vec3(0.2126, 0.7152, 0.0722))), moteCol, saturation);
-    return vec4(graded.mul(density).add(moteGraded.mul(mote).mul(22.0)), density.add(mote));
+    // Absorbing plasma medium: a smooth lobe-shaped body that occludes the room
+    // behind it (deep violet voids between bright strands, as in the reference)
+    // and emits only a dim violet glow of its own.
+    const medium = lobeSum
+      .mul(shell)
+      .mul(churn)
+      .mul(interior)
+      .mul(u.mediumK as any);
+    const mediumCol = pow(max(mix(vec3(luma), u.inner as any, saturation), 0.0001), vec3(1.6));
+    return vec4(
+      graded.mul(density).add(moteGraded.mul(mote).mul(22.0)).add(mediumCol.mul(medium).mul(0.25)),
+      density.add(mote)
+    );
   });
 
+  /**
+   * Absorbing plasma body at q (lobe-shaped, low frequency). It only absorbs
+   * what lies BEHIND the cloud (the room), so the nucleus and strands stay crisp
+   * while the cloud reads as a deep violet volume instead of an additive haze.
+   */
+  const mediumSample = Fn(([q]: [any]) => {
+    const r = length(q).max(0.002);
+    const dir = q.div(r);
+    const axes = u.axes as any[];
+    const kinds = u.lobeKind as any;
+    const weights = u.weights as any;
+    const peaks = u.peaks as any;
+    const kindArr = [kinds.x, kinds.y, kinds.z];
+    const wArr = [weights.x, weights.y, weights.z];
+    const pArr = [peaks.x, peaks.y, peaks.z];
+    const lobeSum = float(0).toVar();
+    for (let k = 0; k < 3; k += 1) {
+      const c = dot(dir, axes[k]);
+      const c2 = c.mul(c);
+      const d2 = pow(c2.mul(3).sub(1), 2).mul(0.25);
+      const lobe = mix(c2, d2, step(1.5, kindArr[k]));
+      const rad = exp(pow(r.sub(pArr[k]).div(0.42), 2).negate());
+      lobeSum.addAssign(wArr[k].mul(lobe.add(0.28)).mul(rad.mul(0.8).add(0.2)));
+    }
+    const shell = exp(pow(r.sub(0.62).div(0.38), 2).negate())
+      .mul(0.75)
+      .add(smoothstep(0.6, 0.95, r).mul(0.18));
+    const interior = float(1).sub(smoothstep(0.93, 0.99, r));
+    return lobeSum
+      .mul(shell)
+      .mul(interior)
+      .mul(u.mediumK as any);
+  });
   const fragment = Fn(() => {
     const mirrorOn = u.mirror as any;
     const fy = u.floorY as any;
@@ -408,15 +524,20 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     // --- volumetric electron cloud ---------------------------------------
     const acc = vec3(0).toVar();
     const trans = float(1).toVar();
+    const transBg = float(1).toVar();
     const hc = raySphere(ro, rd, center, cloudR);
     If(hc.y.greaterThan(0), () => {
       const t0 = max(hc.x, 0);
       const t1 = select(tNuc.greaterThan(0), min(hc.y, tNuc), hc.y);
       If(t1.greaterThan(t0), () => {
-        const stepsF = float(u.steps as any);
+        // Chord-scaled step count: a constant world-space step length, so short
+        // grazing chords near the silhouette take proportionally fewer samples
+        // (same per-step quality, ~1/3 fewer samples on average across the disc).
+        const maxSteps = float(u.steps as any);
+        const stepsF = max(ceil(t1.sub(t0).div(cloudR.mul(2)).mul(maxSteps)), 12);
         const dt = t1.sub(t0).div(stepsF);
         const t = t0.add(dt.mul(interleavedGradientNoise(screenCoordinate.xy))).toVar();
-        const emission = brightness.mul(1.5).add(0.22).mul(0.0078);
+        const emission = brightness.mul(1.5).add(0.22).mul(0.011);
         Loop(u.steps as any, () => {
           If(t.greaterThan(t1), () => {
             Break();
@@ -425,7 +546,8 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
           const s = cloudSample(q);
           const w = s.w;
           acc.addAssign(s.xyz.mul(emission).mul(dt).mul(trans));
-          trans.mulAssign(exp(w.mul(dt).mul(-0.006)));
+          trans.mulAssign(exp(w.mul(dt).mul(-0.03)));
+          transBg.mulAssign(exp(mediumSample(q).mul(dt).negate()));
           t.addAssign(dt);
         });
       });
@@ -447,14 +569,14 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const flareK = excitation.mul(0.9).add(0.12);
     const flare = vec3(0.25, 0.85, 1.0)
       .mul(streak)
-      .mul(0.55)
-      .add(vec3(1.0, 0.7, 0.95).mul(coreFlare).mul(0.9))
+      .mul(0.3)
+      .add(vec3(1.0, 0.55, 0.9).mul(coreFlare).mul(0.4))
       .mul(flareK);
     const withFlare = acc.add(flare.mul(smoothstep(0.0, 0.2, trans)));
     const refl = select(mirrorOn.greaterThan(0.5), float(0.3), float(1));
     const color = withFlare.add(surface.mul(trans)).mul(refl);
     const alpha = float(1)
-      .sub(trans.mul(float(1).sub(surfAlpha)))
+      .sub(trans.mul(transBg).mul(float(1).sub(surfAlpha)))
       .mul(refl);
     return vec4(color, alpha);
   });

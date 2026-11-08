@@ -84,7 +84,7 @@ export async function createRtRenderer(opts: RtRendererOptions): Promise<RtRende
   const scenePass = pass(opts.scene, opts.camera);
   const sceneColor = scenePass.getTextureNode();
   const bloomOn = uniform(opts.bloom ? 1 : 0);
-  const bloomNode = bloom(sceneColor, 0.4, 0.6, 1.0);
+  const bloomNode = bloom(sceneColor, 0.26, 0.55, 1.15);
   const shifted = rgbShift(sceneColor, 0.0011, 0.0);
   const grade = Fn(() => {
     const hdr = shifted.rgb.add(bloomNode.rgb.mul(bloomOn));

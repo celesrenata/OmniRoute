@@ -43,11 +43,14 @@ export interface GoldenBenchParams {
   badge: boolean;
   width: number;
   height: number;
+  /** Multi-atom load test: N atoms (1..32) on a grid, for frame-time headroom. */
+  count: number;
 }
 
 const MODEL_SETS: Record<string, string[] | undefined> = {
-  "1": ["ds4-glm53"],
-  "3": ["ds4-glm53", "qwen3.5-9b", "qwen3.8-27b"],
+  "1": ["llama-3.3-70b"],
+  // Demo ids chosen so production modelColor() hashes to green / blue / violet.
+  "3": ["qwen3.5-35b", "llama-3.3-70b", "kimi-k2"],
   unknown: undefined,
   stale: undefined,
 };
@@ -72,12 +75,18 @@ function energyFor(kind: "idle" | "excited", stale: boolean, reduced: boolean): 
 
 export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
-    const canvas = canvasRef.current;
-    if (!host || !canvas) return;
+    if (!host) return;
+    // A fresh canvas per mount: the WebGL2 backend's dispose() calls
+    // loseContext(), so a remount (StrictMode / param change) must never reuse
+    // the previous canvas or it inherits a permanently lost context.
+    const canvas = document.createElement("canvas");
+    canvas.style.width = `${params.width}px`;
+    canvas.style.height = `${params.height}px`;
+    canvas.style.display = "block";
+    host.prepend(canvas);
     let disposed = false;
     let raf = 0;
     let rtRenderer: RtRenderer | null = null;
@@ -94,7 +103,16 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
     registry.add(env);
 
     const pair = params.energy === "both";
-    const kinds: ("idle" | "excited")[] = pair ? ["idle", "excited"] : [params.energy];
+    const multi = params.count > 1;
+    const single: "idle" | "excited" = params.energy === "idle" ? "idle" : "excited";
+    const kinds: ("idle" | "excited")[] = multi
+      ? Array.from({ length: params.count }, () => single)
+      : pair
+        ? ["idle", "excited"]
+        : [params.energy as "idle" | "excited"];
+    const cols = Math.ceil(Math.sqrt(kinds.length));
+    const rows = Math.ceil(kinds.length / cols);
+    const spacing = 150;
     const atoms: {
       atom: RtAtom;
       energy: EnergyState;
@@ -104,14 +122,17 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
     }[] = [];
     kinds.forEach((kind, i) => {
       const ids = MODEL_SETS[params.models];
-      const x = pair ? (i === 0 ? -78 : 78) : 0;
+      const gx = (i % cols) - (cols - 1) / 2;
+      const gz = Math.floor(i / cols) - (rows - 1) / 2;
+      const x = multi ? gx * spacing : pair ? (i === 0 ? -78 : 78) : 0;
+      const z = multi ? gz * spacing : 0;
       const atom = createRtAtom(
         {
-          id: `${params.golden}:bench-${params.golden}`,
+          id: multi ? `${params.golden}:bench-${i}` : `${params.golden}:bench-${params.golden}`,
           hub: params.golden === "hub",
           observedModelIds: params.golden === "hub" ? undefined : ids,
           laneHue: laneHue("prefill"),
-          position: [x, 0, 0],
+          position: [x, 0, z],
           neutral: params.golden === "hub" ? false : !ids || stale,
         },
         registry
@@ -120,7 +141,13 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
       atoms.push({ atom, energy: energyFor(kind, stale, reduced), kind, phase: 0, spin: 0 });
     });
 
-    const dist = params.dist === "close" ? 118 : pair ? 400 : 255;
+    const dist = multi
+      ? 255 * Math.max(cols, rows) * 0.9
+      : params.dist === "close"
+        ? 118
+        : pair
+          ? 400
+          : 255;
     const az = (params.az * Math.PI) / 180;
     const el = 0.17;
     camera.position.set(
@@ -204,6 +231,7 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
       registry.disposeAll();
       rtRenderer?.dispose();
       rtRenderer = null;
+      canvas.remove();
     };
   }, [params]);
 
@@ -226,10 +254,6 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
         overflow: "hidden",
       }}
     >
-      <canvas
-        ref={canvasRef}
-        style={{ width: params.width, height: params.height, display: "block" }}
-      />
       {params.badge && (
         <div
           data-bench-badge="DEMO"

@@ -13,7 +13,13 @@ fs.mkdirSync(outDir, { recursive: true });
 const browser = await chromium.launch({
   channel: "chrome",
   headless: false,
-  args: ["--enable-unsafe-webgpu", "--enable-gpu", "--ignore-gpu-blocklist"],
+  args: [
+    "--enable-unsafe-webgpu",
+    "--enable-gpu",
+    "--ignore-gpu-blocklist",
+    // UNCAPPED=1 removes the vsync/frame-rate cap so frame time reflects GPU headroom.
+    ...(process.env.UNCAPPED ? ["--disable-frame-rate-limit", "--disable-gpu-vsync"] : []),
+  ],
 });
 const page = await (
   await browser.newContext({ viewport: { width: 1672, height: 941 }, deviceScaleFactor: 2 })

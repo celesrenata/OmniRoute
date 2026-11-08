@@ -190,10 +190,22 @@ const bokeh = Fn(([d, tm]: [any, any]) => {
     const off = vec2(h21(c.add(1.7)), h21(c.add(8.3)))
       .sub(0.5)
       .mul(0.5);
-    const dd = length(f.sub(off));
-    const disc = smoothstep(pr.r, pr.r * 0.78, dd).mul(
-      float(0.45).add(smoothstep(pr.r * 0.55, pr.r, dd).mul(0.9))
-    );
+    const fo = f.sub(off);
+    // Hexagonal aperture; near layers are heavily defocused (wide soft edge),
+    // far layers crisp. Interior carries a gentle gradient (not a flat disc).
+    const hx = max(abs(fo.x).mul(0.866).add(abs(fo.y).mul(0.5)), abs(fo.y));
+    const soft = [0.55, 0.3, 0.1][li];
+    const dd = mix(length(fo), hx.mul(1.12), 0.65);
+    const disc = smoothstep(pr.r, pr.r * (1 - soft), dd)
+      .mul(
+        float(0.5).add(
+          smoothstep(pr.r * 0.4, pr.r, dd)
+            .mul(0.7)
+            .mul(1 - soft)
+        )
+      )
+      .mul(float(0.55).add(h2.mul(0.9)))
+      .mul(float(1.0 + 0.5 * (1 - soft)));
     const on = step(0.82, h);
     const col = mix(vec3(1.0, 0.5, 0.15), vec3(0.15, 0.8, 1.0), step(0.45, h2)).mul(
       mix(float(1), float(0.5), step(0.85, h2))

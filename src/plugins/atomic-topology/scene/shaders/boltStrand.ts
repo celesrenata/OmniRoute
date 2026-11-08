@@ -90,7 +90,13 @@ export function createBoltUniforms(): BoltUniforms {
 /** Build core + halo ribbon materials for a bolt's uniforms. */
 export function createBoltMaterial(
   u: BoltUniforms,
-  opts: { halo: boolean; color: [number, number, number]; width: number }
+  opts: {
+    halo: boolean;
+    color: [number, number, number];
+    width: number;
+    /** Core width as a fraction of the halo width; > 0 embeds the core in the halo. */
+    coreRatio?: number;
+  }
 ): MeshBasicNodeMaterial {
   const A = u.a as any;
   const B = u.b as any;
@@ -119,9 +125,19 @@ export function createBoltMaterial(
   const sideV = varying(aSide);
   const genV = varying(aGen);
   material.fragmentNode = Fn(() => {
-    const prof = exp(sideV.mul(sideV).mul(opts.halo ? -2.2 : -1.2));
     const hot = vec3(...opts.color);
-    const core = opts.halo ? hot : mix(hot, vec3(1, 1, 1), 0.85);
+    // Halo ribbons also carry the hot core in their centre (one draw per bolt
+    // instead of two overlapping additive ribbons: half the bolt overdraw).
+    const s2 = sideV.mul(sideV);
+    const coreW = opts.coreRatio ?? 0;
+    const haloTerm = hot.mul(exp(s2.mul(-2.2)));
+    const coreTerm =
+      coreW > 0
+        ? mix(hot, vec3(1, 1, 1), 0.3).mul(exp(s2.mul(-1.2 / (coreW * coreW))).mul(2.6 / 2.8))
+        : vec3(0);
+    const core = opts.halo
+      ? haloTerm.add(coreTerm)
+      : mix(hot, vec3(1, 1, 1), 0.3).mul(exp(s2.mul(-1.2)));
     const falloff = float(1).div(genV.add(1).mul(0.6).add(0.4));
     const vis = sphereVisibility(
       cameraPosition,
@@ -129,11 +145,10 @@ export function createBoltMaterial(
       u.occluderCenter as any,
       u.occluderRadius as any
     );
-    const k = prof
-      .mul(falloff)
+    const k = falloff
       .mul(u.intensity as any)
       .mul(vis)
-      .mul(opts.halo ? 1.2 : 5.5);
+      .mul(opts.halo ? 2.8 : 2.6);
     return vec4(core.mul(k), 1);
   })();
   material.transparent = true;

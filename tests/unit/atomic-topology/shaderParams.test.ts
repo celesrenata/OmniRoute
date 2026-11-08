@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  MAX_WIRES,
   ATOM_WORLD_RADIUS,
   CLOUD_BASE_RADIUS,
   CLOUD_BOUND_RADIUS,
@@ -106,7 +107,7 @@ test("orbital layout and wires are deterministic and bounded", () => {
     assert.ok(o.weight > 0 && o.weight <= 1 && o.radialPeak > 0 && o.radialPeak < 1);
   }
   const wires = orbitWires(7, 99);
-  assert.ok(wires.length <= 8);
+  assert.ok(wires.length <= MAX_WIRES);
   for (const w of wires) assert.ok(w.a <= CLOUD_BOUND_RADIUS && w.b <= w.a);
 });
 

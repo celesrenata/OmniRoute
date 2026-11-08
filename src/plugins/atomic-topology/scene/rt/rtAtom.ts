@@ -16,7 +16,12 @@ import {
   clampShaderParams,
   MAX_NUCLEONS,
 } from "../shaderParams";
-import { createAtomMaterial, createAtomUniforms, type AtomUniforms } from "../shaders/atomImpostor";
+import {
+  createAtomMaterial,
+  createAtomUniforms,
+  noiseTextureDisposable,
+  type AtomUniforms,
+} from "../shaders/atomImpostor";
 import {
   createBoltMaterial,
   createBoltUniforms,
@@ -57,8 +62,23 @@ export interface RtAtomFrame {
   time: number;
 }
 
-const BOLT_SLOTS = 3;
+const BOLT_SLOTS = 8;
+/** Lane palette (linear-ish) for wires/bolts: green, blue, violet, cyan, magenta. */
+const LANE_PALETTE: [number, number, number][] = [
+  [0.15, 1.0, 0.45],
+  [0.2, 0.45, 1.0],
+  [0.65, 0.22, 1.0],
+  [0.1, 0.9, 1.0],
+  [1.0, 0.25, 0.75],
+];
+const NEUTRAL_PALETTE: [number, number, number][] = [
+  [0.55, 0.65, 0.85],
+  [0.45, 0.6, 0.9],
+  [0.6, 0.7, 0.95],
+];
 const BOLT_VARIANTS = 3;
+/** Extinction of the absorbing cloud body at full (excited) brightness. */
+const MEDIUM_K = 0.16;
 const NEUTRAL_HUES: [number, number, number][] = [
   [0.42, 0.52, 0.78],
   [0.35, 0.5, 0.85],
@@ -80,7 +100,7 @@ export function createRtAtom(
   const seed = fnv1a(opts.id);
   const packed = packNucleus({ seed, hub: opts.hub, observedModelIds: opts.observedModelIds });
   const orbitals: Orbital[] = orbitalLayout(seed);
-  const wiresDef: OrbitWire[] = orbitWires(seed, opts.wireCount ?? 10);
+  const wiresDef: OrbitWire[] = orbitWires(seed, opts.wireCount ?? 14);
   const group = new Group();
   group.position.set(...opts.position);
 
@@ -93,6 +113,7 @@ export function createRtAtom(
   group.add(mesh);
   registry.add(material);
   registry.add(quad);
+  registry.add(noiseTextureDisposable);
 
   // Mirrored floor reflection (same ray-traced shader, reflected rays).
   const mirrorUniforms = createAtomUniforms();
@@ -131,13 +152,26 @@ export function createRtAtom(
   const known = !opts.neutral && packed.modelGroups.length > 0;
   // Cloud colour is LANE-hued (violet/magenta interior grading to a cyan rim);
   // model identity lives in the nucleus. Unknown / stale stays neutral silver-blue.
-  const hueSet: [number, number, number][] = known
-    ? [mix3(lane, [0.55, 0.2, 1.0], 0.55), [0.8, 0.22, 0.95], [0.12, 0.65, 1.0]]
-    : NEUTRAL_HUES;
+  const hubHues: [number, number, number][] = [
+    [0.95, 0.18, 0.3],
+    [0.62, 0.16, 1.0],
+    [0.1, 0.65, 1.0],
+  ];
+  const hueSet: [number, number, number][] = opts.hub
+    ? hubHues
+    : known
+      ? [mix3(lane, [0.55, 0.2, 1.0], 0.55), [0.8, 0.22, 0.95], [0.12, 0.65, 1.0]]
+      : NEUTRAL_HUES;
   uniforms.hues.forEach((h, i) => (h.value as Vector3).set(...hueSet[i]));
-  (uniforms.inner.value as Vector3).set(...(known ? [0.5, 0.14, 1.0] : [0.4, 0.5, 0.78]));
-  (uniforms.rim.value as Vector3).set(...(known ? [0.08, 0.85, 1.0] : [0.55, 0.72, 0.95]));
-  (uniforms.coreColor.value as Vector3).set(...(known ? [1.0, 0.7, 0.95] : [0.85, 0.9, 1]));
+  (uniforms.inner.value as Vector3).set(
+    ...(opts.hub ? [0.75, 0.1, 0.55] : known ? [0.5, 0.14, 1.0] : [0.4, 0.5, 0.78])
+  );
+  (uniforms.rim.value as Vector3).set(
+    ...(opts.hub || known ? [0.08, 0.85, 1.0] : [0.55, 0.72, 0.95])
+  );
+  (uniforms.coreColor.value as Vector3).set(
+    ...(opts.hub || known ? [1.0, 0.62, 0.9] : [0.85, 0.9, 1])
+  );
   orbitals.forEach((o, i) => {
     (uniforms.axes[i].value as Vector3).set(...o.axis);
   });
@@ -195,8 +229,9 @@ export function createRtAtom(
   (wireU.occluderRadius as any).value = packed.extent * 0.92;
   const wireGroup = new Group();
   group.add(wireGroup);
+  const palette = opts.neutral ? NEUTRAL_PALETTE : LANE_PALETTE;
   wiresDef.forEach((w, i) => {
-    const m = createWireMesh(w, i, wireU, 0.12);
+    const m = createWireMesh(w, i, wireU, 0.12, palette[i % palette.length]);
     wireGroup.add(m);
     registry.add(m.geometry);
     registry.add(m.material as { dispose: () => void });
@@ -206,7 +241,8 @@ export function createRtAtom(
   wiresDef.forEach((_, i) => {
     const count = i % 3 === 0 ? 2 : 1;
     for (let k = 0; k < count; k += 1) {
-      const e = createElectron(wireU, i % 2 === 0 ? [1.0, 0.55, 0.75] : [0.6, 0.95, 1.0]);
+      const pc = palette[i % palette.length];
+      const e = createElectron(wireU, [0.1 + 0.9 * pc[0], 0.1 + 0.9 * pc[1], 0.1 + 0.9 * pc[2]]);
       e.core.scale.setScalar(0.85);
       e.glow.scale.setScalar(7.5);
       wireGroup.add(e.core, e.glow);
@@ -230,27 +266,22 @@ export function createRtAtom(
     const bu = createBoltUniforms();
     const variants = createBoltVariants(seed + s * 131, BOLT_VARIANTS);
     variants.forEach((v) => registry.add(v));
+    const bc = (opts.neutral ? NEUTRAL_PALETTE : LANE_PALETTE)[(s % 5) % (opts.neutral ? 3 : 5)];
     const halo = new Mesh(
       variants[0],
-      createBoltMaterial(bu, { halo: true, color: [0.35, 0.75, 1.0], width: 0.9 })
+      createBoltMaterial(bu, { halo: true, color: bc, width: 1.0, coreRatio: 0.24 })
     );
-    const core = new Mesh(
-      variants[0],
-      createBoltMaterial(bu, { halo: false, color: [0.8, 0.95, 1.0], width: 0.22 })
-    );
-    [halo, core].forEach((m, k) => {
-      m.frustumCulled = false;
-      m.renderOrder = 12 + k;
-      registry.add(m.material as { dispose: () => void });
-      boltGroup.add(m);
-    });
+    halo.frustumCulled = false;
+    halo.renderOrder = 12;
+    registry.add(halo.material as { dispose: () => void });
+    boltGroup.add(halo);
     (bu.occluderRadius as any).value = packed.extent * 0.92;
     boltSlots.push({
       u: bu,
-      meshes: [halo, core],
+      meshes: [halo],
       variants,
       variant: 0,
-      electron: (s * 3 + 1) % electrons.length,
+      electron: (s * 5 + 1) % electrons.length,
     });
   }
 
@@ -310,6 +341,9 @@ export function createRtAtom(
       (u.cloudRadius as any).value = cr;
       (u.energy.value as Vector3).set(params.excitation, params.saturation, params.brightness);
       (u.phase as any).value = params.phase;
+      // Absorbing plasma body thins out in the low-energy (idle) state so it
+      // greys and calms instead of reading as a dark sooty ball.
+      (u.mediumK as any).value = MEDIUM_K * params.brightness * params.brightness;
       (u.steps as any).value = isMirror
         ? Math.max(32, Math.round(params.marchSteps * 0.3))
         : params.marchSteps;
@@ -344,13 +378,13 @@ export function createRtAtom(
 
     // Lightning: only for excited, measured state; static in reduced motion.
     flickerClock += f.reducedMotion || !(f.dt > 0) ? 0 : Math.min(f.dt, 0.25);
-    const slotThreshold = [0.45, 0.62, 0.8];
+    const slotThreshold = [0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.92];
     boltSlots.forEach((slot, s) => {
       const on = f.energy.measured && f.energy.excitation > slotThreshold[s];
       const flick = f.reducedMotion
         ? 0.7
         : 0.65 + 0.35 * Math.abs(Math.sin(flickerClock * (9 + s * 3) + s));
-      (slot.u.intensity as any).value = on ? flick * (0.6 + 0.8 * f.energy.excitation) : 0;
+      (slot.u.intensity as any).value = on ? flick * (0.7 + 0.9 * f.energy.excitation) : 0;
       const v = f.reducedMotion
         ? 0
         : ((Math.floor(flickerClock * 7 + s * 2) % BOLT_VARIANTS) + BOLT_VARIANTS) % BOLT_VARIANTS;
