@@ -1,4 +1,70 @@
-# PERFORMANCE (Gate B)
+# PERFORMANCE (Gate B, round 2)
+
+Only measured numbers. Unmet targets are stated as unmet. **This section is the canonical run;** the older tables below
+(first round, taken at 21-24 % and 100 % GPU load) are kept for history and are superseded where they disagree.
+
+## Canonical run (code SHA `9368b50a1d67b35919da82d1be4cf1c49051f854`)
+
+Apple M5 Max, macOS 26.6.2, headed Chrome 157 (WebGPU adapter `apple/metal-3`), Playwright, 1600x1000 CSS px at DPR 2 (3200x2000), MSAA +
+bloom + post on, no quality tier. Uncapped (`--disable-frame-rate-limit --disable-gpu-vsync`), 5 s `requestAnimationFrame` deltas.
+Background GPU load was **not** quiet: `ioreg` device utilisation 41 % before and 65 % after the runs (other apps). Numbers are therefore
+a lower bound on headroom.
+
+| Param (atoms rendered)                                                                                                                           | WebGPU avg fps | p50 |  p95 |  p99 | WebGL2 avg fps | p50 |  p95 |  p99 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------: | --: | ---: | ---: | -------------: | --: | ---: | ---: |
+| atoms=8 (12)                                                                                                                                     |            300 | 3.0 |  5.4 | 16.6 |            232 | 4.1 |  6.3 | 10.0 |
+| atoms=16 (20)                                                                                                                                    |            261 | 3.3 | 12.0 | 21.4 |            205 | 4.8 |  7.4 | 11.4 |
+| atoms=20 (24)                                                                                                                                    |            212 | 4.2 | 10.1 | 22.2 |            155 | 6.4 | 10.2 | 15.4 |
+| atoms=32 (36), run 1                                                                                                                             |            194 | 4.4 | 22.2 | 23.9 |            153 | 6.1 | 11.8 | 14.3 |
+| atoms=32 (36), run 2                                                                                                                             |            198 | 4.3 | 21.8 | 22.9 |                |     |      |      |
+| atoms=20 focused on one atom (25)                                                                                                                |            254 | 3.2 | 20.5 | 21.7 |                |     |      |      |
+| Targets: about 120 fps at about 20 atoms (**met**, 261 / 212 fps at 20 / 24 atoms) and >= 60 fps at 32 atoms (**met**, 194-198 fps at 36 atoms). |
+| The per-frame cost rose slightly versus round 1 (345 fps at 24 atoms) because the room is richer (rack wall) and the machine was loaded          |
+| (41-65 % vs 21-24 %); I did not isolate the two. The p95 of 20-22 ms on the larger topologies is one 17-24 ms frame in about every 20, not a     |
+| sustained slowdown (p50 stays 3-4.4 ms).                                                                                                         |
+| Capped 60 Hz window (normal browser): round 1 measured 60.2 fps, p99 17.7 ms at 8 / 20 / 32 atoms; not re-run this round.                        |
+
+## Stress-case diagnosis (Gate A 32-atom grid, `bench:count=32`): UNMET uncapped, cause narrowed
+
+Unchanged result: avg 107-121 fps, p50 7.6-8.9 ms, **p95 41-44 ms, p99 44-46 ms** (target p95 <= 16.7, p99 <= 25). Experiments this round
+(`pw-atomic-gateB-spikes.mjs`, `probe` with `VW`/`VH`):
+
+| Variable changed                                                                                                                            | Result                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Viewport 400x250 / 800x500 / 1600x1000 (same DPR 2)                                                                                         | p50 7.0 / 7.2 / 7.6 ms, long-frame period 118 / 236 / 130 ms. **Pixel count does not matter.**                         |
+| `bloom=0`                                                                                                                                   | Identical (p95 43.2, p99 44.9). Post chain is not the cause.                                                           |
+| Atom count 2 / 12 / 20 / 24 / 28 / 32 (800x500)                                                                                             | 0 / 0 / 14 / 18 / 39 / 37 frames over 30 ms in 5 s. Starts between 12 and 20 atoms and scales with atom count.         |
+| Wrapped `GPUQueue.submit` + `onSubmittedWorkDone`                                                                                           | Completion latency 300+ ms (GPU work queued far ahead). The main-thread JS callback itself stalls for the long frames. |
+| Reading: the stress case is bound by per-atom GPU geometry work (strands, wires, bolts), not by fill or post. With vsync off, the           |
+| presentation queue fills and the page is blocked for about three vsync intervals (43 ms) every few frames. I did not capture a GPU          |
+| timestamp trace, so "queue back-pressure" is an inference from the measurements above, not a proof. Real topology at 36 atoms does not show |
+| the 43 ms stall (p99 23-24 ms). Capped 60 Hz it was clean in round 1 (p99 17.3 ms).                                                         |
+
+## 20-minute soak (real dashboard `/home`, Atomic renderer)
+
+`node scripts/ad-hoc/pw-atomic-gateB.mjs soak 1200000` on this code SHA, 20.0 min, 40 samples, 1 canvas throughout, context-lost events 0.
+Frame p50 per sample 1.2-5.5 ms (shared GPU), JS heap start 127.2 MB, end 72.1 MB, max 127.2 MB (sawtooth, no growth).
+Only console messages: `[LiveWS] Server error: FORBIDDEN_ORIGIN` (dev server origin rule, unrelated) and the React "unmount a root while rendering"
+warning (pre-existing host teardown, also present with `?atomic-fx=legacy`).
+
+## Forced context / device loss (`pw-atomic-gateB.mjs loss`, 16 atoms) on this code SHA
+
+WebGPU `GPUDevice.destroy()` x3: canvas replaced each time, 1 canvas, p50 4.4-4.5 ms (before 4.2), 0 errors. WebGL2 `WEBGL_lose_context` x3:
+canvas replaced each time, p50 5.0-5.1 ms (before 5.5), 0 errors.
+Two failed restores (`pw-atomic-gateB.mjs fallback`, `/home?restore-fail=1`): after a forced loss, every rebuild fails; the host disposed the
+Atomic instance and mounted the 2D renderer in 1.7 s (0 atomic canvases, `2D` pressed).
+
+## 2D <-> Atomic toggling x50 (real host `/home`) on this code SHA
+
+50/50 Atomic mounts, 50/50 2D mounts, peak canvases 1, end canvases 0, switch latency p50 16 ms / max 186 ms, JS heap after GC 74.8 / 79.4 /
+116.6 / 82.3 / 111.5 MB at toggles 0/10/20/30/40, final 78.5 MB (no growth; the mid-run peaks are un-collected garbage).
+
+## Reduced motion
+
+`pw-atomic-gateB.mjs reduced`: static while idle (`staticWhileIdle: true`), an orbit drag renders a new frame (`orbitRendersNewFrame: true`).
+---
+
+# Older measurements (round 1, superseded where they disagree)
 
 Only measured numbers. Unmet targets are stated as unmet.
 

@@ -36,3 +36,8 @@ HDRI was not adopted.
 `interaction-design`, `performance`, `accessibility` (local corpus) informed the reduced-motion behaviour (static frame
 per update, no strobing; failure shown as a steady red state instead of a flash) and the "one render per frame, no
 per-frame React state" rule. No separate output was produced from them.
+
+## Round 2
+
+No new skills were applied. Review findings were handled with the measurement approach already used (headed Chrome on the M5 Max, uncapped probes,
+side-by-side against `idea5.jpeg`), plus a viewport/atom-count/bloom sweep to narrow the stress-case stall.

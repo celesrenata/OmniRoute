@@ -37,4 +37,10 @@ Evidence (all from headed Chrome on the Apple M5 Max, real GPU, DEMO data, same 
 - At the frozen default framing a 20-atom topology is small on screen, so per-atom detail reads mostly at close range.
   The default view shows glowing domed atoms, links and the room. The close-ups show the idea5 detail.
 - The room corridor is rendered as a shader over a camera-following shell, so its racks are procedural, not modelled.
-- Legacy path is kept until Gate B is approved, then deleted (plan decision 10).
+- Legacy path is kept until Gate B is approved, then deleted (plan decision 10). Its quality-tier remnants (hardware probe, medium/low haze, LOW particle constants) were removed in round 2.
+
+## Round 2 (review findings)
+
+- Wash-out came from additive light stacking where atom discs overlap (centre cluster at default, neighbours in the focus view), which the per-atom
+  size curve did not see. `atomBatch.ts` now measures screen-space overlap between atoms and divides the crowd gain by it.
+- The "nested blue frames" back wall is now a rack wall (panels, vents, LEDs) with a bright doorway, and the side walls are brighter.
