@@ -46,6 +46,10 @@ import { AtomicTopologyRenderer } from "@/plugins/atomic-topology/AtomicTopology
 import type { AtomicSceneQuality, BloomBudget } from "@/plugins/atomic-topology/quality";
 
 import { buildGoldenSnapshot } from "./goldenSnapshot";
+import {
+  GoldenAtomBench,
+  type GoldenBenchParams,
+} from "@/plugins/atomic-topology/dev/GoldenAtomBench";
 
 /** Bench viewport (matches the scorecard capture size). */
 export const BENCH_WIDTH = 1600;
@@ -131,11 +135,40 @@ export default function AtomicBenchPage() {
         </div>
       }
     >
-      <BenchBody />
+      <BenchRouter />
     </Suspense>
   );
 }
 
+/** `?atomic-fx=rt` routes to the isolated ray-traced golden-atom bench (Gate A). */
+function BenchRouter() {
+  const sp = useSearchParams();
+  const pick = <T extends string>(k: string, allowed: readonly T[], d: T): T => {
+    const v = sp.get(k);
+    return allowed.includes(v as T) ? (v as T) : d;
+  };
+  const params = useMemo<GoldenBenchParams | null>(() => {
+    if (sp.get("atomic-fx") !== "rt") return null;
+    const t = sp.get("t");
+    return {
+      golden: pick("golden", ["provider", "gpu", "hub"] as const, "provider"),
+      dist: pick("dist", ["default", "close"] as const, "default"),
+      models: pick("models", ["1", "3", "unknown", "stale"] as const, "3"),
+      energy: pick("energy", ["idle", "excited", "both"] as const, "excited"),
+      az: Number(sp.get("az") ?? 0) || 0,
+      t: t != null && Number.isFinite(Number(t)) ? Number(t) : null,
+      paused: sp.get("paused") === "1",
+      backend: sp.get("backend") === "webgl" ? "webgl" : "webgpu",
+      bloom: sp.get("bloom") !== "0",
+      reduced: sp.get("reduced") === "1",
+      badge: sp.get("badge") !== "0",
+      width: Number(sp.get("w")) || 1672,
+      height: Number(sp.get("h")) || 941,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp]);
+  return params ? <GoldenAtomBench params={params} /> : <BenchBody />;
+}
 function BenchBody() {
   const searchParams = useSearchParams();
   const focusNodeId = searchParams.get("node");
