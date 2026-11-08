@@ -25,7 +25,13 @@ Rubric scores (self-scored, round 11/12, default / close): nucleons 4/5, electro
 
 Measured perf (uncapped, 3344x1882 DPR 2, M5 Max, WebGPU, round 11): default 2.7 ms p50 (~370 fps); close-up 8.1 ms (~123 fps); 20 atoms 8.0 ms p50 / 11.2 p95 (~125 fps); 32 atoms 11.2 ms p50 / 30.3 p95 (~89 fps). Not re-measured in round 12. 32-atom p95 tail is Gate B task C7a.
 
-Status: awaiting operator approval.
+Status: **APPROVED by the operator** (round 12, commits 1944aebec / 406527ded).
+
+Carried forward:
+
+- `OPERATOR_DIRECTIVES.md` stays binding for all later stages.
+- The 32-atom p95 tail (C7a batching) is a blocking Gate B task.
+- The crowd/zoom-out subdue curve and the approved close-up/single-atom look must be preserved in the full topology.
 
 ## How to see it
 
