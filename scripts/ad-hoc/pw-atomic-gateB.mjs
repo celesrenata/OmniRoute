@@ -123,7 +123,8 @@ if (mode === "probe") {
   const { page, errors } = await newPage();
   for (const q of process.argv.slice(3)) {
     errors.length = 0;
-    await openBench(page, q);
+    // A bare query is the full-topology bench; a "bench:" prefix is the Gate A single-atom grid.
+    await openBench(page, q.startsWith("bench:") ? `atomic-fx=rt&${q.slice(6)}` : q);
     const s = await frameStats(page);
     console.log(JSON.stringify({ q, atoms: await atomCount(page), ...s, errors }));
   }

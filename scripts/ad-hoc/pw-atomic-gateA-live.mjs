@@ -27,7 +27,7 @@ const page = await (
 await page.goto(
   `${process.env.BENCH_BASE ?? "http://localhost:20199"}/dev/atomic-bench?${process.env.BENCH_PREFIX ?? "atomic-fx=rt&"}${query}`
 );
-await page.waitForSelector('[data-atomic-bench="rt"][data-ready="true"]', { timeout: 180000 });
+await page.waitForSelector('[data-ready="true"]', { timeout: 180000 });
 await page.waitForTimeout(1500);
 await page.screenshot({ path: path.join(outDir, `${name}-a.png`) });
 const stats = await page.evaluate(
