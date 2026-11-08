@@ -2,6 +2,31 @@
 
 Branch `feat/atomic-raytraced-renderer`. Nothing is integrated into the production topology; the legacy renderer, camera, layout, labels, controls and 2D renderer are untouched (`git diff 689178516` over the frozen files is empty).
 
+## Operator sign-off: Checkpoint 1 (Gate A), current state = round 12
+
+Reference: `/Users/celes/sources/celesrenata/OmniRoute/.agents/tasks/atomic-raytraced/references/idea5.jpeg`
+
+Side-by-side (ours vs idea5), absolute paths:
+
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-default-3c.jpg`
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-close-3c.jpg`
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-idle-vs-excited.jpg`
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-count20.jpg`
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-count32.jpg`
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-hub-default.jpg`
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-hub-close.jpg`
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-az90.jpg`
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-unknown-close.jpg`
+- `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/preview/sidebyside-idea5-webgl2.jpg`
+
+Full-resolution captures: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateA/` (live frames in `live/`).
+
+Rubric scores (self-scored, round 11/12, default / close): nucleons 4/5, electron cloud and orbits 4/4, filaments and discharges 4/4, lighting without washout 4/4, resemblance to idea5 4/4, immersion 4/4. See the round 11 scorecard below.
+
+Measured perf (uncapped, 3344x1882 DPR 2, M5 Max, WebGPU, round 11): default 2.7 ms p50 (~370 fps); close-up 8.1 ms (~123 fps); 20 atoms 8.0 ms p50 / 11.2 p95 (~125 fps); 32 atoms 11.2 ms p50 / 30.3 p95 (~89 fps). Not re-measured in round 12. 32-atom p95 tail is Gate B task C7a.
+
+Status: awaiting operator approval.
+
 ## How to see it
 
 ```
