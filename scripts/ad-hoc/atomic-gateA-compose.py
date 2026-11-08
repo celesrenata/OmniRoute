@@ -8,7 +8,7 @@ ref = Image.open(sys.argv[2]).convert("RGB")
 pairs = {"default-3c": "gateA-provider-default-3c", "close-3c": "gateA-provider-close-3c",
          "hub-close": "gateA-hub-close", "hub-default": "gateA-hub-default",
          "idle-vs-excited": "gateA-idle-vs-excited", "az90": "gateA-3c-az90",
-         "unknown-close": "gateA-provider-close-unknown", "webgl2": "gateA-webgl2-fallback"}
+         "unknown-close": "gateA-provider-close-unknown", "webgl2": "gateA-webgl2-fallback", "count20": "gateA-count20", "count32": "gateA-count32"}
 os.makedirs(f"{d}/preview", exist_ok=True)
 for k, src in pairs.items():
     im = Image.open(f"{d}/{src}.png").convert("RGB")

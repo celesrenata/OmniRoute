@@ -99,6 +99,7 @@ export function createStrandUniforms(): StrandUniforms {
     swirl: uniform(0),
     lifeOn: uniform(1),
     far: uniform(0),
+    crowd: uniform(1),
   };
 }
 
@@ -283,11 +284,12 @@ export function createStrandMaterial(u: StrandUniforms, mirror = false): MeshBas
     // Bright cyan tip cap: strand ends form the luminous silhouette of the cloud.
     const tipCap = smoothstep(0.84, 0.97, tV).mul(1.8).add(1);
     const k = float(0.2)
-      .add(exc.mul(0.9))
+      .add(exc.mul(0.45))
       .mul(gmV.mul(0.8).add(0.2))
       .mul(tipCap)
       .mul(bri)
-      .mul((u.far as any).mul(2.6).add(1))
+      .mul((u.far as any).mul(1.2).add(1))
+      .mul(u.crowd as any)
       .mul(flick.mul(0.55).add(0.45).add(pulse))
       .mul(fade)
       .mul(depth)
@@ -350,7 +352,8 @@ export function createSparkleMaterial(u: StrandUniforms): MeshBasicNodeMaterial 
       .mul(bri)
       .mul(vis)
       .mul(mix(float(5.5), float(16), kindV))
-      .mul((u.far as any).mul(1.3).add(1));
+      .mul((u.far as any).mul(0.5).add(0.8))
+      .mul((u.crowd as any).mul(u.crowd as any));
     return vec4(grade(col, sat).mul(k), 1);
   })();
   return finish(material);

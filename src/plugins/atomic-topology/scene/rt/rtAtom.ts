@@ -133,6 +133,7 @@ export function createRtAtom(
   const wiresDef: OrbitWire[] = orbitWires(seed, opts.wireCount ?? 11);
   const group = new Group();
   group.position.set(...opts.position);
+  const seatBaseY = opts.position[1];
 
   const uniforms = createAtomUniforms();
   const material = createAtomMaterial(uniforms);
@@ -433,7 +434,6 @@ export function createRtAtom(
   const viewDir = new Vector3();
 
   function update(f: RtAtomFrame): void {
-    group.getWorldPosition(worldCenter);
     const params = clampShaderParams({
       marchSteps: f.marchSteps,
       exposure: 1,
@@ -445,6 +445,11 @@ export function createRtAtom(
       orbitalWeights: orbitals.map((o) => o.weight),
       phase: f.phase,
     });
+    // Seat the (smaller, idle) cloud on its pedestal: the full-size cloud's base
+    // is the reference, so a tightened cloud drops by the radius it gave up.
+    group.position.y = seatBaseY - (CLOUD_BOUND_RADIUS - params.cloudRadius);
+    group.updateMatrixWorld(true);
+    group.getWorldPosition(worldCenter);
     f.camera.matrixWorld.extractBasis(camRight, camUp, tmp);
     // Nucleus spin (measured-TPS driven by the caller; static when 0).
     rot.setFromAxisAngle(axis, f.spinAngle);
@@ -467,6 +472,9 @@ export function createRtAtom(
     }
     const dist = f.camera.position.distanceTo(worldCenter);
     const cr = params.cloudRadius;
+    // Projected size vs the default single-atom view (dist 255 at full radius):
+    // hairline/mote overlap per pixel grows as the atom shrinks on screen.
+    const crowd = Math.min(1, Math.max(0.15, 255 / CLOUD_BOUND_RADIUS / (dist / cr)));
     // Close range: bolts/streak back off so they never dominate the frame.
     const farK = Math.min(1, Math.max(0, (dist / cr - 3.2) / 3.3));
     const closeK = Math.min(
@@ -511,7 +519,11 @@ export function createRtAtom(
     (wireU.scale as any).value = (params.cloudRadius / CLOUD_BOUND_RADIUS) * 1.18;
     (wireU.pxScale as any).value = pxScale;
     (wireU.time as any).value = f.phase * 2.2;
-    (wireU.energy.value as Vector3).set(0.35 + 0.9 * params.brightness, params.saturation, 0);
+    (wireU.energy.value as Vector3).set(
+      (0.35 + 0.9 * params.brightness) * crowd,
+      params.saturation,
+      0
+    );
     (wireU.occluderCenter.value as Vector3).copy(worldCenter);
     (wireU.tint.value as Vector3).copy(uniforms.rim.value as Vector3);
     let eIdx = 0;
@@ -530,6 +542,7 @@ export function createRtAtom(
     (strandU.center.value as Vector3).copy(worldCenter);
     (strandU.cloudR as any).value = cr;
     (strandU.far as any).value = farK;
+    (strandU.crowd as any).value = crowd;
     (strandU.rootR as any).value = Math.min(0.4, (nucExtent * 0.8) / cr);
     (strandU.pxScale as any).value = pxScale;
     (strandU.energy.value as Vector3).set(params.excitation, params.saturation, params.brightness);
@@ -544,7 +557,8 @@ export function createRtAtom(
     // Quad sized to the visible band only (fill cost: it is additive over MSAA HDR).
     streak.scale.set(cr * 6, cr * 0.16, 1);
     glow.scale.set(cr * 0.62, cr * 0.62, 1);
-    glowK.value = (0.3 + 1.3 * params.excitation) * params.brightness * (1 + 0.8 * farK);
+    glowK.value =
+      (0.3 + 1.3 * params.excitation) * params.brightness * (1 + 0.3 * farK) * Math.sqrt(crowd);
     ring.scale.set((2 * reach * cr) / 0.9, (2 * reach * cr) / 0.9, 1);
     ringK.value = (0.3 + 0.7 * params.excitation) * params.brightness;
     // Decorative differential swirl: rate rises with energy, never encodes

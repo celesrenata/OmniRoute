@@ -23,6 +23,38 @@ Capture (headed Chrome, real GPU, never headless): `scripts/ad-hoc/pw-atomic-gat
 - Post (`rendererFactory.ts`): HDR scene pass, bloom (threshold 1.0), edge RGB shift, split-tone grade, vignette, grain, ACES + sRGB. Full retina DPR, no cap, hardware MSAA (`antialias: true`).
 - Pure models, unit tested: `energyState.ts` (idle = lower energy state: brightness/saturation floor 0.35, tighter cloud 0.8x, slow decorative drift, no spin and no bolts unless measured), `shaderParams.ts` (bounds), `nucleonPack.ts` (packs the production `buildNucleusCluster` into 24+10 / 40+16 packed nucleons), `orbitalDensity.ts`, `boltGeometry.ts`, `rt/rtRegistry.ts` (disposal).
 
+## Round 11 (response to gateA-r2.md round-3 pass, HEAD b448e6bfa) — current state, supersedes older scorecards
+
+Changes:
+
+1. Excited wash (pair frame, 20/32 atoms). The root cause was overdraw, not exposure. Each atom draws about 2600 hairline strands, 3400 motes and 11 wires at a minimum of about 1 px. When the atom is smaller on screen than in the default single view (pair at dist 400, grid at dist about 1400), the same lines pile up on fewer pixels and add up to white. The r10 `far` gain then multiplied that. New `crowd` factor (`rtAtom.ts`): projected size relative to the default single view, `clamp(255/CLOUD_BOUND_RADIUS / (dist/cr), 0.15, 1)`. It scales strand gain (linear, because line overlap grows as 1/radius), mote gain (squared, because dot overlap grows as 1/radius²), wire brightness, and the core glow (sqrt). `far` gains were also trimmed: strand 2.6 to 1.2, strand base excitation 0.9 to 0.45, motes 1.3 to 0.5 over a 0.8 base, glow 0.8 to 0.3. Crowd is 1 at the default and close views, so those frames keep their density.
+2. Idle atom floating. The idle cloud is 0.8x the full radius, but its centre stayed at the full-size height, so it hovered above the dome. Each frame the group's y is now lowered by `CLOUD_BOUND_RADIUS - cloudRadius`, which puts the bottom of the cloud at the same pedestal height as the excited atom's.
+3. 32-atom tail. p50 meets the targets. The p95/p99 `writeBuffer` stalls (about 28 render objects per atom) are now a **blocking Gate B task** in the plan: C7a, batch per-atom draws into instanced and shared-uniform-buffer passes. Gate B cannot pass with 32-atom p95 over 16.7 ms.
+
+Captures: all 19 Gate A conditions plus `gateA-count20` / `gateA-count32` were regenerated in headed Chrome on the M5 Max with WebGPU (adapter apple/metal-3). `gateA-webgl2-fallback` uses the WebGL2 backend. Side-by-sides with idea5 are `preview/sidebyside-idea5-{default-3c,close-3c,idle-vs-excited,count20,count32,hub-default,hub-close,az90,unknown-close,webgl2}.jpg`. Live frame pairs are `preview/live_r11-*.jpg`.
+
+Uncapped frame times (`UNCAPPED=1 pw-atomic-gateA-live.mjs`, rAF deltas, 3344x1882 DPR 2, MSAA + bloom, load average about 10 from background processes):
+
+| case                  | p50     | p95     | p99     | fps (p50)                                |
+| --------------------- | ------- | ------- | ------- | ---------------------------------------- |
+| default single        | 2.7 ms  | 3.1 ms  | 11.9 ms | ~370                                     |
+| close-up              | 8.1 ms  | 8.5 ms  | 26.5 ms | ~123                                     |
+| 20 atoms (`count=20`) | 8.0 ms  | 11.2 ms | 43.9 ms | ~125 (target ~120 met)                   |
+| 32 atoms (`count=32`) | 11.2 ms | 30.3 ms | 67.1 ms | ~89 (>=60 met at p50; tail = Gate B C7a) |
+
+Scorecard, round 11. These are self-scored on the r11 images, worst of default and close per row. The reviewer scores independently.
+
+| row                                     | default | close | evidence                                                                                                                  |
+| --------------------------------------- | ------- | ----- | ------------------------------------------------------------------------------------------------------------------------- |
+| Nucleons (distinct model colours, glow) | 4       | 5     | `close-3c`: green, blue and magenta glowing balls. Hub is deep red/violet.                                                |
+| Electron cloud and orbits               | 4       | 4     | Filled violet body, cyan sparkle rim, 11 looping wires. The pair excited atom stays violet.                               |
+| Filaments and discharges                | 4       | 4     | Dense hairlines plus lane-hued fractal bolts (`close-3c`, `default-3c`).                                                  |
+| Lighting, depth, bloom without washout  | 4       | 4     | The pair, count20 and count32 no longer wash to white: bodies stay violet/pink with a cyan rim.                           |
+| Resemblance to idea5                    | 4       | 4     | Dome, rim, flare, motes and orbit loops (`sidebyside-idea5-default-3c`, `-idle-vs-excited`).                              |
+| Immersion / sense of place              | 4       | 4     | Corridor, floor reflections, orange streaks, ripple rings, hex bokeh. The room is mostly hidden at close range by design. |
+
+Commands run (round 11, from the worktree): see the commit message.
+
 ## Round 7: changes against gateA-r2 (r6 review)
 
 1. Silhouette and cyan rim: non-loose strands now reach 0.8-1.0 of the cloud with a bright HDR cyan tip cap (tip fade 80% -> 25%); loose strands 22% -> 10%; petal bundles tighter; petal mask sharper with floor 0.05 -> 0.015 (darker voids); sparkles 1400 -> 3400, rim sparkles at 0.8-1.0 radius, brighter (x1.5).
