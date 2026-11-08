@@ -56,8 +56,13 @@ function spinCopy(descriptor: AtomVisualDescriptor): string {
  * queue of their own, so the row (always "unavailable" for them) uses the
  * rate-limiter label as the closest fleet concept.
  */
-export function queueRowLabel(kind: AtomVisualDescriptor["kind"]): string {
-  return kind === "runtime" ? "Sched. queue" : "Rate-limit queue";
+export function queueRowLabel(
+  kind: AtomVisualDescriptor["kind"],
+  hostedRuntimeIds?: readonly string[]
+): string {
+  // A GPU atom that hosts merged runtimes carries their scheduler queue.
+  const scheduler = kind === "runtime" || (kind === "gpu" && (hostedRuntimeIds?.length ?? 0) > 0);
+  return scheduler ? "Sched. queue" : "Rate-limit queue";
 }
 
 /**
@@ -171,7 +176,7 @@ export function AtomicTooltip({
         <dd>{state}</dd>
         <dt>Spin</dt>
         <dd>{spinCopy(descriptor)}</dd>
-        <dt>{queueRowLabel(descriptor.kind)}</dt>
+        <dt>{queueRowLabel(descriptor.kind, descriptor.deviceFacts?.hostedRuntimeIds)}</dt>
         <dd>{queueCopy(descriptor)}</dd>
         <dt>In flight</dt>
         <dd>{activeRequests}</dd>
@@ -199,6 +204,14 @@ export function AtomicTooltip({
                 <dd>{numOrNoData(facts.temperatureC, (n) => `${n.toFixed(1)} °C`)}</dd>
                 <dt>Power</dt>
                 <dd>{numOrNoData(facts.powerWatts, (n) => `${n.toFixed(1)} W`)}</dd>
+                {facts.hostedRuntimeIds && facts.hostedRuntimeIds.length > 0 ? (
+                  <>
+                    <dt>Hosted runtimes</dt>
+                    <dd>{facts.hostedRuntimeIds.join(", ")} (proven runtime_device)</dd>
+                    <dt>Active jobs</dt>
+                    <dd>{numOrNoData(facts.activeJobs)}</dd>
+                  </>
+                ) : null}
               </>
             ) : (
               <>

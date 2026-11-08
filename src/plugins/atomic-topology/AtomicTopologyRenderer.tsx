@@ -276,6 +276,13 @@ export interface AtomVisualDescriptor {
      * no model is proven — never a guess.
      */
     modelId?: string | null;
+    /**
+     * Runtime atoms merged into this GPU atom (OR-ATOM-010 directive 16): every
+     * runtime PROVEN (runtime_device edge) to run on exactly this one GPU. They
+     * have no atom of their own; the GPU atom is their atom. Sorted, GPU atoms
+     * only. Runtimes with no proof (or proven on several GPUs) stay separate.
+     */
+    hostedRuntimeIds?: string[];
   };
   /**
    * Fleet-telemetry sample anchor (OR-ATOM-005 — T5.4): the reconciliation's
@@ -489,34 +496,22 @@ export function resolveAtomDescriptors(
   // de-duplicated, hash-sorted — never to array order.
   if (reconciliation) {
     const maxProviderRing = layout.placements.reduce((max, p) => Math.max(max, p.ringIndex), 0);
-    const bandNodes: Array<{ id: string; kind: "gpu" | "runtime" }> = [
-      ...reconciliation.gpuNodes.map((g) => ({ id: g.resourceId, kind: "gpu" as const })),
-      ...reconciliation.runtimeNodes.map((r) => ({
-        id: r.resourceId,
-        kind: "runtime" as const,
-      })),
-    ];
-    const band = computeDeviceBandLayout(bandNodes, { startRingIndex: maxProviderRing + 1 });
     const gpuById = new Map(reconciliation.gpuNodes.map((g) => [g.resourceId, g]));
     const runtimeById = new Map(reconciliation.runtimeNodes.map((r) => [r.resourceId, r]));
     const providerById = new Map(reconciliation.providerNodes.map((p) => [p.resourceId, p]));
 
     // Proven-relationship indexes, built ONLY from `reconciliation.edges`
     // (never from display labels / name joins — S9.1 provenance rule).
-    //   runtime_device    : runtime canonical id -> [runtime nodes on that GPU]
     //   provider_runtime  : runtime canonical id -> [proven provider nodes]
-    // A runtime's own observed model comes from its reconciled `modelId` (the
-    // reconciler sets it only from a proven sample), so no separate runtime→model
-    // index is needed — a GPU's models are the union of its attributed runtimes'.
-    const runtimesByGpu = new Map<string, ReconciledRuntimeNode[]>();
+    //   runtime_device    : runtime id -> distinct known GPUs it is proven on
     const providersByRuntime = new Map<string, ReconciledProviderNode[]>();
+    const gpusByRuntime = new Map<string, Set<string>>();
     for (const edge of reconciliation.edges) {
       if (edge.relation === "runtime_device") {
-        const rt = runtimeById.get(edge.source);
-        if (rt) {
-          const list = runtimesByGpu.get(edge.target);
-          if (list) list.push(rt);
-          else runtimesByGpu.set(edge.target, [rt]);
+        if (runtimeById.has(edge.source) && gpuById.has(edge.target)) {
+          const set = gpusByRuntime.get(edge.source) ?? new Set<string>();
+          set.add(edge.target);
+          gpusByRuntime.set(edge.source, set);
         }
       } else if (edge.relation === "provider_runtime") {
         const provider = providerById.get(edge.source);
@@ -527,6 +522,29 @@ export function resolveAtomDescriptors(
         }
       }
     }
+    // GPU + runtime merge (directive 16): a runtime proven on EXACTLY ONE known
+    // GPU has no atom of its own; the GPU atom is its atom. A runtime with no
+    // proof, or proven on several GPUs, stays its own atom (honest fallback:
+    // never guess a device, never double-count its throughput).
+    const runtimesByGpu = new Map<string, ReconciledRuntimeNode[]>();
+    const mergedRuntimeIds = new Set<string>();
+    for (const [rtId, gpus] of gpusByRuntime) {
+      if (gpus.size !== 1) continue;
+      const rt = runtimeById.get(rtId);
+      if (!rt) continue;
+      const gpuId = [...gpus][0];
+      mergedRuntimeIds.add(rtId);
+      const list = runtimesByGpu.get(gpuId);
+      if (list) list.push(rt);
+      else runtimesByGpu.set(gpuId, [rt]);
+    }
+    const bandNodes: Array<{ id: string; kind: "gpu" | "runtime" }> = [
+      ...reconciliation.gpuNodes.map((g) => ({ id: g.resourceId, kind: "gpu" as const })),
+      ...reconciliation.runtimeNodes
+        .filter((r) => !mergedRuntimeIds.has(r.resourceId))
+        .map((r) => ({ id: r.resourceId, kind: "runtime" as const })),
+    ];
+    const band = computeDeviceBandLayout(bandNodes, { startRingIndex: maxProviderRing + 1 });
 
     for (const placement of band.placements) {
       const gpu = placement.kind === "gpu" ? gpuById.get(placement.id) : undefined;
@@ -546,15 +564,29 @@ export function resolveAtomDescriptors(
         : runtime
           ? [runtime]
           : [];
-      const singleRuntime = attributedRuntimes.length === 1 ? attributedRuntimes[0] : undefined;
-      // Facts ATTRIBUTED from the single proven on-GPU runtime must also
-      // respect that runtime's own staleness — the same rule as the
-      // spin/vibration attribution above (S9.1: a decayed value is never
-      // shown on the GPU).
-      const attributedValue = (
-        o: { value: number | null; stale?: boolean } | null | undefined
-      ): number | null =>
-        !deviceStale && !singleRuntime?.stale && o && o.value != null ? o.value : null;
+      // Merged runtimes are the GPU atom's own signals. Stale runtimes (decayed
+      // upstream) contribute nothing (S9.1: a decayed value is never shown).
+      const freshRuntimes = attributedRuntimes.filter((r) => !r.stale);
+      // Sum of the fresh hosted runtimes' values of one field; null when none has
+      // a measurement. Each runtime is a distinct proven process on this GPU, so
+      // the sum is an aggregate of real measurements, never a split of one.
+      const sumRuntime = (
+        pick: (
+          r: ReconciledRuntimeNode
+        ) => { value: number | null; stale?: boolean } | null | undefined
+      ): number | null => {
+        if (deviceStale) return null;
+        let total = 0;
+        let any = false;
+        for (const r of freshRuntimes) {
+          const o = pick(r);
+          if (o && o.value != null && !o.stale) {
+            total += o.value;
+            any = true;
+          }
+        }
+        return any ? total : null;
+      };
 
       // Observed model ids — ONLY from proven runtime→(gpu) residency (S9.3).
       // Canonicalized (trim + lowercase), deduped, capped at 3 so the descriptor's
@@ -585,10 +617,7 @@ export function resolveAtomDescriptors(
       if (isGpu) {
         const own = gpu?.outputTokensPerSecond;
         if (own && own.value != null && !own.stale) spinTps = own.value;
-        else if (singleRuntime && !singleRuntime.stale) {
-          const t = singleRuntime.outputTokensPerSecond;
-          if (t && t.value != null && !t.stale) spinTps = t.value;
-        }
+        else spinTps = sumRuntime((r) => r.outputTokensPerSecond);
       } else {
         const t = runtime?.outputTokensPerSecond;
         if (t && t.value != null) spinTps = t.value;
@@ -600,8 +629,7 @@ export function resolveAtomDescriptors(
       // runtime vibrates from its own queue.
       let vibQueue: number | null = null;
       if (isGpu) {
-        const q = singleRuntime?.queuedJobs;
-        if (q && q.value != null && !q.stale && !singleRuntime.stale) vibQueue = q.value;
+        vibQueue = sumRuntime((r) => r.queuedJobs);
       } else {
         const q = runtime?.queuedJobs;
         if (q && q.value != null) vibQueue = q.value;
@@ -611,8 +639,19 @@ export function resolveAtomDescriptors(
       // Proven provider linkage (S9.1): a runtime carries its proven
       // provider_runtime edge; a GPU stays provider-unattached (its link to a
       // provider is only transitive through its runtime — never drawn directly).
+      // A merged GPU carries its provider only when every hosted runtime is
+      // proven to exactly one and the same provider.
+      const hostedProviders = new Set<string>();
+      if (isGpu) {
+        for (const rt of attributedRuntimes) {
+          for (const pn of providersByRuntime.get(rt.resourceId) ?? [])
+            hostedProviders.add(pn.providerId);
+        }
+      }
       const providerId = isGpu
-        ? undefined
+        ? hostedProviders.size === 1
+          ? [...hostedProviders][0]
+          : undefined
         : (providersByRuntime.get(placement.id)?.[0]?.providerId ?? undefined);
 
       descriptors.push({
@@ -644,21 +683,16 @@ export function resolveAtomDescriptors(
           vramTotalBytes: obsValue(gpu?.vramTotalBytes),
           temperatureC: obsValue(gpu?.temperatureC),
           powerWatts: obsValue(gpu?.powerWatts),
-          queuedJobs: isGpu
-            ? singleRuntime
-              ? attributedValue(singleRuntime.queuedJobs)
-              : null
-            : obsValue(runtime?.queuedJobs),
-          activeJobs: isGpu
-            ? singleRuntime
-              ? attributedValue(singleRuntime.activeJobs)
-              : null
-            : obsValue(runtime?.activeJobs),
+          queuedJobs: isGpu ? sumRuntime((r) => r.queuedJobs) : obsValue(runtime?.queuedJobs),
+          activeJobs: isGpu ? sumRuntime((r) => r.activeJobs) : obsValue(runtime?.activeJobs),
           modelId: isGpu
             ? (observedModelIds[0] ?? null)
             : deviceStale
               ? null
               : (runtime?.modelId ?? null),
+          ...(isGpu && attributedRuntimes.length > 0
+            ? { hostedRuntimeIds: attributedRuntimes.map((r) => r.resourceId).sort() }
+            : {}),
         },
         fleetSampledAt: reconciliation.capturedAt,
       });
