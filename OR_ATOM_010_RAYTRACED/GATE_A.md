@@ -16,11 +16,46 @@ Capture (headed Chrome, real GPU, never headless): `scripts/ad-hoc/pw-atomic-gat
 
 - Renderer: `three/webgpu` `WebGPURenderer` + TSL, built-in WebGL2 backend as fallback (`scene/rt/rendererFactory.ts`). `three` 0.186.1 and `@react-three/fiber` 9.8.1 pinned exactly (lockfile diff = specifier lines only). The bench uses raw three (no R3F), one three instance.
 - Per-atom shader (`scene/shaders/atomImpostor.ts`): one camera-facing impostor quad. Per pixel it analytically ray-traces the glass shell (Fresnel, refraction) and up to 64 nucleon spheres (GGX-style gloss, one reflection bounce against the other nucleons, Quilez analytic sphere AO and soft shadows, procedural neon studio environment for reflections, faceted normals, inner glow), then ray-marches a volumetric electron cloud (orbital p/d lobe density x radial plasma filaments built as intersections of two noise zero-sheets, lane-hued violet interior grading to a sparkly cyan rim, embedded sparkle motes, equatorial flare, core flare) terminated analytically at the nucleus hit. A mirrored second impostor gives the floor reflection.
-- Wires and electrons (`shaders/orbitWire.ts`): 14 thin lane-coloured HDR wires with travelling highlight, glowing electrons; hidden behind the nucleus by analytic occlusion.
+- Wires and electrons (`shaders/orbitWire.ts`): 14 screen-space hairline lane-coloured HDR wires (depth-tapered) with travelling highlight; electrons are small HDR heads with trails inside the wire shader; hidden behind the nucleus by analytic occlusion.
+- Plasma strands (`shaders/plasmaStrands.ts`, `strandField.ts`): 2600 GPU hairline strands + 1400 rim sparkles per atom (round 6).
 - Lightning (`shaders/boltStrand.ts`, `scene/boltGeometry.ts`): seeded fractal midpoint-displacement bolts with branches and sparks, camera-facing ribbons, white-hot core plus lane-hued halo, only for measured/excited state.
 - Environment (`shaders/environment.ts`): server-room corridor (racks, screens, LEDs, depth-softened), reflective tech floor (grid, circuit traces, orange streaks, ripple rings), glass pedestal dome, bokeh orbs and dust at three depths.
 - Post (`rendererFactory.ts`): HDR scene pass, bloom (threshold 1.0), edge RGB shift, split-tone grade, vignette, grain, ACES + sRGB. Full retina DPR, no cap, hardware MSAA (`antialias: true`).
 - Pure models, unit tested: `energyState.ts` (idle = lower energy state: brightness/saturation floor 0.35, tighter cloud 0.8x, slow decorative drift, no spin and no bolts unless measured), `shaderParams.ts` (bounds), `nucleonPack.ts` (packs the production `buildNucleusCluster` into 24+10 / 40+16 packed nucleons), `orbitalDensity.ts`, `boltGeometry.ts`, `rt/rtRegistry.ts` (disposal).
+
+## Round 6: technique switch (gateA-r2 addendum 2, with the operator override on item A)
+
+Review previews (all under 0.53 MB): `screenshots/gateA/preview/`. idea5 side-by-sides were regenerated from this round's captures: `preview/sidebyside-idea5-{default-3c,close-3c,hub-close,hub-default,idle-vs-excited,count20,count32,unknown-close,webgl2,az90}.jpg`. Full-resolution PNGs sit next to them.
+
+1. **Checkerboard nucleons (A, operator override)**: the operator said "the balls were fine", so the nucleons stay round, glossy, saturated, model-coloured ray-traced spheres. The only change is that the normal-perturbation facet pattern and the per-facet tone are gone (`n = nSmooth` in `traceNucleus`). That pattern caused the mosaic. Glass, Fresnel, AO, soft shadows, inter-nucleon reflection bounce and the inner hot glow all stay. A polyhedral-gem prototype was built and then reverted after the override. Plasma in front of a nucleus hit is held back (`accK`), so the spheres read crisply. The core flare is smaller (2.4 -> 1.2, tighter), and the anamorphic streak keeps its centre notch. Evidence: `gateA-provider-close-3c` (green / blue / magenta spheres, no mosaic), `gateA-hub-close`.
+2. **Hatched feather fibres (B)**: replaced with real strand geometry (`scene/strandField.ts` bakes it, `scene/shaders/plasmaStrands.ts` draws it). Each atom gets 2600 hairline ribbons × 20 segments that burst radially from the nucleus in 13 Fibonacci petal bundles, plus 22% loose strands. The vertex shader gives them screen-space widths of 0.5–1.5 px with tapered ends. Each strand has its own seeded length, curl, wobble and flicker, animated in TSL. Colour grades from a hot root to a violet/magenta body to a cyan tip. Roots are dimmed so they do not wash out the nucleus. One shared geometry is baked once; the CPU only writes about 12 uniforms per atom per frame, with no per-strand work. Rim: 1400 instanced twinkling sparkle quads (cyan fringe plus pink/orange motes), not flat blobs. The ray march now only provides the soft deep body. It is organised into the same 3D petal axes as the strands, so the dark voids line up with the strand bundles. It uses one baked-noise sample per step, down from 6. The screen-space fibre and petal field and the lattice rim are deleted. Energy state: strand fraction 0.3 + 0.55·excitation + 0.15·brightness, reach 0.78–1.0, brightness and grey fade from saturation. A floor-reflection strand mesh mirrors the field.
+3. **Thick white orbs / pale ellipses (C)**: wires are now screen-space hairline ribbons. They are about 0.6 px on the far side of the orbit and taper up to 1.25–1.7 px on the near side, with brightness falling to 18% on the far side. Electron orb meshes and glow sprites are removed. Electrons are small, sharp HDR pink/orange heads (σ ≈ 1 px) with short fading trails, evaluated in the wire shader from a per-wire angle uniform.
+4. **Stale side-by-sides / unreviewable PNGs (E)**: every composite and every preview was regenerated after the round-6 captures (19/19 conditions, state=ok). JPEG previews now cover every PNG, including the `live/r6-*` frames.
+5. **Close-up perf (D)**: 16.9 ms -> 7.8 ms (128 fps) uncapped. The strand approach is cheaper than the old march.
+
+### Measured, round 6, UNCAPPED (`--disable-frame-rate-limit --disable-gpu-vsync`, 3344x1882 DPR 2, Apple M5 Max, headed Chrome, WebGPU apple/metal-3)
+
+| Case                     | p50    | p95     | frames / 5 s (avg fps) |
+| ------------------------ | ------ | ------- | ---------------------- |
+| default, excited         | 2.5 ms | 2.7 ms  | 1967 (393)             |
+| default, idle            | 1.9 ms | 2.2 ms  | 2546 (509)             |
+| close-up (full frame)    | 7.8 ms | 8.1 ms  | 642 (128)              |
+| hub close-up             | 7.9 ms | 8.2 ms  | 633 (127)              |
+| idle + excited pair      | 2.5 ms | 2.8 ms  | 1956 (391)             |
+| 20 atoms                 | 5.1 ms | 15.1 ms | 752 (150)              |
+| 32 atoms                 | 7.4 ms | 24.4 ms | 563 (113)              |
+| WebGL2 fallback, default | 3.6 ms | 5.8 ms  | 1501 (300)             |
+
+Note on frame times: the 20/32-atom p95 is bimodal (the frame-time distribution has two clusters), and 32 atoms p95 is 24 ms. Average throughput still meets the targets (150 fps at 20, 113 at 32). A repeat 32-atom run gave p50 10.0 / p95 24.7 ms. No quality tier exists.
+
+Known gaps against idea5, for the reviewer: our cloud reads as a radial plasma burst with petal bundles. It does not yet have idea5's closed flower silhouette with a continuous cyan particulate rim and dark petal interiors. The idle nucleus is still very saturated because there is less plasma in front of it.
+
+### Commands run (round 6, from the worktree)
+
+- `npm run typecheck:core`: 45 errors, all pre-existing (open-sse bottleneck/rateLimit, scriptVault, FlowCanvas), none in atomic-topology.
+- `npm run lint`: 7 pre-existing errors outside the plugin. `npx eslint src/plugins/atomic-topology`: 0 problems.
+- `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts`: 437 tests, 436 pass, 0 fail, 1 skipped. New: `strandField.test.ts`.
+- `zsh scripts/ad-hoc/pw-atomic-gateA-all.sh`: 19/19 state=ok. `UNCAPPED=1 node scripts/ad-hoc/pw-atomic-gateA-live.mjs` for the table above.
 
 ## Round 5: changes against every gateA-r2 finding
 

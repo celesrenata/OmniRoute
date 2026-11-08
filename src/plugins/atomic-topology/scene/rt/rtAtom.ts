@@ -8,6 +8,8 @@
 import {
   AdditiveBlending,
   Group,
+  Matrix3,
+  Matrix4,
   Mesh,
   PlaneGeometry,
   Quaternion,
@@ -39,14 +41,13 @@ import {
   createBoltVariants,
   type BoltUniforms,
 } from "../shaders/boltStrand";
+import { createWireMesh, createWireUniforms, type WireUniforms } from "../shaders/orbitWire";
 import {
-  createElectron,
-  createWireMesh,
-  createWireUniforms,
-  wirePoint,
-  type ElectronVisual,
-  type WireUniforms,
-} from "../shaders/orbitWire";
+  createStrandField,
+  createStrandUniforms,
+  strandGeometryDisposable,
+} from "../shaders/plasmaStrands";
+import { activeStrandFraction } from "../strandField";
 import { FLOOR_Y } from "../shaders/environment";
 import { createRtRegistry, type RtRegistry } from "./rtRegistry";
 
@@ -71,6 +72,8 @@ export interface RtAtomFrame {
   reducedMotion: boolean;
   marchSteps: number;
   time: number;
+  /** Drawing-buffer height in device pixels (screen-space hairline widths). */
+  pixelHeight?: number;
 }
 
 const BOLT_SLOTS = 8;
@@ -251,33 +254,61 @@ export function createRtAtom(
   (uniforms.glassRadius as any).value = nucExtent * 1.14;
   (mirrorUniforms.glassRadius as any).value = nucExtent * 1.14;
 
-  // Wires + electrons.
+  // Wires + electrons: screen-space hairline ribbons; electrons are small HDR
+  // heads with short trails evaluated in the wire shader (no orb meshes).
   const wireU: WireUniforms = createWireUniforms();
   (wireU.occluderRadius as any).value = nucExtent * 0.92;
   const wireGroup = new Group();
   group.add(wireGroup);
   const palette = opts.neutral ? NEUTRAL_PALETTE : LANE_PALETTE;
+  const electronHot: [number, number, number] = opts.neutral ? [0.75, 0.85, 1.0] : [1.0, 0.5, 0.32];
+  const wireElectrons: { set: (x: number, y: number) => void }[] = [];
+  const electronCount: number[] = [];
   wiresDef.forEach((w, i) => {
-    const m = createWireMesh(w, i, wireU, i % 4 === 0 ? 0.16 : 0.11, palette[i % palette.length]);
-    wireGroup.add(m);
-    registry.add(m.geometry);
-    registry.add(m.material as { dispose: () => void });
+    const wm = createWireMesh(
+      w,
+      i,
+      wireU,
+      i % 4 === 0 ? 1.7 : 1.25,
+      palette[i % palette.length],
+      electronHot
+    );
+    wireGroup.add(wm.mesh);
+    registry.add(wm.mesh.geometry);
+    registry.add(wm.mesh.material as { dispose: () => void });
+    wireElectrons.push(wm.electrons.value as unknown as { set: (x: number, y: number) => void });
+    electronCount.push(i % 3 === 0 ? 2 : 1);
   });
-  const electrons: ElectronVisual[] = [];
-  const electronWire: number[] = [];
-  wiresDef.forEach((_, i) => {
-    const count = i % 3 === 0 ? 2 : 1;
-    for (let k = 0; k < count; k += 1) {
-      const pc = palette[i % palette.length];
-      const e = createElectron(wireU, [0.1 + 0.9 * pc[0], 0.1 + 0.9 * pc[1], 0.1 + 0.9 * pc[2]]);
-      e.core.scale.setScalar(0.5);
-      e.glow.scale.setScalar(2.7);
-      wireGroup.add(e.core, e.glow);
-      registry.add(e);
-      electrons.push(e);
-      electronWire.push(i);
-    }
-  });
+
+  // Plasma strand field: thousands of GPU hairline strands + rim sparkles.
+  const strandU = createStrandUniforms();
+  const field = createStrandField(strandU);
+  group.add(field.strands, field.sparkles, field.mirror);
+  field.materials.forEach((m) => registry.add(m));
+  registry.add(strandGeometryDisposable);
+  (strandU.occluderRadius as any).value = nucExtent * 0.92;
+  (strandU.floorY as any).value = FLOOR_Y;
+  // Seeded per-atom orientation of the petal field (shared with the body march).
+  const orientM4 = new Matrix4().makeRotationFromQuaternion(
+    new Quaternion()
+      .setFromAxisAngle(
+        new Vector3(hash01(seed * 0.013) - 0.5, 1, hash01(seed * 0.029) - 0.5).normalize(),
+        hash01(seed * 0.007) * Math.PI * 2
+      )
+      .normalize()
+  );
+  const orientM3 = new Matrix3().setFromMatrix4(orientM4);
+  (strandU.orient.value as Matrix3).copy(orientM3);
+  (uniforms.orient.value as Matrix3).copy(orientM3);
+  (mirrorUniforms.orient.value as Matrix3).copy(orientM3);
+  // Strand colours: hot root -> violet/magenta body -> cyan tip (lane graded).
+  (strandU.inner.value as Vector3).set(
+    ...(opts.hub ? [0.85, 0.15, 0.6] : known ? [0.62, 0.16, 1.0] : [0.45, 0.55, 0.8])
+  );
+  (strandU.rim.value as Vector3).copy(uniforms.rim.value as Vector3);
+  (strandU.root.value as Vector3).set(
+    ...(opts.hub || known ? [1.0, 0.42, 0.82] : [0.75, 0.82, 1.0])
+  );
 
   // Lightning bolts: nucleus -> electrons (excited state only).
   const boltGroup = new Group();
@@ -421,20 +452,39 @@ export function createRtAtom(
     mirrorMesh.position.set(0, 2 * (FLOOR_Y - worldCenter.y), 0);
 
     // Wires follow the cloud radius (tighter at idle), dim with brightness.
-    wireGroup.scale.setScalar(params.cloudRadius / CLOUD_BOUND_RADIUS);
+    const fov = (f.camera as { fov?: number }).fov ?? 32;
+    const pxH = f.pixelHeight && f.pixelHeight > 0 ? f.pixelHeight : 1882;
+    const pxScale = (2 * Math.tan((fov * Math.PI) / 360)) / pxH;
+    (wireU.scale as any).value = params.cloudRadius / CLOUD_BOUND_RADIUS;
+    (wireU.pxScale as any).value = pxScale;
     (wireU.time as any).value = f.phase * 2.2;
     (wireU.energy.value as Vector3).set(0.35 + 0.9 * params.brightness, params.saturation, 0);
     (wireU.occluderCenter.value as Vector3).copy(worldCenter);
     (wireU.tint.value as Vector3).copy(uniforms.rim.value as Vector3);
+    let eIdx = 0;
+    wiresDef.forEach((w, i) => {
+      const th = (k: number) => {
+        const v = w.phase + f.phase * w.speed * 1.4 + (eIdx + k) * 1.3 + k * Math.PI;
+        return ((v % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      };
+      wireElectrons[i].set(th(0), electronCount[i] > 1 ? th(1) : -100);
+      eIdx += electronCount[i];
+    });
 
-    const wscale = wireGroup.scale.x;
-    for (let i = 0; i < electrons.length; i += 1) {
-      const w = wiresDef[electronWire[i]];
-      const theta = w.phase + f.phase * w.speed * 1.4 + i * 1.3;
-      wirePoint(w, theta, tmp).multiplyScalar(wscale);
-      electrons[i].core.position.copy(tmp);
-      electrons[i].glow.position.copy(tmp);
-    }
+    // Strand field: energy drives count, reach, brightness and grey fade.
+    const reach = 0.78 + 0.22 * params.excitation;
+    (strandU.time as any).value = f.phase;
+    (strandU.center.value as Vector3).copy(worldCenter);
+    (strandU.cloudR as any).value = cr;
+    (strandU.rootR as any).value = Math.min(0.4, (nucExtent * 0.8) / cr);
+    (strandU.pxScale as any).value = pxScale;
+    (strandU.energy.value as Vector3).set(params.excitation, params.saturation, params.brightness);
+    (strandU.active as any).value = activeStrandFraction(params.excitation, params.brightness);
+    (strandU.reach as any).value = reach;
+    (strandU.camRight.value as Vector3).copy(camRight);
+    (strandU.camUp.value as Vector3).copy(camUp);
+    (uniforms.reach as any).value = reach;
+    (mirrorUniforms.reach as any).value = reach;
 
     // Anamorphic streak: spans well beyond the cloud, brighter when excited.
     // Quad sized to the visible band only (fill cost: it is additive over MSAA HDR).

@@ -23,9 +23,7 @@ import {
   cross,
   dot,
   exp,
-  floor,
   float,
-  fract,
   int,
   interleavedGradientNoise,
   length,
@@ -59,6 +57,7 @@ import {
   RGBAFormat,
   UnsignedByteType,
   MeshBasicNodeMaterial,
+  Matrix3,
   Vector3,
   Vector4,
   AdditiveBlending,
@@ -66,6 +65,7 @@ import {
 } from "three/webgpu";
 import { OneFactor, OneMinusSrcAlphaFactor, AddEquation } from "three/webgpu";
 import { MAX_NUCLEONS } from "../shaderParams";
+import { petalAxes } from "../strandField";
 import { raySphere, sphereOcclusion, sphereSoftShadow } from "./raySphere";
 
 void AdditiveBlending;
@@ -117,11 +117,6 @@ export function getNoiseTexture(): Data3DTexture {
 }
 
 const noiseNode = texture3D(getNoiseTexture());
-/** Number of view-aligned plasma petals (the reference flower has ~12-14). */
-export const PETAL_COUNT = 13;
-/** Radial hair-line fibre counts around the view axis (fine / coarse layers). */
-const FIBER_FINE = 120;
-const FIBER_COARSE = 44;
 
 /** Signed baked noise in [-1, 1]; `ch` 0 = x, 1 = y. Explicit LOD (safe in divergent loops). */
 const bakedNoise = (p: any, ch: 0 | 1) => {
@@ -183,6 +178,10 @@ export interface AtomUniforms {
   steps: ReturnType<typeof uniform>;
   /** Extinction weight of the absorbing plasma medium (deep body, not haze). */
   mediumK: ReturnType<typeof uniform>;
+  /** Petal-field orientation (shared with the strand field). */
+  orient: ReturnType<typeof uniform>;
+  /** Plasma reach (cloud-radius units): body edge follows the strands. */
+  reach: ReturnType<typeof uniform>;
   stale: ReturnType<typeof uniform>;
   mirror: ReturnType<typeof uniform>;
   inner: ReturnType<typeof uniform>;
@@ -222,6 +221,8 @@ export function createAtomUniforms(): AtomUniforms {
     phase: uniform(0),
     steps: uniform(96, "int"),
     mediumK: uniform(0.16),
+    orient: uniform(new Matrix3()),
+    reach: uniform(1),
     stale: uniform(0),
     mirror: uniform(0),
     inner: uniform(new Vector3(0.62, 0.22, 1)),
@@ -264,19 +265,9 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       const isP = t4.w;
       const p = ro.add(rd.mul(tBest));
       const nSmooth = normalize(p.sub(c.xyz));
-      // Crystalline facets: quantised normals (gem cuts), strongly blended.
-      const nq = floor(nSmooth.mul(2.1).add(0.5));
-      const fh = fract(
-        sin(
-          vec3(
-            dot(nq, vec3(12.9898, 78.233, 37.719)),
-            dot(nq, vec3(39.346, 11.135, 83.155)),
-            dot(nq, vec3(73.156, 52.235, 9.151))
-          )
-        ).mul(43758.5453)
-      );
-      const facet = normalize(nSmooth.add(fh.sub(0.5).mul(1.7)));
-      const n = normalize(mix(nSmooth, facet, 0.88));
+      // Smooth glossy sphere: exact analytic normal (no facet perturbation,
+      // which produced the checkerboard / mirror-ball mosaic).
+      const n = nSmooth;
       const occ = float(0).toVar();
       const sh = float(1).toVar();
       Loop(count, ({ i: j }: any) => {
@@ -349,95 +340,25 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
         .mul(float(0.3).add(excitation.mul(0.9)));
       const color2 = color.add(crystal);
       const cl = dot(color2, vec3(0.2126, 0.7152, 0.0722));
-      // Per-facet brightness contrast: bright cut faces vs dark internal facets.
-      const facetTone = fh.x.mul(0.9).add(0.45);
-      const vivid = max(mix(vec3(cl), color2, 2.1), 0)
-        .mul(0.62)
-        .mul(facetTone);
+      const vivid = max(mix(vec3(cl), color2, 2.1), 0).mul(0.62);
       out.assign(vec4(vivid, tBest));
     });
     return out;
   });
 
-  /** Orbital cloud density + emission colour at normalised cloud-space point q. */
-  /**
-   * Petal bundles, organised around the view axis (the face-on "flower" of the
-   * reference): the polar angle of the pixel's ray in the camera plane, swept
-   * with screen-plane radius and jittered, is cut into PETAL_COUNT wedges.
-   * Wedge borders are dark violet voids; the density itself stays a full 3D
-   * volume (lobes, strands, absorption). A ray through the cloud is nearly
-   * parallel to the view axis, so the field is evaluated once per pixel (at
-   * the ray's closest approach to the centre), not per march step.
-   * Returns vec2(petal weight, petal edge radius).
-   */
-  const petalField = (pxN: any, pyN: any) => {
-    const phase = u.phase as any;
-    const rp = vec3(pxN, pyN, 0).length();
-    const ang0 = atan(pyN, pxN);
-    const jit = sin(ang0.mul(3).add(1.3))
-      .mul(0.22)
-      .add(sin(ang0.mul(7).add(rp.mul(4))).mul(0.12));
-    const ang = ang0.add(rp.mul(1.1)).add(phase.mul(0.015));
-    const kk = ang.mul(PETAL_COUNT / 6.2831853).add(jit);
-    const pf = fract(kk);
-    const ph = fract(sin(floor(kk).mul(91.7).add(3.1)).mul(43758.5453));
-    const wedge = smoothstep(0.07, 0.34, pf).mul(smoothstep(0.93, 0.66, pf));
-    const tip = sin(pf.mul(3.14159)).max(0);
-    // Petal tips bulge out, borders notch in: a flower silhouette, not a ball.
-    // Razor-thin radial fibres (two layers: fine + coarse) from the screen-plane
-    // polar angle: dark gaps between lit hair-lines, as in the reference.
-    const swirl = sin(rp.mul(5).add(ang0.mul(2)))
-      .mul(0.9)
-      .add(rp.mul(2.2));
-    // Bundles bend: each coarse sector curls a different way with radius, so
-    // fibres are curved, tapered strands (not ruler-straight rays), with dark
-    // voids between bundles.
-    const bundleK = ang0.mul(26 / 6.2831853);
-    const bh = fract(sin(floor(bundleK).mul(37.17).add(2.3)).mul(43758.5453));
-    const curl = bh.sub(0.5).mul(rp.mul(rp).mul(3.4).add(rp.mul(0.9)));
-    const bundleVoid = smoothstep(0.12, 0.4, bh);
-    const fineK = ang0
-      .add(curl)
-      .mul(FIBER_FINE / 6.2831853)
-      .add(swirl);
-    const fi1 = floor(fineK);
-    const ff1 = fract(fineK).sub(0.5);
-    const h1 = fract(sin(fi1.mul(12.9898).add(4.1)).mul(43758.5453));
-    const w1 = h1.mul(0.1).add(0.06);
-    // Per-fibre length window: strands start and end at varied radii (taper).
-    const st1 = h1.mul(0.45).add(0.1);
-    const len1 = smoothstep(st1, st1.add(0.2), rp).mul(
-      smoothstep(st1.add(0.85), st1.add(0.45), rp)
-    );
-    const line1 = exp(ff1.mul(ff1).div(w1.mul(w1)).negate())
-      .mul(smoothstep(0.15, 0.5, h1))
-      .mul(len1)
-      .mul(h1.mul(0.9).add(0.5))
-      .mul(bundleVoid.mul(0.8).add(0.2));
-    const coarseK = ang0
-      .mul(FIBER_COARSE / 6.2831853)
-      .add(swirl.mul(0.6))
-      .add(1.7)
-      .add(curl.mul(FIBER_COARSE / 6.2831853));
-    const fi2 = floor(coarseK);
-    const ff2 = fract(coarseK).sub(0.5);
-    const h2 = fract(sin(fi2.mul(78.233).add(9.7)).mul(24634.6345));
-    const w2 = h2.mul(0.08).add(0.07);
-    const st2 = h2.mul(0.35).add(0.15);
-    const len2 = smoothstep(st2, st2.add(0.25), rp).mul(smoothstep(st2.add(0.8), st2.add(0.4), rp));
-    const line2 = exp(ff2.mul(ff2).div(w2.mul(w2)).negate())
-      .mul(smoothstep(0.25, 0.6, h2))
-      .mul(len2)
-      .mul(bundleVoid);
-    const fiber = line1.mul(0.75).add(line2.mul(1.25));
-    return vec3(
-      wedge.mul(ph.mul(0.5).add(0.6)),
-      float(0.8).add(tip.mul(ph.mul(0.08).add(0.08))),
-      fiber
-    );
-  };
+  /** Petal bundle axes (same canonical Fibonacci set as the strand field). */
+  const petalAxesN = petalAxes().map(([x, y, z]) =>
+    normalize((u.orient as any).mul(vec3(x, y, z)))
+  );
 
-  const cloudSample = Fn(([q, petal, petalEdge, fiber]: [any, any, any, any]) => {
+  /**
+   * Soft deep plasma body at normalised cloud point q (behind the strands).
+   * The filaments themselves are real strand geometry (`plasmaStrands.ts`);
+   * the march only provides the luminous volume, organised into the SAME 3D
+   * petal bundles as the strands (dark voids between petals), a hot core, a
+   * faint rim glow and the absorbing medium. One baked-noise sample per step.
+   */
+  const cloudBody = (q: any) => {
     const r = length(q).max(0.002);
     const dir = q.div(r);
     const phase = u.phase as any;
@@ -448,8 +369,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const kindArr = [kinds.x, kinds.y, kinds.z];
     const wArr = [weights.x, weights.y, weights.z];
     const pArr = [peaks.x, peaks.y, peaks.z];
-    // Orbital probability density |Y_lm|^2: modulates strand intensity into
-    // petal-like lobes (the "flower" read of the reference cloud).
+    // Orbital probability density |Y_lm|^2 (shared by emission and medium).
     const lobeSum = float(0).toVar();
     const hueAcc = vec3(0).toVar();
     for (let k = 0; k < 3; k += 1) {
@@ -463,168 +383,56 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       hueAcc.addAssign((u.hues as any[])[k].mul(dk));
     }
     const hueMix = hueAcc.div(lobeSum.max(0.0001));
-    // Dense radial plasma filaments: ridged noise with a very high angular
-    // frequency and a low radial frequency => hundreds of strands that fan out
-    // from the nucleus and converge on it.
-    const rr = r.mul(1.1).sub(phase.mul(0.06));
-    // True line filaments: intersection of two noise zero-sheets, elongated
-    // radially (the radial coordinate decorrelates slowly; angle quickly).
-    const strand = (freq: number, off: number, ex: number) => {
-      const n1 = noise4(dir.mul(freq).add(off), rr);
-      const n2 = noise4(dir.mul(freq).add(off + 11.7), rr.mul(1.15).add(off), 1);
-      return pow(saturate(float(1).sub(n1.abs())), ex).mul(
-        pow(saturate(float(1).sub(n2.abs())), ex)
-      );
-    };
-    // Two octaves only: a third (freq ~100) is sub-pixel at default distance and
-    // averages into a pastel wash instead of reading as individual filaments.
-    const strands = strand(16, 0.0, 30)
-      .add(strand(38, 5.1, 40).mul(0.9))
-      .mul(11.0);
-    // Strand brightness flickers subtly and is brightest near the nucleus.
-    const flick = noise4(dir.mul(9), phase.mul(0.9)).mul(0.25).add(0.85);
-    const near = float(0.1).add(exp(r.mul(-2.4)).mul(1.5));
-    // Deep plasma body: lobe-weighted luminous volume (violet core -> bright rim)
-    // with slow low-frequency churn, so the cloud reads as a volume, not dots.
+    // 3D petal bundles: closeness to the nearest bundle axis.
+    let petalMax: any = float(0);
+    for (const a of petalAxesN) petalMax = max(petalMax, dot(dir, a));
+    const petal = smoothstep(0.86, 0.975, petalMax);
     const churn = noise4(dir.mul(3.1), phase.mul(0.35).add(r.mul(2.3)))
-      .mul(0.35)
+      .mul(0.4)
       .add(0.75);
-    const shell = exp(pow(r.sub(0.62).div(0.38), 2).negate())
-      .mul(0.75)
-      .add(smoothstep(0.6, 0.95, r).mul(0.18));
-    const haze = lobeSum
-      .mul(0.026)
+    const shell = exp(pow(r.sub(0.55).div(0.36), 2).negate());
+    const edgeR = u.reach as any;
+    const interior = float(1).sub(smoothstep(edgeR.mul(0.78), edgeR.mul(0.98), r));
+    const bodyD = lobeSum
       .mul(shell)
       .mul(churn)
-      .mul(float(1).add(excitation.mul(0.6)));
-    // Petal bundles are view-aligned and constant along the ray (computed once
-    // per pixel in the fragment, see petalField); only the edge depends on r.
-    const rEdge = petalEdge;
-    const fibRad = float(0.22).add(exp(r.mul(-2.0)).mul(1.7));
-    const fibTerm = fiber
-      .mul(fibRad)
-      .mul(flick)
-      .mul(lobeSum.mul(0.6).add(0.4))
-      .mul(petal.mul(0.9).add(0.28))
-      .mul(smoothstep(0.4, 0.85, r))
-      .mul(5.5);
-    const body = strands
-      .mul(flick)
-      .mul(near)
-      .mul(lobeSum.mul(0.9).add(0.3))
-      .mul(petal.mul(2.6).add(0.015))
-      .add(fibTerm)
-      .add(haze.mul(petal.mul(1.0).add(0.05)));
+      .mul(interior)
+      .mul(petal.mul(1.0).add(0.05))
+      .mul(float(0.5).add(excitation.mul(0.5)))
+      .mul(0.45);
     // Hot core plasma near the nucleus.
     const core = exp(r.mul(r).mul(-90))
       .mul(3.2)
-      .add(exp(r.mul(r).mul(-14)).mul(0.22));
-    // Bright particulate cyan rim at the (petal-shaped) boundary: dense motes
-    // plus a fuzzy glow band, slightly spilling outside the edge.
-    const rimShell = exp(pow(r.sub(rEdge).div(0.05), 2).negate());
-    // Rotated, per-cell-jittered particulate grid (no visible lattice).
-    const qr = vec3(
-      q.x.mul(0.8).add(q.z.mul(0.6)),
-      q.y.add(q.x.mul(0.15)),
-      q.z.mul(0.8).sub(q.x.mul(0.6))
-    ).mul(61);
-    const cell = floor(qr);
-    const cseed = dot(cell, vec3(12.9898, 78.233, 37.719));
-    const hsh = fract(sin(cseed).mul(43758.5453));
-    const jit3 = vec3(hsh, fract(hsh.mul(57.3)), fract(hsh.mul(131.7)))
-      .sub(0.5)
-      .mul(0.6);
-    const cf = fract(qr).sub(0.5).sub(jit3);
-    const sparkDot = exp(dot(cf, cf).mul(-34)).mul(fract(hsh.mul(91.3)).mul(0.9).add(0.3));
-    const fuzz = churn.mul(0.9).add(hsh.mul(0.3));
-    const sparkleRim = rimShell.mul(
-      float(0.16).mul(fuzz).add(step(0.5, hsh).mul(sparkDot).mul(20.0))
-    );
-    // Embedded pink/orange sparkle motes inside the volume.
-    const mc = floor(q.mul(17));
-    const mseed = dot(mc, vec3(51.7, 19.3, 83.1));
-    const mh = fract(sin(mseed).mul(24634.6345));
-    const mf = fract(q.mul(17)).sub(0.5);
-    const mote = step(0.935, mh)
-      .mul(exp(dot(mf, mf).mul(-70)))
-      .mul(float(0.7).add(sin(phase.mul(2.0).add(mh.mul(40))).mul(0.3)));
-    const interior = float(1).sub(smoothstep(rEdge.sub(0.03), rEdge.add(0.02), r));
-    const density = body
-      .mul(interior)
-      .add(core)
-      .add(
-        sparkleRim
-          .mul(float(1).sub(smoothstep(0.985, 1.0, r)))
-          .mul(petal.mul(0.7).add(0.5))
-          .mul(1.6)
-      );
-    // Colour: violet/magenta interior grading to a cyan rim.
-    const rimT = smoothstep(rEdge.sub(0.12), rEdge, r);
+      .add(exp(r.mul(r).mul(-14)).mul(0.25));
+    // Faint, churned rim glow (the fine sparkly fringe is instanced geometry).
+    const rimBand = exp(pow(r.sub(edgeR.mul(0.84)).div(0.06), 2).negate())
+      .mul(churn.sub(0.55).max(0))
+      .mul(petal.mul(0.9).add(0.1))
+      .mul(0.15);
+    const density = bodyD.add(core).add(rimBand);
+    const rimT = smoothstep(edgeR.mul(0.62), edgeR.mul(0.9), r);
     const interiorCol = mix(hueMix, u.inner as any, 0.5);
     const rimCol = mix(u.rim as any, hueMix, 0.2);
     const baseCol = mix(interiorCol, rimCol, rimT);
     const hot = saturate(core.mul(0.5));
-    const moteCol = vec3(1.0, 0.45, 0.62);
-    // Under-glow from the holographic pedestal: cyan light cast up into the base.
     const under = smoothstep(-0.1, -0.95, q.y);
-    const base = mix(mix(baseCol, vec3(0.1, 0.85, 1.0), under.mul(0.45)), u.coreColor as any, hot);
+    const base = mix(mix(baseCol, vec3(0.1, 0.85, 1.0), under.mul(0.2)), u.coreColor as any, hot);
     const luma = dot(base, vec3(0.2126, 0.7152, 0.0722));
-    const graded0 = mix(vec3(luma), base, saturation);
-    // Deepen hue (darken minor channels) so bright plasma stays saturated, not pastel.
-    const graded = pow(max(graded0, 0.0001), vec3(1.7));
-    const moteGraded = mix(vec3(dot(moteCol, vec3(0.2126, 0.7152, 0.0722))), moteCol, saturation);
-    // Absorbing plasma medium: a smooth lobe-shaped body that occludes the room
-    // behind it (deep violet voids between bright strands, as in the reference)
-    // and emits only a dim violet glow of its own.
+    const graded = pow(max(mix(vec3(luma), base, saturation), 0.0001), vec3(1.7));
+    // Absorbing plasma medium: deep violet voids, occludes the room behind.
     const medium = lobeSum
       .mul(shell)
       .mul(churn)
       .mul(interior)
+      .mul(petal.mul(0.7).add(0.3))
       .mul(u.mediumK as any);
     const mediumCol = pow(max(mix(vec3(luma), u.inner as any, saturation), 0.0001), vec3(1.6));
-    return vec4(
-      graded
-        .mul(density)
-        .add(moteGraded.mul(mote).mul(22.0))
-        .add(mediumCol.mul(medium).mul(petal.mul(0.8).add(0.1)).mul(0.9)),
-      density.add(mote)
-    );
-  });
-
-  /**
-   * Absorbing plasma body at q (lobe-shaped, low frequency). It only absorbs
-   * what lies BEHIND the cloud (the room), so the nucleus and strands stay crisp
-   * while the cloud reads as a deep violet volume instead of an additive haze.
-   */
-  const mediumSample = Fn(([q]: [any]) => {
-    const r = length(q).max(0.002);
-    const dir = q.div(r);
-    const axes = u.axes as any[];
-    const kinds = u.lobeKind as any;
-    const weights = u.weights as any;
-    const peaks = u.peaks as any;
-    const kindArr = [kinds.x, kinds.y, kinds.z];
-    const wArr = [weights.x, weights.y, weights.z];
-    const pArr = [peaks.x, peaks.y, peaks.z];
-    const lobeSum = float(0).toVar();
-    for (let k = 0; k < 3; k += 1) {
-      const c = dot(dir, axes[k]);
-      const c2 = c.mul(c);
-      const d2 = pow(c2.mul(3).sub(1), 2).mul(0.25);
-      const lobe = mix(c2, d2, step(1.5, kindArr[k]));
-      const rad = exp(pow(r.sub(pArr[k]).div(0.42), 2).negate());
-      lobeSum.addAssign(wArr[k].mul(lobe.add(0.28)).mul(rad.mul(0.8).add(0.2)));
-    }
-    const shell = exp(pow(r.sub(0.62).div(0.38), 2).negate())
-      .mul(0.75)
-      .add(smoothstep(0.6, 0.95, r).mul(0.18));
-    const interior = float(1).sub(smoothstep(0.76, 0.9, r));
-    return lobeSum
-      .mul(shell)
-      .mul(interior)
-      .mul(u.mediumK as any);
-  });
-
+    return {
+      col: graded.mul(density).add(mediumCol.mul(medium).mul(petal.mul(0.8).add(0.1)).mul(0.9)),
+      w: density,
+      m: medium,
+    };
+  };
   const fragment = Fn(() => {
     const mirrorOn = u.mirror as any;
     const fy = u.floorY as any;
@@ -645,7 +453,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       const ng = normalize(pg.sub(center));
       const ndv = saturate(dot(ng, rd.negate()));
       const fg = float(0.03).add(float(0.97).mul(pow(float(1).sub(ndv), 4.5)));
-      const reflG = neonEnvironment(reflect(rd, ng), float(0.04)).mul(fg).mul(1.6);
+      const reflG = neonEnvironment(reflect(rd, ng), float(0.04)).mul(fg).mul(0.8);
       const rim = pow(float(1).sub(ndv), 3)
         .mul(u.coreColor as any)
         .mul(float(0.12).add(excitation.mul(0.4)));
@@ -677,18 +485,15 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
         const dt = t1.sub(t0).div(stepsF);
         const t = t0.add(dt.mul(interleavedGradientNoise(screenCoordinate.xy))).toVar();
         const emission = brightness.mul(1.5).add(0.22).mul(0.011);
-        const tcp = dot(center.sub(ro), rd);
-        const pcp = ro.add(rd.mul(tcp)).sub(center).div(cloudR);
-        const pfld = petalField(dot(pcp, u.camRight as any), dot(pcp, u.camUp as any));
         Loop(u.steps as any, () => {
           If(t.greaterThan(t1).or(trans.lessThan(0.02)), () => {
             Break();
           });
           const q = ro.add(rd.mul(t)).sub(center).div(cloudR);
-          const s = cloudSample(q, pfld.x, pfld.y, pfld.z);
+          const s = cloudBody(q);
           const w = s.w;
-          acc.addAssign(s.xyz.mul(emission).mul(dt).mul(trans));
-          const m = mediumSample(q);
+          acc.addAssign(s.col.mul(emission).mul(dt).mul(trans));
+          const m = s.m;
           // The medium also attenuates emission behind it (depth: near petals
           // occlude far ones), not just the room.
           trans.mulAssign(exp(w.mul(0.03).add(m.mul(0.07)).mul(dt).negate()));
@@ -706,9 +511,9 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     // Hot core flare: a tight pink-white star (round core + 4 thin spikes) over
     // the gem. The wide anamorphic equatorial streak is a separate sprite.
     const lc = length(vec3(fx, fyy, 0));
-    const coreFlare = exp(lc.div(cloudR.mul(0.045)).negate())
-      .mul(2.4)
-      .add(exp(lc.div(cloudR.mul(0.14)).negate()).mul(0.45));
+    const coreFlare = exp(lc.div(cloudR.mul(0.03)).negate())
+      .mul(1.2)
+      .add(exp(lc.div(cloudR.mul(0.12)).negate()).mul(0.12));
     const spikeH = exp(fyy.abs().div(cloudR.mul(0.004)).negate()).mul(
       exp(fx.abs().div(cloudR.mul(0.16)).negate())
     );
@@ -720,9 +525,12 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       .mul(coreFlare.add(spikeH.add(spikeV).mul(0.9)))
       .mul(0.55)
       .mul(flareK);
-    const withFlare = acc.add(flare.mul(trans.mul(0.5).add(0.5)));
+    // Plasma in front of the gem is thinner (the reference keeps the crystal
+    // crisp): the body glow over a nucleus hit is held back.
+    const accK = select(tNuc.greaterThan(0), float(0.35), float(1));
+    const withFlare = acc.mul(accK).add(flare.mul(trans.mul(0.5).add(0.5)));
     const refl = select(mirrorOn.greaterThan(0.5), float(0.3), float(1));
-    const color = withFlare.add(surface.mul(trans)).mul(refl);
+    const color = withFlare.add(surface.mul(mix(trans, float(1), 0.6))).mul(refl);
     const alpha = float(1)
       .sub(trans.mul(transBg).mul(float(1).sub(surfAlpha)))
       .mul(refl);

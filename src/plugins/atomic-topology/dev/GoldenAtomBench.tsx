@@ -193,6 +193,7 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
           reducedMotion: reduced,
           marchSteps: steps,
           time: nowMs / 1000,
+          pixelHeight: params.height * (window.devicePixelRatio || 1),
         });
       }
       (env.time as { value: number }).value = reduced ? 0 : (params.t ?? nowMs / 1000);
