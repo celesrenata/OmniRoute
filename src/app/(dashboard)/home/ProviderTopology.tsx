@@ -61,6 +61,10 @@ import {
   type TopologyLifecycleInput,
   type TopologyProviderEntry,
 } from "@/shared/topology/domain/normalizeTopology";
+import {
+  recentModelsSignature,
+  type RecentCallLogRow,
+} from "@/shared/topology/domain/recentModels";
 import { useFleetTelemetry } from "@/shared/topology/telemetry/useFleetTelemetry";
 import { buildAtomSignals, mergeDemoSignals } from "@/shared/topology/telemetry/atomSignals";
 import {
@@ -85,6 +89,12 @@ type Props = {
    * the 2D renderer ignores it. Absent → no lifecycle on the snapshot.
    */
   lifecycleEvents?: TopologyLifecycleInput[] | null;
+  /**
+   * Recent call-log rows from the shared poll. Only used to record real,
+   * recently served model ids per provider (`observedModels`); the 2D
+   * renderer ignores them. Absent → no `observedModels` on the snapshot.
+   */
+  recentCallLogs?: readonly RecentCallLogRow[] | null;
   lastProvider?: string;
   errorProvider?: string;
   /**
@@ -124,6 +134,7 @@ export default function ProviderTopology({
   providers = [],
   activeRequests = [],
   lifecycleEvents = null,
+  recentCallLogs: recentCallLogRows = null,
   lastProvider = "",
   errorProvider = "",
   enabled = true,
@@ -214,6 +225,20 @@ export default function ProviderTopology({
   // live state the panel is observing (no second subscription). The fleet
   // reconciliation (when present) is carried verbatim on
   // `snapshot.fleetTelemetry` (absent → field stays absent — 2D unchanged).
+  // The poll replaces the rows array every 3 s; keep the previous reference
+  // while the derived model set is unchanged so the snapshot does not churn.
+  const recentSignature = useMemo(
+    () => recentModelsSignature(recentCallLogRows),
+    [recentCallLogRows]
+  );
+  const [stableRecent, setStableRecent] = useState<{
+    signature: string;
+    rows: readonly RecentCallLogRow[] | null;
+  }>({ signature: recentSignature, rows: recentCallLogRows });
+  if (stableRecent.signature !== recentSignature) {
+    setStableRecent({ signature: recentSignature, rows: recentCallLogRows });
+  }
+  const recentCallLogs = stableRecent.rows;
   const snapshot = useMemo(
     () =>
       normalizeTopology({
@@ -222,9 +247,18 @@ export default function ProviderTopology({
         lastProvider,
         errorProvider,
         lifecycleEvents,
+        recentCallLogs,
         reconciliation: fleetReconciliation,
       }),
-    [providers, activeRequests, lifecycleEvents, lastProvider, errorProvider, fleetReconciliation]
+    [
+      providers,
+      activeRequests,
+      lifecycleEvents,
+      recentCallLogs,
+      lastProvider,
+      errorProvider,
+      fleetReconciliation,
+    ]
   );
 
   // Per-route-link provenance rows for the diagnostics panel (OR-ATOM-009 S9.5):

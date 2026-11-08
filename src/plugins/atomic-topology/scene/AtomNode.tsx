@@ -10,9 +10,8 @@
  * matte — shape + material + luminance separation, NOT a color wash). Each
  * nucleon is tinted per instance (three.js `instanceColor` multiplies the
  * white role diffuse), so today's honest neutral two-tone reads warm-white
- * protons / cool-slate neutrons (the snapshot carries no per-node model
- * ids — see {@link AtomVisualDescriptor.observedModelIds}); once ids ARE
- * observed, at most 3 model-color angular sectors (hashed by model id,
+ * protons / cool-slate neutrons when no ids are observed (see
+ * {@link AtomVisualDescriptor.observedModelIds}); once ids ARE observed, at most 3 model-color angular sectors (hashed by model id,
  * stable under order changes) spatially cluster the nucleons.
  *
  * The core sphere is kept as the *small central anchor* with its truthful
@@ -226,10 +225,9 @@ export function AtomNode({
   );
 
   //
-  // Deterministic nucleus cluster (S8.3). `observedModelIds` is absent today
-  // (the snapshot carries no per-node model ids) → neutral two-tone; the
-  // builder is general so model-color sectors activate automatically once
-  // a future snapshot/descriptor exposes them.
+  // Deterministic nucleus cluster (S8.3). `observedModelIds` carries real
+  // observed ids (provider: in-flight + recent call-log; device: proven
+  // runtime residency). Absent → honest neutral two-tone.
   const cluster = useMemo(
     () =>
       buildNucleusCluster({

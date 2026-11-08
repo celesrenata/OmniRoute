@@ -196,11 +196,23 @@ export interface AtomVisualDescriptor {
   /**
    * Observed in-flight model ids (S8.3 nucleus model identity). Present on
    * device atoms (GPU / runtime) from the PROVEN runtime model residency
-   * (OR-ATOM-009 S9.1/W2 — canonicalized, deduped, ≤3); absent on hub/provider
-   * atoms, where the snapshot still exposes no per-node model ids → the
-   * nucleus renders the honest neutral two-tone.
+   * (OR-ATOM-009 S9.1/W2 — canonicalized, deduped, ≤3). Provider atoms get
+   * in-flight ids first, then recent call-log ids (canonicalized, deduped, ≤3);
+   * absent when nothing was observed (and on the hub) → the nucleus renders
+   * the honest neutral two-tone.
    */
   observedModelIds?: string[];
+  /**
+   * Provenance of provider `observedModelIds`: which ids came from the live
+   * in-flight set and which from recent call-log rows (with the window/basis).
+   * Absent when `observedModelIds` is absent or not provider-derived.
+   */
+  observedModelSources?: {
+    inFlight: string[];
+    callLog: string[];
+    callLogWindowMs?: number;
+    callLogBasis?: string;
+  };
   /** World-space position (from {@link computeAtomicLayout}; hub = origin). */
   position: { x: number; y: number; z: number };
   /**
@@ -339,6 +351,17 @@ export const SPIN_REFERENCE_TPS = 24;
  * the honest M1 "unavailable" baseline; without a reconciliation the
  * descriptors are byte-identical to the pre-telemetry behavior.
  */
+/** trim + lowercase, drop empties, dedupe (first occurrence wins), cap at 3. */
+function canonicalModelIds(ids: readonly string[] | null | undefined): string[] {
+  const out: string[] = [];
+  for (const id of ids ?? []) {
+    const canon = typeof id === "string" ? id.trim().toLowerCase() : "";
+    if (canon && !out.includes(canon)) out.push(canon);
+    if (out.length === 3) break;
+  }
+  return out;
+}
+
 export function resolveAtomDescriptors(
   snapshot: TopologySceneSnapshot,
   options?: { radiusScale?: number }
@@ -389,11 +412,13 @@ export function resolveAtomDescriptors(
     // Honest model-color composition (OR-ATOM-002 item 4): colors come ONLY
     // from observed in-flight model ids — never from a provider-hash guess.
     // At most 3 distinct model colors are rendered; the remainder is neutral.
-    const inFlightModelIds = node.inFlightModels?.value;
-    const modelColors =
-      inFlightModelIds && inFlightModelIds.length > 0
-        ? inFlightModelIds.slice(0, 3).map((m) => modelColor(m))
-        : [];
+    // Providers: in-flight ids first (live WS), then recent call-log ids
+    // (successful rows, windowed). One list drives BOTH the nucleus ids and
+    // the descriptor colors so they can never disagree. Hub: never.
+    const inFlightIds = isHub ? [] : canonicalModelIds(node.inFlightModels?.value);
+    const callLogIds = isHub ? [] : canonicalModelIds(node.observedModels?.value);
+    const providerModelIds = canonicalModelIds([...inFlightIds, ...callLogIds]);
+    const modelColors = providerModelIds.map((m) => modelColor(m));
     const color = modelColors.length > 0 ? modelColors[0] : UNKNOWN_ATOM_COLOR;
 
     // Spin + queue vibration (OR-ATOM-002 item 2 baseline, OR-ATOM-005 T5.4
@@ -441,6 +466,21 @@ export function resolveAtomDescriptors(
       activeRequests: node.activeRequests?.value ?? null,
       ringIndex,
       modelColors,
+      ...(providerModelIds.length > 0
+        ? {
+            observedModelIds: providerModelIds,
+            observedModelSources: {
+              inFlight: inFlightIds,
+              callLog: callLogIds,
+              ...(callLogIds.length > 0
+                ? {
+                    callLogWindowMs: node.observedModels?.windowMs,
+                    callLogBasis: node.observedModels?.basis,
+                  }
+                : {}),
+            },
+          }
+        : {}),
       fleetSampledAt: reconciliation ? reconciliation.capturedAt : null,
     } satisfies AtomVisualDescriptor;
   });

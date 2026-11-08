@@ -26,6 +26,7 @@
  * tooltip (it does not follow the cursor). That is the bounded scope: hover
  * would need 3D ray-picking, which is out of scope for M3 Phase B.
  */
+import { Fragment } from "react";
 import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
 
 /**
@@ -57,6 +58,35 @@ function spinCopy(descriptor: AtomVisualDescriptor): string {
  */
 export function queueRowLabel(kind: AtomVisualDescriptor["kind"]): string {
   return kind === "runtime" ? "Sched. queue" : "Rate-limit queue";
+}
+
+/**
+ * Observed-model rows with their provenance basis. One row per origin so a
+ * model id is never shown without saying where it was observed:
+ * "live in-flight" (WS), "call-log, last N min" (recent successful rows) or
+ * "fleet residency" (proven runtime residency on device atoms). Empty when
+ * nothing was observed (never a placeholder model).
+ */
+export function modelProvenanceRows(
+  descriptor: AtomVisualDescriptor
+): Array<{ label: string; value: string }> {
+  const ids = descriptor.observedModelIds;
+  if (!ids || ids.length === 0) return [];
+  const sources = descriptor.observedModelSources;
+  if (!sources) return [{ label: "Models (fleet residency)", value: ids.join(", ") }];
+  const rows: Array<{ label: string; value: string }> = [];
+  if (sources.inFlight.length > 0) {
+    rows.push({ label: "Models (live in-flight)", value: sources.inFlight.join(", ") });
+  }
+  const fromLog = sources.callLog.filter((id) => !sources.inFlight.includes(id));
+  if (fromLog.length > 0) {
+    const minutes = sources.callLogWindowMs ? Math.round(sources.callLogWindowMs / 60_000) : null;
+    rows.push({
+      label: `Models (call-log${minutes ? `, last ${minutes} min` : ""})`,
+      value: fromLog.join(", "),
+    });
+  }
+  return rows;
 }
 
 /**
@@ -145,6 +175,12 @@ export function AtomicTooltip({
         <dd>{queueCopy(descriptor)}</dd>
         <dt>In flight</dt>
         <dd>{activeRequests}</dd>
+        {modelProvenanceRows(descriptor).map((row) => (
+          <Fragment key={row.label}>
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+          </Fragment>
+        ))}
         <dt>Captured</dt>
         <dd>{capturedLabel}</dd>
         {facts ? (

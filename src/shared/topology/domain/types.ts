@@ -129,6 +129,13 @@ export interface TopologySceneNode {
    * the nucleus by *observed* model identity — never fabricated.
    */
   inFlightModels?: Observed<string[]>;
+  /**
+   * Model ids recently served successfully by this provider, from call-log
+   * rows (`source: "call-log"`, windowed). Optional and **omitted** when no
+   * qualifying row exists in the window — never a fabricated model. The 2D
+   * renderer ignores it.
+   */
+  observedModels?: Observed<string[]>;
 }
 
 /**

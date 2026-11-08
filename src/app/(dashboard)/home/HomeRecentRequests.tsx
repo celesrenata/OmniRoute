@@ -1,16 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
 import { fmtCompact } from "@/shared/utils/formatting";
+import { useRecentCallLogs } from "@/hooks/useRecentCallLogs";
 
 /**
  * Home-page "Recent Requests" panel — the live request feed that sits beside the
  * Provider Topology graph (parity with 9Router's Usage view).
  *
  * ## Data source
- * Fed by POLLING `GET /api/usage/call-logs?limit=N` every ~3s, NOT by the live
+ * Fed by the shared call-log poll (`useRecentCallLogs`, see
+ * `shared/topology/telemetry/recentCallLogs.ts`): `GET /api/usage/call-logs?limit=N`
+ * every ~3s, one poll shared with the topology model adapter. NOT by the live
  * WebSocket. The WS is used elsewhere for the in-flight beam (it emits
  * `request.started` and, since the stuck-latch fix, `request.completed`/`request.failed`),
  * but its payload carries no tokens/latency/status and no persisted history — so it
@@ -22,12 +25,8 @@ import { fmtCompact } from "@/shared/utils/formatting";
  * gates the topology section) AND page visibility, so a backgrounded tab pauses.
  */
 
-const POLL_INTERVAL_MS = 3000;
 // Rows shown after client-side filtering of connection-test rows.
 const RECENT_LIMIT = 20;
-// Fetch a wider window than we display so filtering out connection-test rows
-// (a burst of "Test connection" clicks) can't starve the feed below RECENT_LIMIT.
-const FETCH_LIMIT = 60;
 
 type CallLogRow = {
   id?: string;
@@ -44,22 +43,6 @@ type CallLogRow = {
   active?: boolean;
   completed?: boolean;
 };
-
-/**
- * Connection tests write real `call_logs` rows (provider "Test connection" button →
- * `/api/providers/[id]/test`) with fixed markers: model `connection-test`, path
- * `/api/providers/test`, sourceFormat/targetFormat `test`. Those are health probes,
- * not user traffic, so they must not clutter the Recent Requests feed (matching how
- * 9Router keeps its Usage list to real calls). Drop any row carrying a test marker.
- */
-function isConnectionTestRow(row: CallLogRow): boolean {
-  return (
-    row.model === "connection-test" ||
-    row.sourceFormat === "test" ||
-    row.targetFormat === "test" ||
-    row.path === "/api/providers/test"
-  );
-}
 
 type RequestState = "active" | "error" | "ok";
 
@@ -88,8 +71,9 @@ const STATE_DOT: Record<RequestState, string> = {
 
 export default function HomeRecentRequests({ enabled = true }: { enabled?: boolean }) {
   const t = useTranslations("home");
-  const [rows, setRows] = useState<CallLogRow[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  // Connection-test rows are already filtered by the shared store.
+  const { rows: allRows, loaded } = useRecentCallLogs(enabled);
+  const rows = useMemo(() => allRows.slice(0, RECENT_LIMIT) as CallLogRow[], [allRows]);
   // A ticking clock so the relative "When" column updates without re-fetching.
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -98,52 +82,6 @@ export default function HomeRecentRequests({ enabled = true }: { enabled?: boole
     const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
   }, [enabled]);
-
-  const load = useCallback(async (signal: AbortSignal) => {
-    try {
-      const res = await fetch(`/api/usage/call-logs?limit=${FETCH_LIMIT}&excludeTests=1`, {
-        cache: "no-store",
-        signal,
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (signal.aborted) return;
-      const filtered = Array.isArray(data)
-        ? (data as CallLogRow[]).filter((row) => !isConnectionTestRow(row)).slice(0, RECENT_LIMIT)
-        : [];
-      setRows(filtered);
-      setLoaded(true);
-    } catch (error) {
-      const isAbort = error instanceof DOMException && error.name === "AbortError";
-      if (!isAbort) console.error("Failed to load recent requests:", error);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!enabled) return;
-
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let controller: AbortController | null = null;
-
-    const tick = async () => {
-      // Pause polling while the tab is backgrounded; resume on next tick.
-      if (document.visibilityState === "visible") {
-        const currentController = new AbortController();
-        controller = currentController;
-        await load(currentController.signal);
-        if (controller === currentController) controller = null;
-      }
-      if (!cancelled) timeoutId = setTimeout(tick, POLL_INTERVAL_MS);
-    };
-
-    tick();
-    return () => {
-      cancelled = true;
-      if (timeoutId) clearTimeout(timeoutId);
-      controller?.abort();
-    };
-  }, [enabled, load]);
 
   return (
     <Card padding="sm" className="flex min-w-0 flex-col overflow-hidden h-[300px] sm:h-[420px]">
@@ -178,10 +116,7 @@ export default function HomeRecentRequests({ enabled = true }: { enabled?: boole
                     <td className="py-1.5">
                       <span className={`block size-1.5 rounded-full ${STATE_DOT[state]}`} />
                     </td>
-                    <td
-                      className="py-1.5 font-mono truncate max-w-[140px]"
-                      title={row.model || ""}
-                    >
+                    <td className="py-1.5 font-mono truncate max-w-[140px]" title={row.model || ""}>
                       {row.model || "—"}
                     </td>
                     <td className="py-1.5 text-right whitespace-nowrap">
