@@ -114,6 +114,10 @@ export interface BatchAtomFrame {
   spinAngle: number;
   /** Nucleus-spin-independent decorative swirl is advanced internally. */
   marchSteps: number;
+  /** Uniform world scale of the whole atom (focus emphasis, breathing, hub). Default 1. */
+  scale?: number;
+  /** 0..1 red failure flash on the nucleus/core glow (event-driven). Default 0. */
+  alert?: number;
 }
 
 export interface BatchFrameContext {
@@ -447,25 +451,32 @@ export function createAtomBatch(
         Math.max(0, CLOUD_BOUND_RADIUS - params.cloudRadius) /
           (CLOUD_BOUND_RADIUS * (1 - CLOUD_RADIUS_MIN))
       );
-      worldCenter.set(f.position[0], f.position[1] - settle * IDLE_SEAT_DROP, f.position[2]);
+      const sc = f.scale != null && Number.isFinite(f.scale) && f.scale > 0 ? f.scale : 1;
+      const alert =
+        f.alert != null && Number.isFinite(f.alert) ? Math.min(1, Math.max(0, f.alert)) : 0;
+      const ne = st.nucExtent * sc;
+      worldCenter.set(f.position[0], f.position[1] - settle * IDLE_SEAT_DROP * sc, f.position[2]);
 
       // Nucleus spin (measured-TPS driven by the caller; static when 0), in world space.
       rot.setFromAxisAngle(st.axis, f.spinAngle);
       const pc = st.packed.centers;
       for (let i = 0; i < st.packed.count; i += 1) {
-        tmp.set(pc[i * 4], pc[i * 4 + 1], pc[i * 4 + 2]).applyQuaternion(rot);
+        tmp
+          .set(pc[i * 4], pc[i * 4 + 1], pc[i * 4 + 2])
+          .applyQuaternion(rot)
+          .multiplyScalar(sc);
         put4(
           nucScratch,
           i * 4,
           tmp.x + worldCenter.x,
           tmp.y + worldCenter.y,
           tmp.z + worldCenter.z,
-          pc[i * 4 + 3]
+          pc[i * 4 + 3] * sc
         );
       }
 
       const dist = camPos.distanceTo(worldCenter);
-      const cr = params.cloudRadius;
+      const cr = params.cloudRadius * sc;
       // Projected size vs the default single-atom view (dist 255 at full radius):
       // hairline/mote overlap per pixel grows as the atom shrinks on screen.
       const crowd = Math.min(1, Math.max(0.15, 255 / CLOUD_BOUND_RADIUS / (dist / cr)));
@@ -474,6 +485,10 @@ export function createAtomBatch(
       const half = ((cr * dist) / Math.sqrt(Math.max(dist * dist - cr * cr, 1))) * 1.08;
       const reach = 0.78 + 0.22 * params.excitation;
       const exc = params.excitation;
+      // Overdraw subdue is for bright (excited) clouds; a dim idle cloud keeps
+      // more of its gain when small on screen so it still reads as an atom.
+      const idleK = Math.min(1, Math.max(0, 1 - (exc - 0.12) / 0.88));
+      const crowdG = crowd + (1 - crowd) * 0.3 * idleK;
       const bri = params.brightness;
 
       // Decorative differential swirl: rate rises with energy, never encodes
@@ -484,7 +499,7 @@ export function createAtomBatch(
       const o = st.orbitals;
       setF(row, FIELD.CENTER_CLOUD_R, worldCenter.x, worldCenter.y, worldCenter.z, cr);
       setF(row, FIELD.RIGHT_QUADHALF, camRight.x, camRight.y, camRight.z, half);
-      setF(row, FIELD.UP_GLASS_R, camUp.x, camUp.y, camUp.z, st.nucExtent * 1.14);
+      setF(row, FIELD.UP_GLASS_R, camUp.x, camUp.y, camUp.z, ne * 1.14);
       setF(row, FIELD.ENERGY_PHASE, exc, params.saturation, bri, params.phase);
       setF(
         row,
@@ -496,7 +511,7 @@ export function createAtomBatch(
         // greys and calms instead of reading as a dark sooty ball.
         MEDIUM_K * bri * bri
       );
-      setF(row, FIELD.FAR_CROWD_REACH_STEPS, farK, crowd, reach, params.marchSteps);
+      setF(row, FIELD.FAR_CROWD_REACH_STEPS, farK, crowdG, reach, params.marchSteps);
       setF(row, FIELD.LOBE_NCOUNT, o[0].l, o[1].l, o[2].l, st.packed.count);
       setF(
         row,
@@ -507,7 +522,7 @@ export function createAtomBatch(
         st.swirlClock
       );
       const m = st.orient.elements; // column-major: row i = (m[i], m[i+3], m[i+6])
-      setF(row, FIELD.ORIENT0_ROOT_R, m[0], m[3], m[6], Math.min(0.4, (st.nucExtent * 0.8) / cr));
+      setF(row, FIELD.ORIENT0_ROOT_R, m[0], m[3], m[6], Math.min(0.4, (ne * 0.8) / cr));
       // Projected-size strand LOD (1 at the approved default/close views): draw
       // the lit strands of a smaller rank prefix, each brightened by 1/lod.
       const lod = strandLod(crowd);
@@ -516,7 +531,7 @@ export function createAtomBatch(
       st.bucket = strandBucket(litFrac, st.bucket);
       bucketOfRow[row] = st.bucket;
       setF(row, FIELD.ORIENT1_ACTIVE, m[1], m[4], m[7], litFrac);
-      setF(row, FIELD.SPARE1, Math.pow(crowd, 2.8), activeFrac, 0, 0);
+      setF(row, FIELD.SPARE1, Math.pow(crowdG, 2.8), activeFrac, alert, 0);
       setF(row, FIELD.ORIENT2_PX, m[2], m[5], m[8], pxScale);
       setF(
         row,
@@ -526,14 +541,7 @@ export function createAtomBatch(
         st.hueSet[0][2],
         reducedMotion ? 0 : 1
       );
-      setF(
-        row,
-        FIELD.HUE1_OCC,
-        st.hueSet[1][0],
-        st.hueSet[1][1],
-        st.hueSet[1][2],
-        st.nucExtent * 0.92
-      );
+      setF(row, FIELD.HUE1_OCC, st.hueSet[1][0], st.hueSet[1][1], st.hueSet[1][2], ne * 0.92);
       setF(
         row,
         FIELD.HUE2_WIRESCALE,
@@ -543,14 +551,21 @@ export function createAtomBatch(
         (cr / CLOUD_BOUND_RADIUS) * 1.18
       );
       setF(row, FIELD.INNER_WIRETIME, st.inner[0], st.inner[1], st.inner[2], f.phase * 2.2);
-      setF(row, FIELD.RIM_WIREENERGY, st.rim[0], st.rim[1], st.rim[2], (0.35 + 0.9 * bri) * crowd);
+      setF(
+        row,
+        FIELD.RIM_WIREENERGY,
+        st.rim[0],
+        st.rim[1],
+        st.rim[2],
+        (0.35 + 0.9 * bri) * Math.pow(crowdG, 1.3)
+      );
       setF(
         row,
         FIELD.CORE_STRANDCROWD,
         st.coreColor[0],
         st.coreColor[1],
         st.coreColor[2],
-        Math.pow(crowd, 1.4) / Math.pow(lod, 0.75)
+        Math.pow(crowdG, 1.4) / Math.pow(lod, 0.75)
       );
       setF(
         row,
@@ -566,7 +581,7 @@ export function createAtomBatch(
         o[0].axis[0],
         o[0].axis[1],
         o[0].axis[2],
-        (0.3 + 1.3 * exc) * bri * (1 + 0.3 * farK) * Math.sqrt(crowd)
+        (0.3 + 1.3 * exc) * bri * (1 + 0.3 * farK) * Math.sqrt(crowdG)
       );
       setF(
         row,
@@ -582,9 +597,10 @@ export function createAtomBatch(
       weightScratch[0] = o[0].weight * params.orbitalWeights[0] * 3;
       weightScratch[1] = o[1].weight * params.orbitalWeights[1] * 3;
       weightScratch[2] = o[2].weight * params.orbitalWeights[2] * 3;
-      coreScratch[0] = st.coreColor[0];
-      coreScratch[1] = st.coreColor[1];
-      coreScratch[2] = st.coreColor[2];
+      // Failure flash: the hot core shifts toward red (never a model hue).
+      coreScratch[0] = st.coreColor[0] + (1.0 - st.coreColor[0]) * alert;
+      coreScratch[1] = st.coreColor[1] + (0.12 - st.coreColor[1]) * alert;
+      coreScratch[2] = st.coreColor[2] + (0.08 - st.coreColor[2]) * alert;
       slots[row].update({
         center: worldCenter,
         camRight,
@@ -592,7 +608,7 @@ export function createAtomBatch(
         quadHalf: half,
         cloudRadius: cr,
         far: farK,
-        crowd,
+        crowd: crowdG,
         excitation: exc,
         saturation: params.saturation,
         brightness: bri,
@@ -604,7 +620,7 @@ export function createAtomBatch(
         coreColor: coreScratch,
         floorY: floorY.value as number,
         nucleons: nucScratch,
-        glassRadius: st.nucExtent * 1.14,
+        glassRadius: ne * 1.14,
       });
 
       // Electron angles per wire (heads ride the wire shader).

@@ -9,6 +9,8 @@
  */
 import {
   ACESFilmicToneMapping,
+  type Camera,
+  type Object3D,
   PerspectiveCamera,
   RenderPipeline,
   Scene,
@@ -82,10 +84,50 @@ export async function createRtRenderer(opts: RtRendererOptions): Promise<RtRende
     void device.lost.then((info) => opts.onDeviceLost?.(info.reason ?? "unknown"));
   }
 
+  const post = createRtPost(renderer, opts.scene, opts.camera, opts.bloom);
+  const pipeline = post.pipeline;
+
+  return {
+    renderer,
+    backend,
+    pipeline,
+    setPostEnabled: post.setBloom,
+    render() {
+      pipeline.render();
+    },
+    resize(w, h) {
+      renderer.setPixelRatio(window.devicePixelRatio || 1);
+      renderer.setSize(w, h, false);
+    },
+    dispose() {
+      post.dispose();
+      renderer.dispose();
+    },
+  };
+}
+
+export interface RtPost {
+  pipeline: RenderPipeline;
+  setBloom: (on: boolean) => void;
+  dispose: () => void;
+}
+
+/**
+ * HDR post chain shared by the bench and the topology scene: scene pass ->
+ * bloom on HDR emissives -> subtle edge RGB shift -> filmic split-tone grade ->
+ * vignette -> grain -> renderer output transform (ACES + sRGB). Built on the
+ * LIVE renderer; no extra renderer, no quality tiers.
+ */
+export function createRtPost(
+  renderer: WebGPURenderer,
+  scene: Scene | Object3D,
+  camera: Camera,
+  bloomEnabled: boolean
+): RtPost {
   const pipeline = new RenderPipeline(renderer);
-  const scenePass = pass(opts.scene, opts.camera);
+  const scenePass = pass(scene as Scene, camera);
   const sceneColor = scenePass.getTextureNode();
-  const bloomOn = uniform(opts.bloom ? 1 : 0);
+  const bloomOn = uniform(bloomEnabled ? 1 : 0);
   const bloomNode = bloom(sceneColor, 0.15, 0.5, 1.3);
   const shifted = rgbShift(sceneColor, 0.0011, 0.0);
   const grade = Fn(() => {
@@ -105,21 +147,12 @@ export async function createRtRenderer(opts: RtRendererOptions): Promise<RtRende
     return vec4(graded.mul(vig).add(g.mul(0.012)), 1);
   });
   pipeline.outputNode = grade();
-  void clamp;
 
+  void clamp;
   return {
-    renderer,
-    backend,
     pipeline,
-    setPostEnabled(on) {
+    setBloom(on) {
       (bloomOn as unknown as { value: number }).value = on ? 1 : 0;
-    },
-    render() {
-      pipeline.render();
-    },
-    resize(w, h) {
-      renderer.setPixelRatio(window.devicePixelRatio || 1);
-      renderer.setSize(w, h, false);
     },
     dispose() {
       try {
@@ -127,7 +160,46 @@ export async function createRtRenderer(opts: RtRendererOptions): Promise<RtRende
       } catch {
         /* already disposed */
       }
-      renderer.dispose();
     },
   };
+}
+
+/**
+ * Renderer for the R3F `<Canvas gl={...}>` factory (topology scene). Full
+ * retina DPR is applied by the Canvas `dpr` prop; MSAA via `antialias`.
+ * `onDeviceLost` fires for a real WebGPU device loss, never for our own
+ * dispose (the caller sets `disposing` first).
+ */
+export async function createRtCanvasRenderer(
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  opts: { forceWebGL?: boolean; onDeviceLost?: (reason: string) => void }
+): Promise<{ renderer: WebGPURenderer; backend: Backend; device: GPUDevice | null }> {
+  const renderer = new WebGPURenderer({
+    canvas: canvas as HTMLCanvasElement,
+    antialias: true,
+    alpha: true,
+    forceWebGL: !!opts.forceWebGL,
+    powerPreference: "high-performance",
+  });
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  // A loss is handled (freeze + rebuild on a fresh canvas, see AtomicScene), so
+  // it is reported as a warning instead of three's default console error.
+  (
+    renderer as unknown as { onDeviceLost: (info: { api?: string; message?: string }) => void }
+  ).onDeviceLost = (info) => {
+    (renderer as unknown as { _isDeviceLost: boolean })._isDeviceLost = true;
+    console.warn(
+      `[atomic] ${info.api ?? "GPU"} device lost (${info.message ?? "unknown"}); rebuilding`
+    );
+  };
+  await renderer.init();
+  const be = (renderer as unknown as { backend: { isWebGPUBackend?: boolean; device?: GPUDevice } })
+    .backend;
+  const backend: Backend = be?.isWebGPUBackend ? "webgpu" : "webgl";
+  const device = be?.device ?? null;
+  if (device && opts.onDeviceLost) {
+    void device.lost.then((info) => opts.onDeviceLost?.(info.reason ?? "unknown"));
+  }
+  return { renderer, backend, device };
 }

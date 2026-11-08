@@ -22,9 +22,6 @@
  *                   zoom" framing).
  *   - `paused=1|0`  default `1` → frozen frame loop (stable captures).
  *   - `badge=0`     hide the DEMO provenance badge (clean material-only frame).
- *   - `quality=high|medium|low`  force a tier (iteration-e: makes headless
- *                   captures comparable across machines — the resolved tier
- *                   would otherwise follow the probe's hardware signals).
  *   - `bloom=…`    dev-only bloom override (iteration-e washout isolation):
  *                   `off` → direct render path (isolates the material/
  *                   OutputPass pipeline from bloom), `current` → the shipped
@@ -43,7 +40,7 @@ import {
   mapLifecycleToAtomicEvents,
 } from "@/plugins/atomic-topology/eventPool";
 import { AtomicTopologyRenderer } from "@/plugins/atomic-topology/AtomicTopologyRenderer";
-import type { AtomicSceneQuality, BloomBudget } from "@/plugins/atomic-topology/quality";
+import type { BloomBudget } from "@/plugins/atomic-topology/quality";
 
 import { buildGoldenSnapshot } from "./goldenSnapshot";
 import {
@@ -61,22 +58,14 @@ export const BENCH_HEIGHT = 1000;
  * same deterministic discharge clock the production renderer uses.
  */
 /**
- * Parse the `?atoms=N` perf-ladder param (OR-ATOM-010 T10.6). Only the three
- * budget targets (8 / 16 / 32) are accepted; anything else falls back to the
+ * Parse the `?atoms=N` perf-ladder param (OR-ATOM-010 T10.6). Only the
+ * budget targets (8 / 16 / 20 / 32) are accepted; anything else falls back to the
  * golden default so a malformed URL never produces a bogus topology.
  */
 function parseAtomCount(raw: string | null): number | undefined {
   if (!raw) return undefined;
   const n = Number(raw);
-  return n === 8 || n === 16 || n === 32 ? n : undefined;
-}
-
-/**
- * Dev-only `?quality=` override (iteration-e): a forced tier so headless
- * captures are comparable. Anything else → the resolved tier.
- */
-function parseQualityOverride(raw: string | null): AtomicSceneQuality | undefined {
-  return raw === "high" || raw === "medium" || raw === "low" ? raw : undefined;
+  return n === 8 || n === 16 || n === 20 || n === 32 ? n : undefined;
 }
 
 /**
@@ -102,16 +91,39 @@ function parseBloomOverride(raw: string | null): BloomBudget | undefined {
   return undefined;
 }
 
-function useBenchScene(atomCount: number | undefined) {
+function useBenchScene(
+  atomCount: number | undefined,
+  opts: { allIdle?: boolean; errorPhase?: "error" | "recovered" } = {}
+) {
+  const { allIdle, errorPhase } = opts;
   return useMemo(() => {
-    const snapshot = buildGoldenSnapshot(atomCount ? { atomCount } : {});
+    const snapshot = buildGoldenSnapshot({
+      ...(atomCount ? { atomCount } : {}),
+      allIdle,
+      errorPhase,
+    });
     const capturedAt = Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0;
     const eventPool = createAtomicEventPool();
     for (const event of mapLifecycleToAtomicEvents(snapshot)) {
       eventPool.ingest(event, capturedAt);
     }
     return { snapshot, eventPool };
-  }, [atomCount]);
+  }, [atomCount, allIdle, errorPhase]);
+}
+
+/**
+ * `?failure=cycle` (DEMO): the error provider recovers for 3 s, then fails
+ * again, every 6 s, so the scene shows the real failure transition (red
+ * branching bolt + nucleus flash) instead of a static error.
+ */
+function useFailureCycle(enabled: boolean): "error" | "recovered" {
+  const [phase, setPhase] = useState<"error" | "recovered">("error");
+  useEffect(() => {
+    if (!enabled) return;
+    const id = setInterval(() => setPhase((p) => (p === "error" ? "recovered" : "error")), 3000);
+    return () => clearInterval(id);
+  }, [enabled]);
+  return phase;
 }
 
 export default function AtomicBenchPage() {
@@ -176,10 +188,11 @@ function BenchBody() {
   const paused = searchParams.get("paused") !== "0";
   const showBadge = searchParams.get("badge") !== "0";
   const atomCount = parseAtomCount(searchParams.get("atoms"));
-  const qualityOverride = parseQualityOverride(searchParams.get("quality"));
   const bloomOverride = parseBloomOverride(searchParams.get("bloom"));
 
-  const { snapshot, eventPool } = useBenchScene(atomCount);
+  const errorPhase = useFailureCycle(searchParams.get("failure") === "cycle");
+  const allIdle = searchParams.get("idle") === "1";
+  const { snapshot, eventPool } = useBenchScene(atomCount, { allIdle, errorPhase });
   const [ready, setReady] = useState(false);
   const hostRef = useRef<HTMLElement | null>(null);
 
@@ -222,7 +235,6 @@ function BenchBody() {
         focusNodeId={focusNodeId}
         eventPool={eventPool}
         options={{ emptyStateLabel: "Atomic bench: WebGL2 unavailable" }}
-        qualityOverride={qualityOverride}
         bloomOverride={bloomOverride}
       />
       {showBadge && (
@@ -244,6 +256,8 @@ function BenchBody() {
           }}
         >
           DEMO · golden snapshot · {focusNodeId ? `focus ${focusNodeId}` : "default zoom"}
+          {allIdle ? " · all idle (no measured activity)" : ""}
+          {searchParams.get("failure") === "cycle" ? ` · failure cycle (${errorPhase})` : ""}
           {" · "}
           {paused ? "paused" : "live"}
         </div>

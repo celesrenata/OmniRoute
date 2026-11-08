@@ -43,7 +43,16 @@
  * `@react-three/drei` to keep the 3D dependency surface at just `three` +
  * `@react-three/fiber`.
  */
-import { useLayoutEffect, useEffect, useRef, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { PerspectiveCamera } from "three";
@@ -54,14 +63,21 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 import type { AtomicSceneProps } from "../AtomicTopologyRenderer";
 import { computeCameraFit, computeCameraFocus, isUsableCameraFit } from "../cameraFit";
-import { QUALITY_BUDGETS } from "../quality";
+import { LEGACY_BLOOM, resolveRenderDpr } from "../quality";
 
 import { Nucleus } from "./Nucleus";
 import { AtomNode } from "./AtomNode";
 import { EnergyLink } from "./EnergyLink";
 import { SceneOrbitControls } from "./SceneOrbitControls";
 import { ContextGuard } from "./ContextGuard";
-import { CanvasContextGuard, SceneClockDriver, useReducedMotionSync } from "./sceneState";
+import {
+  CanvasContextGuard,
+  SceneClockDriver,
+  sceneState,
+  useReducedMotionSync,
+} from "./sceneState";
+import { RtTopologyContent } from "./RtTopologyScene";
+import { createRtCanvasRenderer } from "./rt/rendererFactory";
 import { AtomicSceneContext, type AtomicSceneContextValue } from "./sceneContext";
 
 /** The scene's vertical FOV — shared by the camera fit math and the camera. */
@@ -74,22 +90,39 @@ const SCENE_FOV_DEG = 50;
  * Pure with respect to props: re-rendering with the same descriptors is a
  * no-op visually (R3F diffs the tree).
  */
-export function AtomicScene({
-  descriptors,
-  linkDescriptors,
-  paused,
-  focusNodeId,
-  sceneContext,
-  bloomOverride,
-}: AtomicSceneProps) {
-  // A document-hidden pause: the scene freezes when the tab/page is hidden
-  // (bounded work, no GPU spend) and resumes when it is visible again.
+export function AtomicScene(props: AtomicSceneProps) {
+  // Dev A/B only (query params, never a production toggle): `?atomic-fx=legacy`
+  // mounts the pre-Gate-B WebGL renderer until Gate B is approved.
+  const fx = useMemo(() => readDevFx(), []);
+  return fx.legacy ? (
+    <LegacyAtomicScene {...props} />
+  ) : (
+    <RtAtomicScene {...props} bloom={fx.bloom} />
+  );
+}
+
+/** Dev-only query flags (`atomic-fx=legacy`, `bloom=0`, `backend=webgl`). */
+function readDevFx(): { legacy: boolean; bloom: boolean; forceWebGL: boolean } {
+  if (typeof window === "undefined") return { legacy: false, bloom: true, forceWebGL: false };
+  const q = new URLSearchParams(window.location.search);
+  return {
+    legacy: q.get("atomic-fx") === "legacy",
+    bloom: q.get("bloom") !== "0",
+    forceWebGL: q.get("backend") === "webgl",
+  };
+}
+
+/** Full retina: the device pixel ratio, uncapped (no quality tiers). */
+function deviceDpr(): number {
+  const d = typeof window !== "undefined" ? window.devicePixelRatio : 1;
+  return resolveRenderDpr(d);
+}
+
+/** Document-hidden pause shared by both scene paths. */
+function useDocumentHidden(): boolean {
   const [documentHidden, setDocumentHidden] = useState<boolean>(() =>
     typeof document !== "undefined" ? document.hidden : false
   );
-  // Track prefers-reduced-motion → static render (OR-ATOM-007, accessibility.md).
-  // Mirrors the media query into the shared scene state; a no-op under SSR.
-  useReducedMotionSync();
   useEffect(() => {
     if (typeof document === "undefined") return;
     const onVisibility = () => setDocumentHidden(document.hidden);
@@ -97,33 +130,192 @@ export function AtomicScene({
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
+  return documentHidden;
+}
 
+/** Restores attempted after a GPU device / context loss before giving up to 2D. */
+const MAX_RESTORE_FAILURES = 2;
+
+/**
+ * The ray-traced scene (Gate B): `WebGPURenderer` (WebGL2 backend fallback)
+ * inside the same R3F `<Canvas>` composition, so the camera rig, the label
+ * camera bridge and the orbit controls are the unchanged components below.
+ *
+ * Device / context loss: the clock freezes, the Canvas (renderer, pipeline,
+ * materials, environment) is torn down and rebuilt on a fresh canvas; after
+ * {@link MAX_RESTORE_FAILURES} failed rebuilds the host is told to fall back
+ * to the 2D renderer (`onRendererFatal`).
+ */
+function RtAtomicScene({
+  descriptors,
+  linkDescriptors,
+  paused,
+  focusNodeId,
+  sceneContext,
+  onRendererFatal,
+  bloom,
+}: AtomicSceneProps & { bloom: boolean }) {
+  const documentHidden = useDocumentHidden();
+  useReducedMotionSync();
   const effectivePaused = paused || documentHidden;
   const context = sceneContext;
-  const tier = QUALITY_BUDGETS[context.quality];
-  // Dev-probe override (iteration-e washout isolation): the bench page may
-  // force a bloom config independent of the tier. Production hosts never
-  // pass `bloomOverride`, so `bloom` here is the tier budget in production.
-  const budget = { ...tier, bloom: bloomOverride ?? tier.bloom };
-  const bloomBudget = budget.bloom;
+  const [epoch, setEpoch] = useState(0);
+  const failures = useRef(0);
+  const forceWebGL = useMemo(() => readDevFx().forceWebGL, []);
+  const dpr = useMemo(() => deviceDpr(), []);
+
+  const onLost = useCallback(() => {
+    sceneState.contextLost = true;
+    failures.current += 1;
+    if (failures.current > MAX_RESTORE_FAILURES) {
+      onRendererFatal?.();
+      return;
+    }
+    // Rebuild on a fresh canvas (a lost canvas can never be reused).
+    setEpoch((e) => e + 1);
+  }, [onRendererFatal]);
+
+  const glFactory = useCallback(
+    async (defaults: { canvas: HTMLCanvasElement | OffscreenCanvas }) => {
+      const disposed = { value: false };
+      const { renderer, device } = await createRtCanvasRenderer(defaults.canvas, {
+        forceWebGL,
+        onDeviceLost: (reason) => {
+          // Our own teardown destroys the device too; only real losses rebuild.
+          if (disposed.value && !forcedLoss.value) return;
+          forcedLoss.value = false;
+          void reason;
+          onLost();
+        },
+      });
+      const dispose = renderer.dispose.bind(renderer);
+      (renderer as unknown as { dispose: () => void }).dispose = () => {
+        disposed.value = true;
+        dispose();
+      };
+      installLossHook(renderer, device);
+      return renderer as never;
+    },
+    [forceWebGL, onLost]
+  );
 
   return (
-    <Canvas
-      gl={{ antialias: budget.antialias, powerPreference: "high-performance", alpha: true }}
-      dpr={[1, budget.dprMax]}
-    >
+    <CanvasErrorBoundary key={epoch} onError={onLost}>
+      <Canvas gl={glFactory} dpr={dpr} frameloop="always">
+        <AtomicSceneContext.Provider value={context}>
+          <SceneClockDriver paused={effectivePaused} />
+          <CanvasContextGuard />
+          <ContextGuard />
+          <RestoreWatch
+            onReady={() => {
+              failures.current = 0;
+              sceneState.contextLost = false;
+            }}
+            onLost={onLost}
+          />
+          <CameraRig context={context} />
+          <CameraStateWriter context={context} />
+          <SceneOrbitControls />
+          <RtTopologyContent
+            descriptors={descriptors}
+            linkDescriptors={linkDescriptors}
+            paused={effectivePaused}
+            focusNodeId={focusNodeId}
+            bloom={bloom}
+          />
+        </AtomicSceneContext.Provider>
+      </Canvas>
+    </CanvasErrorBoundary>
+  );
+}
+
+/** Set before a dev-forced `device.destroy()` so it counts as a real loss. */
+const forcedLoss = { value: false };
+
+/**
+ * Dev / test hook (non-production only): `window.__atomicForceContextLoss()`
+ * destroys the live WebGPU device (or loses the WebGL2 context) to exercise
+ * the recovery path end to end.
+ */
+function installLossHook(renderer: unknown, device: GPUDevice | null): void {
+  if (typeof window === "undefined" || process.env.NODE_ENV === "production") return;
+  (window as unknown as { __atomicForceContextLoss?: () => string }).__atomicForceContextLoss =
+    () => {
+      if (device) {
+        forcedLoss.value = true;
+        device.destroy();
+        return "webgpu:device.destroy";
+      }
+      const gl = (renderer as { backend?: { gl?: WebGL2RenderingContext } }).backend?.gl;
+      gl?.getExtension("WEBGL_lose_context")?.loseContext();
+      return "webgl:WEBGL_lose_context";
+    };
+}
+
+/**
+ * Inside the Canvas: marks the renderer healthy after the first frames, and
+ * turns a WebGL2-backend `webglcontextlost` into the same rebuild path as a
+ * WebGPU device loss.
+ */
+function RestoreWatch({ onReady, onLost }: { onReady: () => void; onLost: () => void }) {
+  const gl = useThree((s) => s.gl);
+  const frames = useRef(0);
+  useEffect(() => {
+    const canvas = gl.domElement;
+    if (!canvas) return;
+    const lost = () => onLost();
+    canvas.addEventListener("webglcontextlost", lost);
+    return () => canvas.removeEventListener("webglcontextlost", lost);
+  }, [gl, onLost]);
+  useFrame(() => {
+    frames.current += 1;
+    if (frames.current === 3) onReady();
+  });
+  return null;
+}
+
+/** Catches a failed renderer (re)initialisation so it counts as a failed restore. */
+class CanvasErrorBoundary extends Component<
+  { onError: () => void; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+  componentDidCatch(): void {
+    this.props.onError();
+  }
+  render(): ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+/**
+ * The pre-Gate-B WebGL renderer, reachable only with `?atomic-fx=legacy` (dev
+ * A/B) until Gate B is approved, then deleted. Full retina DPR + antialias; no
+ * quality tiers.
+ */
+function LegacyAtomicScene({
+  descriptors,
+  linkDescriptors,
+  paused,
+  focusNodeId,
+  sceneContext,
+  bloomOverride,
+}: AtomicSceneProps) {
+  const documentHidden = useDocumentHidden();
+  useReducedMotionSync();
+  const effectivePaused = paused || documentHidden;
+  const context = sceneContext;
+  const bloomBudget = bloomOverride ?? LEGACY_BLOOM;
+  const dpr = useMemo(() => deviceDpr(), []);
+
+  return (
+    <Canvas gl={{ antialias: true, powerPreference: "high-performance", alpha: true }} dpr={dpr}>
       <AtomicSceneContext.Provider value={context}>
-        {/* OR-ATOM-007: pause-aware shared clock. Mounted FIRST so its useFrame
-            advances sceneClock before every scene component reads it. */}
         <SceneClockDriver paused={effectivePaused} />
-        {/* OR-ATOM-010 T10.5: renderer-level color science (ACES tone map). */}
         <ColorScience />
-        {/* OR-ATOM-010 T10.5e: quality-gated GPU bloom (RenderPass →
-            UnrealBloomPass → OutputPass). The parent gates the mount on the
-            live tier (disabled tiers keep the direct renderer path); the
-            tier-level numbers are passed as stable props. A dev-probe
-            override (`bloomOverride`) can replace the tier budget or disable
-            the chain entirely. */}
         {bloomBudget.enabled && (
           <BloomComposer
             strength={bloomBudget.strength}
@@ -131,9 +323,6 @@ export function AtomicScene({
             threshold={bloomBudget.threshold}
           />
         )}
-        {/* OR-ATOM-007: freeze the shared clock on WebGL2 context loss.
-            Complements ContextGuard (which re-invalidates the renderer on
-            restore) — together the scene holds a static frame and resumes. */}
         <CanvasContextGuard />
         <ContextGuard />
         <CameraRig context={context} />

@@ -323,7 +323,7 @@ export function createEnvironment(
       );
     });
     If(hitCeil, () => {
-      const w = wallPattern(p.x.div(sc), p.z.div(sc), tHit.div(sc), time).mul(0.5);
+      const w = wallPattern(p.x.div(sc), p.z.div(sc), tHit.div(sc), time).mul(0.28);
       col.assign(vec3(0.004, 0.008, 0.02).add(w));
     });
     If(hitWall, () => {

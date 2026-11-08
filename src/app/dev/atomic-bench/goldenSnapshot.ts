@@ -64,6 +64,17 @@ function obsStale<T>(value: T, source: Observed<T>["source"]): Observed<T> {
  */
 export interface GoldenSnapshotOptions {
   /**
+   * DEMO failure cycle (Gate B): `"recovered"` renders the error provider as
+   * active (no error), so flipping back to the default `"error"` is a real
+   * state transition that books the failure discharge. Omitted -> `"error"`.
+   */
+  errorPhase?: "error" | "recovered";
+  /**
+   * DEMO idle topology (Gate B): every provider idle, no in-flight requests and
+   * no fleet reconciliation (nothing measured -> lower energy state).
+   */
+  allIdle?: boolean;
+  /**
    * Target TOTAL atom count (hub + providers), e.g. 8 / 16 / 32 — the
    * `?atoms=N` perf ladder the quality budget targets. `normalizeTopology`
    * emits only hub + provider nodes (GPU/runtime observations drive
@@ -196,7 +207,9 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
  */
 export function buildGoldenSnapshot(options: GoldenSnapshotOptions = {}): TopologySceneSnapshot {
   const fleet = buildFleet(options);
-  const reconciliation = reconcileSnapshot(fleet);
+  const reconciliation = options.allIdle ? undefined : reconcileSnapshot(fleet);
+  const recovered = options.errorPhase === "recovered";
+  const idleAll = !!options.allIdle;
 
   // Scaled providers: the first 4 get one in-flight model each (KNOWN lane,
   // distinct model → distinct model color); the rest stay idle so the ring
@@ -207,7 +220,7 @@ export function buildGoldenSnapshot(options: GoldenSnapshotOptions = {}): Topolo
     scaledProviders.push({
       provider: `bench-perf-${i}`,
       name: `Perf ${i}`,
-      status: i <= 4 ? ("active" as const) : ("idle" as const),
+      status: i <= 4 && !idleAll ? ("active" as const) : ("idle" as const),
     });
   }
   const scaledRequests = scaledProviders
@@ -219,36 +232,45 @@ export function buildGoldenSnapshot(options: GoldenSnapshotOptions = {}): Topolo
 
   return normalizeTopology({
     providers: [
-      { provider: "bench-primary", name: "Primary", status: "active" },
-      { provider: "bench-secondary", name: "Secondary", status: "active" },
+      { provider: "bench-primary", name: "Primary", status: idleAll ? "idle" : "active" },
+      { provider: "bench-secondary", name: "Secondary", status: idleAll ? "idle" : "active" },
       { provider: "bench-unknown", name: "Unknown Model", status: "idle" },
       { provider: "bench-stale", name: "Stale", status: "idle" },
-      { provider: "bench-error", name: "Error", status: "error" },
+      {
+        provider: "bench-error",
+        name: "Error",
+        status: idleAll ? "idle" : recovered ? "active" : "error",
+      },
       ...scaledProviders,
     ],
-    activeRequests: [
-      // bench-primary: 3 distinct models → 3 model colors
-      { provider: "bench-primary", model: "bench/llama-70b" },
-      { provider: "bench-primary", model: "bench/mixtral-8x7b" },
-      { provider: "bench-primary", model: "bench/claude-sonnet-4" },
-      // bench-secondary: 1 model → 1 model color
-      { provider: "bench-secondary", model: "bench/llama-70b" },
-      // bench-unknown: no active requests → no model colors
-      // bench-stale: no active requests → no model colors
-      // bench-error: no active requests (error state)
-      ...scaledRequests,
-    ],
-    lastProvider: "bench-primary",
-    errorProvider: "bench-error",
-    lifecycleEvents: [
-      {
-        phase: "failed",
-        requestId: "bench-req-err-1",
-        provider: "bench-error",
-        model: "bench/llama-70b",
-        observedAt: NOW,
-      },
-    ],
+    activeRequests: idleAll
+      ? []
+      : [
+          // bench-primary: 3 distinct models → 3 model colors
+          { provider: "bench-primary", model: "bench/llama-70b" },
+          { provider: "bench-primary", model: "bench/mixtral-8x7b" },
+          { provider: "bench-primary", model: "bench/claude-sonnet-4" },
+          // bench-secondary: 1 model → 1 model color
+          { provider: "bench-secondary", model: "bench/llama-70b" },
+          // bench-unknown: no active requests → no model colors
+          // bench-stale: no active requests → no model colors
+          // bench-error: no active requests (error state)
+          ...scaledRequests,
+        ],
+    lastProvider: idleAll ? undefined : "bench-primary",
+    errorProvider: idleAll || recovered ? undefined : "bench-error",
+    lifecycleEvents:
+      idleAll || recovered
+        ? []
+        : [
+            {
+              phase: "failed",
+              requestId: "bench-req-err-1",
+              provider: "bench-error",
+              model: "bench/llama-70b",
+              observedAt: NOW,
+            },
+          ],
     reconciliation,
     capturedAt: NOW,
   });

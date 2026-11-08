@@ -115,6 +115,8 @@ export interface AtomFields {
   strandCrowd: any;
   sparkleGain: any;
   sparkleActive: any;
+  /** 0..1 red failure flash. */
+  alert: any;
   rootColor: any;
   strandInner: any;
   streakK: any;
@@ -210,6 +212,7 @@ export function atomFields(data: AtomData, row: any, eager = false): AtomFields 
     strandCrowd: c16.w,
     sparkleGain: sp1.x,
     sparkleActive: sp1.y,
+    alert: sp1.z,
     rootColor: c17.xyz,
     strandInner: sp0.xyz,
     streakK: c17.w,

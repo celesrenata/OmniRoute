@@ -19,7 +19,6 @@
 import { createContext, useContext } from "react";
 
 import type { AtomicEventPool } from "../eventPool";
-import type { AtomicSceneQuality } from "../quality";
 
 /** A world-space position (the focused atom / orbit target). */
 export interface SceneWorldPosition {
@@ -110,8 +109,6 @@ export interface AtomicSceneContextValue {
   focusTarget: SceneWorldPosition | null;
   /** Reduced motion: minimize continuous animation (settle-on-update). */
   reducedMotion: boolean;
-  /** Coarse render quality (drives geometry/segment/DPR budgets). */
-  quality: AtomicSceneQuality;
   /** Camera vertical FOV (deg) — shared so fit/focus math matches the rig. */
   cameraFovDeg: number;
   /** Camera viewport aspect (width/height) — 1 when unknown. */
@@ -161,7 +158,6 @@ export function useAtomicSceneContext(): AtomicSceneContextValue {
       pool: null,
       focusTarget: null,
       reducedMotion: false,
-      quality: "high",
       cameraFovDeg: 50,
       cameraAspect: 1,
       nowMs: 0,

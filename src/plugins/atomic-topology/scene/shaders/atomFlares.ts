@@ -13,6 +13,7 @@ import {
   instanceIndex,
   int,
   length,
+  mix,
   positionLocal,
   select,
   smoothstep,
@@ -74,7 +75,9 @@ export function createFlareMaterial(data: AtomData, layer: FlareLayerKind): Mesh
       .mul(0.9)
       .add(exp(r2.mul(-26)).mul(1.5))
       .add(exp(r2.mul(-110)).mul(1.8));
-    const glow = vec3(1.0, 0.5, 0.85).mul(g).mul(U.glowK);
+    const glow = mix(vec3(1.0, 0.5, 0.85), vec3(1.0, 0.12, 0.08), U.alert)
+      .mul(g)
+      .mul(U.glowK.add(U.alert.mul(1.2)));
     // Ring: faint cyan rim-light on the cloud outline (closed silhouette).
     const rr = length(p);
     const band = exp(rr.sub(0.9).div(0.014).pow(2).negate())

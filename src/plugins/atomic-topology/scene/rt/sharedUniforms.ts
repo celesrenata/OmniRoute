@@ -9,3 +9,5 @@ import { uniform } from "three/tsl";
 export const floorY = uniform(-66);
 /** Wall-clock seconds for decorative environment animation (frozen under reduced motion). */
 export const envTime = uniform(0);
+/** World size of one device pixel at unit distance: 2 tan(fov/2) / drawingBufferHeight. */
+export const pxScale = uniform(0.0003);

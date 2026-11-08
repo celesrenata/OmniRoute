@@ -64,7 +64,7 @@ import type {
 } from "@/shared/topology/telemetry/reconcile";
 import { deriveLaneForProvider } from "@/shared/topology/domain/lane";
 
-import { detectTopologyCapabilities, webgl2Available } from "./capabilities";
+import { detectTopologyCapabilities, gpuRenderingAvailable } from "./capabilities";
 import { computeAtomicLayout, computeDeviceBandLayout, type AtomicLayoutNode } from "./layout";
 import { computeFitRadiusFromPositions } from "./cameraFit";
 import {
@@ -93,12 +93,7 @@ import {
   type AtomicEventPool,
   type AtomicEventKind,
 } from "./eventPool";
-import {
-  resolveSceneQuality,
-  type AtomicSceneQuality,
-  type BloomBudget,
-  type QualityProbe,
-} from "./quality";
+import type { BloomBudget } from "./quality";
 import {
   admitPulseEvents,
   canonicalRouteLinkId,
@@ -736,11 +731,16 @@ export interface AtomicSceneProps {
    */
   sceneContext: AtomicSceneContextValue;
   /**
-   * Dev-probe override for the tier's bloom budget (OR-ATOM-010 iteration-e
-   * washout isolation). `undefined` → the resolved quality budget. Only the
-   * dev-only bench page wires it; the production host never passes it.
+   * Dev-probe override for the LEGACY path's bloom (`?atomic-fx=legacy` A/B
+   * only). The production host never passes it.
    */
   bloomOverride?: BloomBudget;
+  /**
+   * The GPU renderer could not be restored after a device / context loss
+   * (two failed rebuilds). The instance then hands the panel back to the 2D
+   * renderer through the host's existing update-failure fallback.
+   */
+  onRendererFatal?: () => void;
 }
 
 /** Props for the client-only scene host component. */
@@ -773,19 +773,12 @@ export interface AtomicTopologyRendererProps {
    */
   onFocusRequest?: (nodeId: string) => void;
   /**
-   * Dev-probe override for the per-tier bloom budget (OR-ATOM-010
-   * iteration-e washout isolation). `undefined` → the resolved quality
-   * budget (the production path); a full budget (or `{ enabled: false }`)
-   * → a tuned / bloom-free capture. Only the dev-only bench page wires it;
-   * the production host never passes it, so the render path is unchanged.
+   * Dev-probe override for the LEGACY path's bloom (`?atomic-fx=legacy` A/B
+   * only). The production host never passes it.
    */
   bloomOverride?: BloomBudget;
-  /**
-   * Dev-probe override for the resolved scene quality tier (iteration-e:
-   * forces a tier so headless captures are comparable regardless of the
-   * probe's hardware signals). `undefined` → the resolved tier.
-   */
-  qualityOverride?: AtomicSceneQuality;
+  /** See {@link AtomicSceneProps.onRendererFatal}. */
+  onRendererFatal?: () => void;
 }
 
 /**
@@ -809,7 +802,7 @@ export function AtomicTopologyRenderer({
   eventPool,
   size,
   bloomOverride,
-  qualityOverride,
+  onRendererFatal,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
 
@@ -849,24 +842,11 @@ export function AtomicTopologyRenderer({
   // allocates at most ONCE per page load (cached module state) and releases the
   // probe context via `WEBGL_lose_context`; the mount gate has already
   // populated that cache, so this `useMemo` is a cached read.
-  const webgl2Ok = useMemo(() => webgl2Available(), []);
-  const { reducedMotion, quality } = useMemo(() => {
-    const caps = detectTopologyCapabilities();
-    const probe: QualityProbe = {
-      webgl2: caps.webgl2,
-      devicePixelRatio: typeof window !== "undefined" ? window.devicePixelRatio : undefined,
-      hardwareConcurrency:
-        typeof navigator !== "undefined" ? navigator.hardwareConcurrency : undefined,
-      deviceMemoryGiB:
-        typeof navigator !== "undefined"
-          ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory
-          : undefined,
-    };
-    return {
-      reducedMotion: caps.reducedMotion,
-      quality: qualityOverride ?? resolveSceneQuality(probe),
-    };
-  }, [qualityOverride]);
+  // GPU gate (Gate B C4): WebGPU OR WebGL2 mounts the 3D scene (the
+  // WebGPURenderer falls back to its WebGL2 backend); neither -> empty state
+  // here, and the host's 2D renderer via the mount gate. Probed once.
+  const gpuOk = useMemo(() => gpuRenderingAvailable(), []);
+  const reducedMotion = useMemo(() => detectTopologyCapabilities().reducedMotion, []);
 
   // The stable per-frame camera snapshot the DOM label overlay reads
   // (UX correction — projected labels). Created once; the scene writes to it
@@ -911,7 +891,6 @@ export function AtomicTopologyRenderer({
     pool: eventPool ?? null,
     focusTarget: focusedDescriptor ? focusedDescriptor.position : null,
     reducedMotion,
-    quality,
     cameraFovDeg: 50,
     cameraAspect,
     // Deterministic discharge clock for render-time (reduced-motion) reads:
@@ -964,7 +943,7 @@ export function AtomicTopologyRenderer({
     >
       {/* 3D canvas layer (client-only, WebGL-gated) */}
       <div className="atomic-scene-canvas" style={{ position: "absolute", inset: 0 }}>
-        {sceneModule && descriptors.length > 1 && webgl2Ok ? (
+        {sceneModule && descriptors.length > 1 && gpuOk ? (
           <sceneModule.AtomicScene
             descriptors={descriptors}
             linkDescriptors={linkDescriptors}
@@ -973,6 +952,7 @@ export function AtomicTopologyRenderer({
             emptyStateLabel={options.emptyStateLabel}
             sceneContext={sceneContext}
             bloomOverride={bloomOverride}
+            onRendererFatal={onRendererFatal}
           />
         ) : (
           <div
@@ -1032,6 +1012,8 @@ interface AtomicInstanceState {
   options: TopologyRendererOptions;
   /** Monotonic "reset view" token (OR-ATOM-003, V7) — bumped on reset requests. */
   resetToken: number;
+  /** The GPU renderer could not be restored; the next `update` hands back to 2D. */
+  fatal: boolean;
 }
 
 /**
@@ -1078,6 +1060,7 @@ export function createAtomicTopologyInstance(
     focusNodeId: null,
     options,
     resetToken: 0,
+    fatal: false,
   };
 
   let disposed = false;
@@ -1201,6 +1184,9 @@ export function createAtomicTopologyInstance(
           state.focusNodeId = nodeId;
           render();
         }}
+        onRendererFatal={() => {
+          state.fatal = true;
+        }}
       />
     );
   };
@@ -1212,6 +1198,9 @@ export function createAtomicTopologyInstance(
   return {
     update(snapshot: TopologySceneSnapshot): void {
       if (disposed) return;
+      // Unrecoverable GPU loss: throw so the host's existing update-failure
+      // path disposes this instance and falls back to the 2D renderer.
+      if (state.fatal) throw new AtomicWebGLUnsupportedError();
       state.snapshot = snapshot;
       ingestSnapshot(snapshot);
       render();
@@ -1276,7 +1265,6 @@ export function mountAtomicTopologyRenderer(
   initial: TopologySceneSnapshot,
   options: TopologyRendererOptions
 ): TopologyRendererInstance {
-  const { webgl2 } = detectTopologyCapabilities();
-  if (!webgl2) throw new AtomicWebGLUnsupportedError();
+  if (!gpuRenderingAvailable()) throw new AtomicWebGLUnsupportedError();
   return createAtomicTopologyInstance(container, initial, options);
 }

@@ -97,3 +97,24 @@ test("webgl2Available: throwing probe is unavailable (permissive), never crashes
   __resetWebgl2CacheForTests();
   removeDocument();
 });
+
+test("gpuRenderingAvailable: WebGPU alone mounts the 3D scene; neither -> 2D", async () => {
+  const { gpuRenderingAvailable } = await import("@/plugins/atomic-topology/capabilities");
+  const g = globalThis as { navigator?: unknown; document?: unknown };
+  const savedNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const savedDoc = g.document;
+  try {
+    __resetWebgl2CacheForTests();
+    delete g.document; // no WebGL2 possible
+    Object.defineProperty(globalThis, "navigator", { value: { gpu: {} }, configurable: true });
+    assert.equal(gpuRenderingAvailable(), true, "WebGPU-only device gets the 3D scene");
+    __resetWebgl2CacheForTests();
+    Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true });
+    assert.equal(gpuRenderingAvailable(), false, "no GPU rendering -> host keeps 2D");
+  } finally {
+    if (savedNav) Object.defineProperty(globalThis, "navigator", savedNav);
+    else delete g.navigator;
+    if (savedDoc !== undefined) g.document = savedDoc;
+    __resetWebgl2CacheForTests();
+  }
+});
