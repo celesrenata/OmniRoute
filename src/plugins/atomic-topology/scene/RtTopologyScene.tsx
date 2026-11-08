@@ -59,6 +59,9 @@ import {
   linkCurve,
 } from "./rt/topologyScene";
 import { createEnvironment, type Environment } from "./shaders/environment";
+import { computeCameraFit } from "../cameraFit";
+import { ContainerCameraClamp } from "./ContainerCameraClamp";
+import { containerBounds } from "./containerBounds";
 import {
   LINK_BOLT_VARIANTS,
   LINK_FIELD,
@@ -73,6 +76,8 @@ import { createMotes, type MoteLayer } from "./shaders/motes";
 const BREATH_AMPLITUDE = 0.02;
 /** Packet hop period (s), same as the legacy EnergyLink. */
 const PULSE_PERIOD_S = 2.5;
+/** Gain of non-focused atoms while an atom is focused (isolates the focus, as in idea5). */
+const FOCUS_NEIGHBOUR_DIM = 0.42;
 /** Ray-march steps (bounded by shaderParams). */
 const MARCH_STEPS = 48;
 const FAILURE_RGB: [number, number, number] = [1.0, 0.16, 0.12];
@@ -127,7 +132,7 @@ export function RtTopologyContent({
   const camera = useThree((s) => s.camera) as PerspectiveCamera;
   const size = useThree((s) => s.size);
 
-  const { cameraState } = useAtomicSceneContext();
+  const { cameraState, cameraAspect, fitRadius } = useAtomicSceneContext();
   const gpuRef = useRef<Gpu | null>(null);
   const alertById = useRef(new Map<string, number>());
   const focusTmp = useRef(new Vector3());
@@ -214,8 +219,14 @@ export function RtTopologyContent({
     const gpu = gpuRef.current;
     if (!gpu) return;
     gpu.atoms.configure(atomConfigs);
-    const envLayout = environmentLayoutFor(descriptors);
+    // The container encloses the default fit pose (the camera is never moved to fit it).
+    const fit = computeCameraFit({ fovDeg: 50, aspect: cameraAspect, radius: fitRadius });
+    const envLayout = environmentLayoutFor(descriptors, { position: fit.position });
     gpu.env.setLayout(envLayout);
+    containerBounds.value = {
+      min: [-envLayout.wallX, envLayout.floorY, envLayout.farZ],
+      max: [envLayout.wallX, envLayout.ceilY, envLayout.nearZ],
+    };
     (floorY as { value: number }).value = envLayout.floorY;
     gpu.motes.setBounds(new Vector3(...envLayout.moteCenter), new Vector3(...envLayout.moteHalf));
     // Links: one ribbon + one bolt instance per link (chunked by uniform-block size).
@@ -247,7 +258,14 @@ export function RtTopologyContent({
         }
     );
     dirtyRef.current = 4;
-  }, [atomConfigs, descriptors, linkDescriptors]);
+  }, [atomConfigs, descriptors, linkDescriptors, cameraAspect, fitRadius]);
+
+  useEffect(
+    () => () => {
+      containerBounds.value = null;
+    },
+    []
+  );
 
   useEffect(() => {
     dirtyRef.current = 4;
@@ -272,6 +290,7 @@ export function RtTopologyContent({
     const pxH = gl.domElement?.height || size.height * (window.devicePixelRatio || 1);
     (pxScale as { value: number }).value = (2 * Math.tan((camera.fov * Math.PI) / 360)) / pxH;
     (envTime as { value: number }).value = reduced ? 0 : t;
+    gpu.env.setLife(reduced ? 0 : 1);
 
     // Links first: failure discharges flash the target atom's core red.
     alertById.current.clear();
@@ -401,6 +420,8 @@ export function RtTopologyContent({
       f.scale =
         (d.kind === "hub" ? HUB_SCALE : 1) * (focusNodeId === d.id ? FOCUS_SCALE : 1) * breath;
       f.alert = alertById.current.get(d.id) ?? 0;
+      // Focus view: de-emphasise every non-focused atom so the focused one is isolated.
+      f.dim = focusNodeId && focusNodeId !== d.id ? FOCUS_NEIGHBOUR_DIM : 1;
     });
     gpu.atoms.update(frames, {
       dt,
@@ -414,5 +435,5 @@ export function RtTopologyContent({
     gpu.post.pipeline.render();
   }, 1);
 
-  return null;
+  return <ContainerCameraClamp />;
 }

@@ -69,6 +69,11 @@ test("environmentLayoutFor: floor below the lowest atom, one pedestal per atom, 
     assert.equal(p.z, atoms[i].position.z);
     assert.ok(p.y < atoms[i].position.y, "pedestal sits under its atom");
   }
+  assert.deepEqual(
+    env.pedestals.map((p) => p.hub),
+    [true, false, false],
+    "full dome only under the hub"
+  );
   // The corridor never cuts through the topology.
   assert.ok(env.wallX > 370 + CLOUD_BOUND_RADIUS);
   assert.ok(env.farZ < -370);

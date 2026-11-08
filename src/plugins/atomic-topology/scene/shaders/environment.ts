@@ -19,7 +19,6 @@ import {
   dot,
   exp,
   float,
-  floor,
   fract,
   length,
   max,
@@ -31,9 +30,7 @@ import {
   pow,
   saturate,
   select,
-  sin,
   smoothstep,
-  step,
   uniform,
   vec2,
   vec3,
@@ -54,12 +51,14 @@ import {
   type Object3D,
 } from "three/webgpu";
 import { floorY as sharedFloorY } from "../rt/sharedUniforms";
+import { pcbBoard } from "./pcbBoard";
 
 /** Bench floor height (world units); the topology host derives its own from layout bounds. */
 export const FLOOR_Y = -66;
 const WALL_X = 420;
 const CEIL_Y = 300;
 const FAR_Z = -1700;
+const NEAR_Z = 2600;
 const ROOM_RADIUS = 2500;
 /** Max pedestals (instanced; one per atom). */
 export const MAX_PEDESTALS = 256;
@@ -67,7 +66,9 @@ export const MAX_PEDESTALS = 256;
 /** Room/pedestal placement. All optional; defaults reproduce the Gate A bench room. */
 export interface EnvironmentLayout {
   /** Pedestal centres (x, z) on the floor, with optional scale (hub = larger). */
-  pedestals: { x: number; z: number; y?: number; scale?: number }[];
+  pedestals: { x: number; z: number; y?: number; scale?: number; hub?: boolean }[];
+  /** Z of the near wall behind the default camera (container encloses the fit pose). */
+  nearZ?: number;
   /** Corridor half-width (world units). */
   wallX?: number;
   /** Ceiling height (world units). */
@@ -83,6 +84,8 @@ export interface EnvironmentLayout {
 export interface Environment {
   objects: Object3D[];
   time: { value: number };
+  /** 1 = animated embers/static, 0 = static board (reduced motion). */
+  setLife: (life: number) => void;
   /** Re-place the room + pedestals (layout change); no shader rebuild. */
   setLayout: (layout: EnvironmentLayout) => void;
   /** Keep the room shell centred on the camera and inside its far plane. */
@@ -90,293 +93,90 @@ export interface Environment {
   dispose: () => void;
 }
 
-const h21 = (p: any) => fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453));
-
-/** Server-rack wall: a (across) and b (along the corridor) in world units. */
-const wallPattern = Fn(([a, b, dist, tm]: [any, any, any, any]) => {
-  const blur = float(1).add(dist.mul(0.006));
-  const cs = vec2(60, 140);
-  const g = vec2(a, b).div(cs);
-  const cell = floor(g);
-  const f = fract(g);
-  const h = h21(cell);
-  const h2 = h21(cell.add(7.7));
-  const dEdge = min(min(f.x, float(1).sub(f.x)).mul(cs.x), min(f.y, float(1).sub(f.y)).mul(cs.y));
-  const base = vec3(0.012, 0.02, 0.05).mul(float(0.6).add(h.mul(0.9)));
-  const edgeCol = mix(vec3(0.05, 0.55, 0.8), vec3(1.0, 0.45, 0.1), step(0.42, h2));
-  const edge = exp(dEdge.negate().div(blur.mul(0.9)))
-    .mul(edgeCol)
-    .mul(float(0.25).add(h.mul(0.55)));
-  // Screens: lit panels with scanlines.
-  const inner = smoothstep(0.08, 0.16, f.x)
-    .mul(smoothstep(0.92, 0.84, f.x))
-    .mul(smoothstep(0.1, 0.18, f.y))
-    .mul(smoothstep(0.9, 0.82, f.y));
-  const screen = step(0.78, h)
-    .mul(inner)
-    .mul(vec3(0.05, 0.4, 0.55))
-    .mul(
-      float(0.5).add(
-        sin(b.mul(0.9).add(tm.mul(1.5)).add(h.mul(30)))
-          .mul(0.25)
-          .add(0.25)
-      )
-    );
-  // LEDs.
-  const lg = vec2(a, b).div(vec2(15, 19));
-  const lcell = floor(lg);
-  const ljit = vec2(h21(lcell.add(2.2)), h21(lcell.add(5.9)))
-    .sub(0.5)
-    .mul(0.24);
-  const lf = fract(lg).sub(0.5).sub(ljit);
-  const lh = h21(lcell.add(13.1));
-  const ledOn = step(0.86, lh);
-  const lsel = h21(lcell.add(3.3));
-  const ledCol = mix(
-    mix(vec3(1.0, 0.5, 0.12), vec3(1.0, 0.2, 0.65), step(0.82, lsel)),
-    vec3(0.15, 0.85, 1.0),
-    step(0.6, lsel)
-  );
-  const blink = float(0.7).add(sin(tm.mul(2.0).add(lh.mul(60))).mul(0.3));
-  const led = ledOn
-    .mul(
-      exp(
-        dot(lf, lf)
-          .mul(-200)
-          .div(min(blur, float(2.2)).pow(2))
-      )
-    )
-    .mul(ledCol)
-    .mul(blink)
-    .mul(2.6);
-  // Long warm light bars running down the corridor (receding orange lines).
-  const bf = fract(a.div(170)).sub(0.5);
-  const bar = exp(bf.abs().mul(170).negate().div(blur.mul(1.4)))
-    .mul(vec3(1.0, 0.5, 0.16))
-    .mul(step(0.35, h21(vec2(floor(a.div(170)), 4.4))))
-    .mul(2.2);
-  // Dimensional rack: dark recessed bevel, horizontal vent slats, lit shelf lip.
-  const bevel = smoothstep(0.0, 9.0, dEdge).mul(0.6).add(0.4);
-  const slats = sin(b.mul(0.7)).mul(0.5).add(0.5).mul(step(h, 0.55)).mul(0.035);
-  const lip = exp(f.y.sub(0.5).abs().mul(-0.0).sub(float(1).sub(f.y).mul(60)))
-    .mul(vec3(0.05, 0.3, 0.45))
-    .mul(0.6);
-  return base
-    .mul(bevel)
-    .add(vec3(0.02, 0.05, 0.09).mul(slats))
-    .add(edge.mul(0.8))
-    .add(lip)
-    .add(screen)
-    .add(led.mul(1.1))
-    .add(bar);
-});
-
-/** Reflective tech floor: x,z in world units. */
-const floorPattern = Fn(([x, z, dist, tm]: [any, any, any, any]) => {
-  const blur = float(1).add(dist.mul(0.004));
-  const p = vec2(x, z);
-  const gsm = vec2(20, 20);
-  const gm = fract(p.div(gsm));
-  const dMinor = min(min(gm.x, float(1).sub(gm.x)).mul(20), min(gm.y, float(1).sub(gm.y)).mul(20));
-  const gl = vec2(100, 100);
-  const gM = fract(p.div(gl));
-  const dMajor = min(
-    min(gM.x, float(1).sub(gM.x)).mul(100),
-    min(gM.y, float(1).sub(gM.y)).mul(100)
-  );
-  const minor = exp(dMinor.negate().div(blur.mul(0.5)))
-    .mul(vec3(0.02, 0.22, 0.35))
-    .mul(0.28);
-  const major = exp(dMajor.negate().div(blur.mul(0.9)))
-    .mul(vec3(0.05, 0.6, 0.9))
-    .mul(0.3);
-  // Circuit traces: thin lines along x / z that turn on per cell.
-  const tc = floor(p.div(40));
-  const th = h21(tc);
-  const tf = fract(p.div(40));
-  const trace = step(0.5, th)
-    .mul(exp(abs(tf.y.sub(0.5)).mul(-40).mul(40).div(blur.mul(14))))
-    .mul(step(tf.x, 0.8))
-    .mul(mix(vec3(0.0, 0.6, 0.85), vec3(1.0, 0.5, 0.15), step(0.78, th)))
-    .mul(1.0);
-  // Orange streaks running down the corridor (along z), animated.
-  const sx = floor(x.div(55));
-  const sh = h21(vec2(sx, 3.3));
-  const sf = fract(x.div(55)).sub(0.5);
-  const run = fract(
-    z
-      .mul(-0.004)
-      .add(tm.mul(0.05).mul(sh.add(0.4)))
-      .add(sh.mul(9))
-  );
-  const streak = step(0.55, sh)
-    .mul(exp(sf.mul(sf).mul(-700).div(blur)))
-    .mul(smoothstep(0.0, 0.1, run).mul(smoothstep(0.8, 0.2, run)))
-    .mul(vec3(1.0, 0.48, 0.12))
-    .mul(4.2);
-  // Ripple rings around the pedestal.
-  const rad = length(vec2(x, z));
-  let rings = vec3(0).toVar();
-  for (let k = 0; k < 5; k += 1) {
-    const rk = float(66 + k * 26).add(sin(tm.mul(0.6).add(k)).mul(2.0));
-    const w = exp(pow(rad.sub(rk).div(blur.mul(0.9).add(0.6)), 2).negate());
-    rings = rings.add(
-      mix(vec3(0.1, 0.8, 1.0), vec3(1.0, 0.5, 0.2), float(k / 6))
-        .mul(w)
-        .mul(0.9)
-    );
-  }
-  const under = exp(rad.mul(rad).mul(-0.00035))
-    .mul(vec3(0.0, 0.55, 0.85))
-    .mul(0.22);
-  const fade = exp(dist.mul(-0.0011));
-  return minor.add(major).add(trace).add(streak).add(rings).mul(fade).add(under);
-});
-
-/** Floating bokeh discs at three depths (screen-direction space). */
-const bokeh = Fn(([d, tm]: [any, any]) => {
-  const az = atan(d.x, d.z.negate());
-  const el = d.y;
-  const acc = vec3(0).toVar();
-  const params = [
-    { s: 9.0, r: 0.3, i: 0.55 },
-    { s: 16.0, r: 0.22, i: 0.38 },
-    { s: 30.0, r: 0.12, i: 0.7 },
-  ];
-  params.forEach((pr, li) => {
-    const uv = vec2(
-      az.mul(pr.s).add(tm.mul(0.01 * (li + 1))),
-      el.mul(pr.s * 2.2).add(sin(tm.mul(0.07).add(li)).mul(0.1))
-    );
-    const c = floor(uv);
-    const f = fract(uv).sub(0.5);
-    const h = h21(c.add(li * 17.3));
-    const h2 = h21(c.add(li * 5.1 + 2.0));
-    const off = vec2(h21(c.add(1.7)), h21(c.add(8.3)))
-      .sub(0.5)
-      .mul(0.5);
-    const fo = f.sub(off);
-    // Hexagonal aperture; near layers are heavily defocused (wide soft edge),
-    // far layers crisp. Interior carries a gentle gradient (not a flat disc).
-    const hx = max(abs(fo.x).mul(0.866).add(abs(fo.y).mul(0.5)), abs(fo.y));
-    const soft = [0.55, 0.3, 0.1][li];
-    const dd = mix(length(fo), hx.mul(1.12), 0.65);
-    const disc = smoothstep(pr.r, pr.r * (1 - soft), dd)
-      .mul(
-        float(0.5).add(
-          smoothstep(pr.r * 0.4, pr.r, dd)
-            .mul(0.7)
-            .mul(1 - soft)
-        )
-      )
-      .mul(float(0.55).add(h2.mul(0.9)))
-      .mul(float(1.0 + 0.5 * (1 - soft)));
-    const on = step(0.82, h);
-    const col = mix(vec3(1.0, 0.5, 0.15), vec3(0.15, 0.8, 1.0), step(0.58, h2)).mul(
-      mix(float(1), float(0.5), step(0.85, h2))
-    );
-    acc.addAssign(col.mul(disc).mul(on).mul(pr.i));
-  });
-  return acc;
-});
-
 export function createEnvironment(
   layoutIn: EnvironmentLayout | [number, number][] = [[0, 0]]
 ): Environment {
   const time = uniform(0);
   // x wallX, y ceilY, z farZ, w pattern scale.
   const dims = uniform(new Vector4(WALL_X, CEIL_Y, FAR_Z, 1));
+  // x near wall z, y ember/static life (0 under reduced motion).
+  const dims2 = uniform(new Vector4(NEAR_Z, 1, 0, 0));
   const floorU = sharedFloorY;
   const disposables: { dispose: () => void }[] = [];
 
-  // --- room sphere ------------------------------------------------------
+  // --- solid circuit-board container (ray-box from the camera) ------------------
   const room = Fn(() => {
     const ro = cameraPosition;
     const rd = normalize(positionWorld.sub(cameraPosition));
     const fy = floorU as any;
     const D = dims as any;
+    const E = dims2 as any;
     const sc = D.w;
-    const col = vec3(0.004, 0.007, 0.02).toVar();
-    const tFloor = select(rd.y.lessThan(-0.0005), fy.sub(ro.y).div(rd.y), float(1e9));
-    const tCeil = select(rd.y.greaterThan(0.0005), D.y.sub(ro.y).div(rd.y), float(1e9));
-    const tWallR = select(rd.x.greaterThan(0.0005), D.x.sub(ro.x).div(rd.x), float(1e9));
-    const tWallL = select(rd.x.lessThan(-0.0005), D.x.negate().sub(ro.x).div(rd.x), float(1e9));
-    const tWall = min(tWallR, tWallL);
-    const tHit = min(min(tFloor, tCeil), tWall);
+    const big = float(1e9);
+    const tx = select(
+      rd.x.abs().greaterThan(1e-5),
+      select(rd.x.greaterThan(0), D.x.sub(ro.x), D.x.negate().sub(ro.x)).div(rd.x),
+      big
+    );
+    const ty = select(
+      rd.y.abs().greaterThan(1e-5),
+      select(rd.y.greaterThan(0), D.y.sub(ro.y), fy.sub(ro.y)).div(rd.y),
+      big
+    );
+    const tz = select(
+      rd.z.abs().greaterThan(1e-5),
+      select(rd.z.greaterThan(0), E.x.sub(ro.z), D.z.sub(ro.z)).div(rd.z),
+      big
+    );
+    const tHit = min(min(tx, ty), tz).max(0);
     const p = ro.add(rd.mul(tHit));
-    const far = p.z.lessThan(D.z);
-    const hitFloor = tFloor.lessThanEqual(tHit).and(far.not());
-    const hitCeil = tCeil.lessThanEqual(tHit).and(tFloor.greaterThan(tHit)).and(far.not());
-    const hitWall = tWall
-      .lessThanEqual(tHit)
-      .and(tFloor.greaterThan(tHit))
-      .and(tCeil.greaterThan(tHit))
-      .and(far.not());
-    If(hitFloor, () => {
-      const f = floorPattern(p.x.div(sc), p.z.div(sc), tHit.div(sc), time);
-      // Grazing-angle gloss: reflective sheen toward the horizon.
+    const life = E.y;
+    const col = vec3(0.01, 0.02, 0.05).toVar();
+    const hitY = ty.lessThanEqual(tx).and(ty.lessThanEqual(tz));
+    const hitX = tx.lessThan(ty).and(tx.lessThanEqual(tz));
+    const dd = tHit.div(sc);
+    If(hitY, () => {
+      const isFloor = rd.y.lessThan(0);
+      const b = pcbBoard(
+        p.x.div(sc),
+        p.z.div(sc),
+        dd,
+        time,
+        select(isFloor, float(1), float(2)),
+        life
+      );
+      // Floor: glossy solder-mask sheen at grazing angles; ceiling: dimmer.
       const gl = pow(float(1).sub(abs(rd.y)), 3);
+      col.assign(select(isFloor, b.add(vec3(0.05, 0.2, 0.35).mul(gl).mul(0.28)), b.mul(0.55)));
+    });
+    If(hitX, () => {
       col.assign(
-        vec3(0.005, 0.01, 0.028)
-          .add(f)
-          .add(vec3(0.05, 0.2, 0.35).mul(gl).mul(0.3))
+        pcbBoard(
+          p.z.div(sc),
+          p.y.div(sc),
+          dd,
+          time,
+          float(3).add(rd.x.greaterThan(0).select(1, 0)),
+          life
+        ).mul(0.8)
       );
     });
-    If(hitCeil, () => {
-      const w = wallPattern(p.x.div(sc), p.z.div(sc), tHit.div(sc), time).mul(0.28);
-      col.assign(vec3(0.004, 0.008, 0.02).add(w));
-    });
-    If(hitWall, () => {
-      const w = wallPattern(p.y.div(sc), p.z.div(sc), tHit.div(sc), time);
-      // Receding structural ribs (lit orange edges) so the corridor has depth.
-      const rz = fract(p.z.div(sc.mul(260)));
-      const rib = exp(abs(rz.sub(0.5)).sub(0.5).abs().mul(-0.0).sub(rz.mul(55)))
-        .mul(vec3(1.0, 0.5, 0.15))
-        .mul(1.4);
-      const ribDark = smoothstep(0.0, 0.08, rz).mul(0.35).add(0.65);
+    If(tz.lessThan(min(tx, ty)), () => {
       col.assign(
-        w
-          .mul(ribDark)
-          .mul(1.9)
-          .add(rib)
-          .mul(exp(tHit.div(sc).mul(-0.0009)))
+        pcbBoard(
+          p.x.div(sc),
+          p.y.div(sc),
+          dd,
+          time,
+          float(5).add(rd.z.greaterThan(0).select(1, 0)),
+          life
+        ).mul(0.85)
       );
     });
-    // Far end of the corridor: luminous vanishing glow.
-    If(far, () => {
-      const g = exp(dot(rd.xy, rd.xy).mul(-120));
-      // Receding rectangular gantry frames toward the vanishing point (depth cue).
-      const fxy = rd.xy.div(rd.z.negate().max(0.05));
-      const fd = max(abs(fxy.x.mul(0.55)), abs(fxy.y)).max(0.004);
-      const fk = fract(float(1).div(fd.add(0.06)).mul(1.6));
-      const frame = exp(fk.mul(-14)).mul(smoothstep(0.0, 0.12, fd));
-      const frameCol = mix(vec3(0.1, 0.45, 0.9), vec3(1.0, 0.5, 0.15), smoothstep(0.1, 0.6, fd));
-      // Back wall: a real rack wall (panels, vents, LEDs) on the plane z = farZ,
-      // with a bright central doorway so the corridor still ends in light.
-      const tBack = D.z.sub(ro.z).div(rd.z.min(-0.0005));
-      const pb = ro.add(rd.mul(tBack));
-      const rack = wallPattern(pb.x.div(sc), pb.y.div(sc), tBack.div(sc), time);
-      const door = smoothstep(0.55, 0.2, max(abs(fxy.x.mul(0.55)), abs(fxy.y)));
-      col.assign(
-        vec3(0.012, 0.03, 0.09)
-          .add(rack.mul(2.2).mul(float(1).sub(door.mul(0.85))))
-          .add(frameCol.mul(frame).mul(1.1))
-          .add(vec3(0.5, 0.85, 1.0).mul(g).mul(0.9))
-      );
-    });
-    // Volumetric haze: cyan toward the vanishing point + warm low haze.
-    const vp = saturate(dot(rd, vec3(0, 0, -1)));
-    const haze = pow(vp, 24)
-      .mul(vec3(0.1, 0.35, 0.6))
-      .mul(0.5)
-      .add(
-        exp(abs(rd.y).mul(-14))
-          .mul(vec3(0.38, 0.17, 0.12))
-          .mul(0.4)
-      );
-    col.addAssign(haze);
-    col.addAssign(bokeh(rd, time).mul(1.4));
-    return vec4(col.mul(0.2), 1);
+    // Aerial perspective: cool navy toward distance, so the box reads as a space.
+    const fogK = exp(dd.mul(-0.0002));
+    col.assign(mix(vec3(0.01, 0.022, 0.06), col, fogK));
+    return vec4(col.mul(0.36), 1);
   });
 
   const roomMat = new MeshBasicNodeMaterial();
@@ -485,17 +285,34 @@ export function createEnvironment(
   void clamp;
   void cos;
 
-  // Instanced pedestals (disc + base + dome): three draws for any atom count.
+  // Small glowing floor pad for every non-hub atom (the full dome is hub-only).
+  const padGeo = new CircleGeometry(50, 64);
+  padGeo.rotateX(-Math.PI / 2);
+  const padMat = new MeshBasicNodeMaterial();
+  padMat.fragmentNode = Fn(() => {
+    const r = length(vec2(positionGeometry.x, positionGeometry.z)).div(50);
+    const glow = exp(r.mul(r).mul(-3.2)).mul(0.32);
+    const ring = exp(abs(r.sub(0.94)).mul(-48)).mul(0.9);
+    const ring2 = exp(abs(r.sub(0.62)).mul(-60)).mul(0.28);
+    return vec4(vec3(0.1, 0.7, 1.0).mul(glow.add(ring).add(ring2)), 1);
+  })();
+  padMat.transparent = true;
+  padMat.blending = AdditiveBlending;
+  padMat.depthWrite = false;
+  disposables.push(padGeo, padMat);
+
+  // Instanced hub pedestal (disc + base + dome) and per-atom pads.
   const parts = [
-    { geo: discGeo, mat: discMat, y: 0.4, order: 3 },
-    { geo: baseGeo, mat: baseMat, y: 3.5, order: 4 },
-    { geo: domeGeo, mat: domeMat, y: 0, order: 5 },
+    { geo: discGeo, mat: discMat, y: 0.4, order: 3, hubOnly: true },
+    { geo: baseGeo, mat: baseMat, y: 3.5, order: 4, hubOnly: true },
+    { geo: domeGeo, mat: domeMat, y: 0, order: 5, hubOnly: true },
+    { geo: padGeo, mat: padMat, y: 0.4, order: 3, hubOnly: false },
   ].map((p) => {
     const m = new InstancedMesh(p.geo, p.mat, MAX_PEDESTALS);
     m.frustumCulled = false;
     m.renderOrder = p.order;
     m.count = 0;
-    return { mesh: m, y: p.y };
+    return { mesh: m, y: p.y, hubOnly: p.hubOnly };
   });
   const mtx = new Matrix4();
   const setLayout = (l: EnvironmentLayout): void => {
@@ -505,16 +322,20 @@ export function createEnvironment(
       l.farZ ?? FAR_Z,
       l.scale ?? 1
     );
+    (dims2.value as Vector4).x = l.nearZ ?? NEAR_Z;
     const fy = l.floorY ?? FLOOR_Y;
     (floorU as { value: number }).value = fy;
-    const n = Math.min(l.pedestals.length, MAX_PEDESTALS);
+    const peds = l.pedestals.slice(0, MAX_PEDESTALS);
     for (const part of parts) {
-      for (let i = 0; i < n; i += 1) {
-        const ped = l.pedestals[i];
+      let n = 0;
+      for (const ped of peds) {
+        const isHub = ped.hub ?? true;
+        if (part.hubOnly !== isHub) continue;
         const k = ped.scale ?? 1;
         mtx.makeScale(k, k * (part.mesh.geometry === domeGeo ? 0.95 : 1), k);
         mtx.setPosition(ped.x, (ped.y ?? fy) + part.y * k, ped.z);
-        part.mesh.setMatrixAt(i, mtx);
+        part.mesh.setMatrixAt(n, mtx);
+        n += 1;
       }
       part.mesh.count = n;
       part.mesh.instanceMatrix.needsUpdate = true;
@@ -526,6 +347,9 @@ export function createEnvironment(
   return {
     objects: [roomMesh, ...parts.map((p) => p.mesh)],
     time,
+    setLife: (life: number) => {
+      (dims2.value as Vector4).y = life;
+    },
     setLayout,
     follow(camera) {
       roomMesh.position.set(camera.position.x, camera.position.y, camera.position.z);

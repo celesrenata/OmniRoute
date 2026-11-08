@@ -118,6 +118,8 @@ export interface BatchAtomFrame {
   scale?: number;
   /** 0..1 red failure flash on the nucleus/core glow (event-driven). Default 0. */
   alert?: number;
+  /** 0..1 gain multiplier for non-focused atoms in the focus view (1 = unchanged). Default 1. */
+  dim?: number;
 }
 
 export interface BatchFrameContext {
@@ -362,7 +364,7 @@ export function createAtomBatch(
       const lane = st.palette[i % st.palette.length];
       set4(stat, STATIC_COLS, row, c, w.u[0], w.u[1], w.u[2], w.a);
       set4(stat, STATIC_COLS, row, c + 1, w.v[0], w.v[1], w.v[2], w.b);
-      set4(stat, STATIC_COLS, row, c + 2, lane[0], lane[1], lane[2], i % 4 === 0 ? 2.0 : 1.5);
+      set4(stat, STATIC_COLS, row, c + 2, lane[0], lane[1], lane[2], i % 4 === 0 ? 2.2 : 1.7);
       set4(
         stat,
         STATIC_COLS,
@@ -530,10 +532,15 @@ export function createAtomBatch(
       const exc = params.excitation;
       // Overdraw subdue is for bright (excited) clouds; a dim idle cloud keeps
       // more of its gain when small on screen so it still reads as an atom.
+      const dim = f.dim != null && Number.isFinite(f.dim) ? Math.min(1, Math.max(0.1, f.dim)) : 1;
       const idleK = Math.min(1, Math.max(0, 1 - (exc - 0.12) / 0.88));
       const crowdS = crowd + (1 - crowd) * 0.3 * idleK;
-      const crowdG = Math.max(0.12, crowdS / (1 + OVERLAP_SUBDUE * overlapBuf[row]));
+      const crowdG = Math.max(0.12 * dim, (dim * crowdS) / (1 + OVERLAP_SUBDUE * overlapBuf[row]));
       const bri = params.brightness;
+      // Size-driven part of the gain keeps a floor so a lone atom still reads as a
+      // dense violet flower at default distance (finding: glassy orbs); the
+      // overlap divisor is NOT floored, so crowds still never wash out.
+      const readS = (dim * Math.max(crowdS, 0.5)) / (1 + OVERLAP_SUBDUE * overlapBuf[row]);
 
       // Decorative differential swirl: rate rises with energy, never encodes
       // throughput; frozen (still-rich frame) under reduced motion.
@@ -601,7 +608,7 @@ export function createAtomBatch(
         st.rim[0],
         st.rim[1],
         st.rim[2],
-        (0.35 + 0.9 * bri) * Math.pow(crowdG, 1.3)
+        (0.35 + 0.9 * bri) * 0.8 * Math.pow(Math.max(crowdG, readS * 0.9), 1.0)
       );
       setF(
         row,
@@ -609,7 +616,7 @@ export function createAtomBatch(
         st.coreColor[0],
         st.coreColor[1],
         st.coreColor[2],
-        Math.pow(crowdG, 1.4) / Math.pow(lod, 0.75)
+        Math.pow(Math.max(crowdG, readS * 0.8), 1.2) / Math.pow(lod, 0.75)
       );
       setF(
         row,
@@ -652,7 +659,7 @@ export function createAtomBatch(
         quadHalf: half,
         cloudRadius: cr,
         far: farK,
-        crowd: crowdG,
+        crowd: Math.max(crowdG, readS * 0.85),
         excitation: exc,
         saturation: params.saturation,
         brightness: bri,

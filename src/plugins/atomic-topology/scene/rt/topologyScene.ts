@@ -52,7 +52,8 @@ export function isNeutralAtom(d: SceneAtomInput): boolean {
 }
 
 export interface EnvironmentLayoutResult {
-  pedestals: { x: number; z: number; y: number; scale: number }[];
+  pedestals: { x: number; z: number; y: number; scale: number; hub: boolean }[];
+  nearZ: number;
   wallX: number;
   ceilY: number;
   farZ: number;
@@ -69,7 +70,11 @@ export interface EnvironmentLayoutResult {
  * room corridor is widened to the layout bounds so it never cuts through the
  * topology. Total and deterministic; empty input -> the bench room.
  */
-export function environmentLayoutFor(atoms: readonly SceneAtomInput[]): EnvironmentLayoutResult {
+export function environmentLayoutFor(
+  atoms: readonly SceneAtomInput[],
+  /** Default camera pose the container must enclose (read-only; the camera is never moved). */
+  enclose?: { position: readonly [number, number, number] }
+): EnvironmentLayoutResult {
   let maxR = 0;
   let minY = Infinity;
   let maxY = -Infinity;
@@ -89,13 +94,25 @@ export function environmentLayoutFor(atoms: readonly SceneAtomInput[]): Environm
     .filter((a) => [a.position.x, a.position.y, a.position.z].every(Number.isFinite))
     .map((a) => {
       const s = a.kind === "hub" ? HUB_SCALE : 1;
-      return { x: a.position.x, z: a.position.z, y: a.position.y + FLOOR_OFFSET, scale: s };
+      return {
+        x: a.position.x,
+        z: a.position.z,
+        y: a.position.y + FLOOR_OFFSET,
+        scale: s,
+        hub: a.kind === "hub",
+      };
     });
   const scale = Math.max(1, maxR / 420);
+  const cam = enclose?.position ?? [0, 0, 0];
+  const camOk = cam.every(Number.isFinite);
+  const camZ = camOk ? cam[2] : 0;
+  const camY = camOk ? cam[1] : 0;
+  const camX = camOk ? Math.abs(cam[0]) : 0;
   return {
     pedestals,
-    wallX: Math.max(420, maxR + 520),
-    ceilY: Math.max(300, maxY + 260 + maxR * 0.45),
+    nearZ: Math.max(900, camZ + maxR * 0.5 + CONTAINER_MARGIN),
+    wallX: Math.max(420, maxR + 520, camX + CONTAINER_MARGIN),
+    ceilY: Math.max(300, maxY + 260 + maxR * 0.45, camY + CONTAINER_MARGIN),
     farZ: -Math.max(1700, maxR + 1600),
     scale,
     floorY,
@@ -104,6 +121,8 @@ export function environmentLayoutFor(atoms: readonly SceneAtomInput[]): Environm
   };
 }
 
+/** Clearance between the default camera pose and the container walls (world units). */
+export const CONTAINER_MARGIN = 420;
 /** Hub -> atom link curve (same endpoints and bow as the legacy EnergyLink). */
 export function linkCurve(target: { x: number; y: number; z: number }): {
   a: [number, number, number];
