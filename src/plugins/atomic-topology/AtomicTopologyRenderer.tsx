@@ -418,6 +418,10 @@ export function resolveAtomDescriptors(
     const inFlightIds = isHub ? [] : canonicalModelIds(node.inFlightModels?.value);
     const callLogIds = isHub ? [] : canonicalModelIds(node.observedModels?.value);
     const providerModelIds = canonicalModelIds([...inFlightIds, ...callLogIds]);
+    // Provenance lists are filtered to the FINAL (capped) nucleus list so the
+    // tooltip can never name a model the nucleus does not render.
+    const shownInFlightIds = inFlightIds.filter((id) => providerModelIds.includes(id));
+    const shownCallLogIds = callLogIds.filter((id) => providerModelIds.includes(id));
     const modelColors = providerModelIds.map((m) => modelColor(m));
     const color = modelColors.length > 0 ? modelColors[0] : UNKNOWN_ATOM_COLOR;
 
@@ -470,9 +474,9 @@ export function resolveAtomDescriptors(
         ? {
             observedModelIds: providerModelIds,
             observedModelSources: {
-              inFlight: inFlightIds,
-              callLog: callLogIds,
-              ...(callLogIds.length > 0
+              inFlight: shownInFlightIds,
+              callLog: shownCallLogIds,
+              ...(shownCallLogIds.length > 0
                 ? {
                     callLogWindowMs: node.observedModels?.windowMs,
                     callLogBasis: node.observedModels?.basis,

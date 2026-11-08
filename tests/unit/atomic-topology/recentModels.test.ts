@@ -164,3 +164,78 @@ test("descriptors: hub never gets observed models", () => {
   const hub = resolveAtomDescriptors(snap).find((x) => x.kind === "hub");
   assert.equal(hub?.observedModelIds, undefined);
 });
+test("descriptors: stale call-log rows are dropped -> neutral", () => {
+  const snap = normalizeTopology({
+    providers,
+    activeRequests: [],
+    recentCallLogs: [row({ timestamp: ago(RECENT_MODELS_WINDOW_MS + 1000) })],
+    capturedAt: NOW,
+  });
+  const d = resolveAtomDescriptors(snap).find((x) => x.providerId === "openai");
+  assert.equal(d?.observedModelIds, undefined);
+});
+test("descriptors: reconciliation present + empty call logs fabricates no model", () => {
+  const snap = normalizeTopology({
+    providers,
+    activeRequests: [],
+    recentCallLogs: [],
+    capturedAt: NOW,
+  });
+  const withRecon = {
+    ...snap,
+    fleetTelemetry: {
+      schemaVersion: 1,
+      capturedAt: NOW,
+      gpuNodes: [],
+      runtimeNodes: [],
+      providerNodes: [],
+      edges: [],
+    },
+  } as unknown as typeof snap;
+  for (const d of resolveAtomDescriptors(withRecon).filter((x) => x.kind === "provider")) {
+    assert.equal(d.observedModelIds, undefined);
+    assert.deepEqual(d.modelColors, []);
+  }
+});
+test("descriptors: provenance sources only list ids shown on the nucleus", () => {
+  const snap = normalizeTopology({
+    providers,
+    activeRequests: [
+      { provider: "openai", model: "live-1" },
+      { provider: "openai", model: "live-2" },
+      { provider: "openai", model: "live-3" },
+    ],
+    recentCallLogs: [row({ model: "log-a" })],
+    capturedAt: NOW,
+  });
+  const d = resolveAtomDescriptors(snap).find((x) => x.providerId === "openai")!;
+  assert.deepEqual(d.observedModelIds, ["live-1", "live-2", "live-3"]);
+  assert.deepEqual(d.observedModelSources?.callLog, []);
+  assert.deepEqual(
+    modelProvenanceRows(d).map((r) => r.label),
+    ["Models (live in-flight)"]
+  );
+});
+test("modelProvenanceRows: three basis labels and the empty case", () => {
+  const base = resolveAtomDescriptors(
+    normalizeTopology({ providers, activeRequests: [], capturedAt: NOW })
+  )[0];
+  assert.deepEqual(modelProvenanceRows(base), []);
+  const fleet = { ...base, observedModelIds: ["m1"], observedModelSources: undefined };
+  assert.deepEqual(modelProvenanceRows(fleet), [
+    { label: "Models (fleet residency)", value: "m1" },
+  ]);
+  const mixed = {
+    ...base,
+    observedModelIds: ["a", "b"],
+    observedModelSources: {
+      inFlight: ["a"],
+      callLog: ["b"],
+      callLogWindowMs: RECENT_MODELS_WINDOW_MS,
+    },
+  };
+  assert.deepEqual(modelProvenanceRows(mixed), [
+    { label: "Models (live in-flight)", value: "a" },
+    { label: "Models (call-log, last 15 min)", value: "b" },
+  ]);
+});

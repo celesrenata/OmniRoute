@@ -227,9 +227,17 @@ export default function ProviderTopology({
   // `snapshot.fleetTelemetry` (absent → field stays absent — 2D unchanged).
   // The poll replaces the rows array every 3 s; keep the previous reference
   // while the derived model set is unchanged so the snapshot does not churn.
+  // A slow tick re-evaluates the 15-min window even when polling is paused
+  // (hidden tab / failing poll), so aged-out models leave the nucleus.
+  const [windowTick, setWindowTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setWindowTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
   const recentSignature = useMemo(
     () => recentModelsSignature(recentCallLogRows),
-    [recentCallLogRows]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- windowTick re-reads the clock
+    [recentCallLogRows, windowTick]
   );
   const [stableRecent, setStableRecent] = useState<{
     signature: string;
@@ -239,27 +247,29 @@ export default function ProviderTopology({
     setStableRecent({ signature: recentSignature, rows: recentCallLogRows });
   }
   const recentCallLogs = stableRecent.rows;
-  const snapshot = useMemo(
-    () =>
-      normalizeTopology({
-        providers,
-        activeRequests,
-        lastProvider,
-        errorProvider,
-        lifecycleEvents,
-        recentCallLogs,
-        reconciliation: fleetReconciliation,
-      }),
-    [
+  const snapshot = useMemo(() => {
+    // Re-derive when the windowed model set changes (clock-driven), even if
+    // the rows array reference did not.
+    void recentSignature;
+    return normalizeTopology({
       providers,
       activeRequests,
-      lifecycleEvents,
-      recentCallLogs,
       lastProvider,
       errorProvider,
-      fleetReconciliation,
-    ]
-  );
+      lifecycleEvents,
+      recentCallLogs,
+      reconciliation: fleetReconciliation,
+    });
+  }, [
+    providers,
+    activeRequests,
+    lifecycleEvents,
+    recentCallLogs,
+    recentSignature,
+    lastProvider,
+    errorProvider,
+    fleetReconciliation,
+  ]);
 
   // Per-route-link provenance rows for the diagnostics panel (OR-ATOM-009 S9.5):
   // which visible links are proven and on what basis. Built ONLY while the
