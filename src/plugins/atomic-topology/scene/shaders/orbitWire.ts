@@ -107,12 +107,12 @@ export function createWireMesh(
     const col = laneColor
       ? vec3(...laneColor)
       : mix(vec3(0.12, 0.8, 1.0), vec3(0.6, 0.35, 1.0), float((index % 3) / 3));
-    const tintCol = mix(col, u.tint as any, laneColor ? 0.1 : 0.35);
+    const tintCol = mix(col, u.tint as any, laneColor ? 0.22 : 0.35);
     // Camera-facing highlight: the near half of each orbit (between the atom
     // and the viewer) is brighter, as in the reference.
     const radial = normalize(positionWorld.sub(u.occluderCenter as any));
     const front = smoothstep(-0.35, 0.85, dot(radial, view));
-    const bright = float(0.9).add(pulse.mul(2.6)).add(edge.mul(0.4));
+    const bright = float(0.9).add(pulse.mul(1.8)).add(edge.mul(0.4));
     const k = bright
       .mul(mix(float(0.5), float(1.7), front))
       .mul((u.energy as any).x)
@@ -149,7 +149,7 @@ export function createElectron(u: WireUniforms, hot: [number, number, number]): 
     );
     return vec4(
       vec3(...hot)
-        .mul(2.6)
+        .mul(1.15)
         .mul((u.energy as any).x)
         .mul(vis),
       1
@@ -180,7 +180,7 @@ export function createElectron(u: WireUniforms, hot: [number, number, number]): 
         .mul(g)
         .mul((u.energy as any).x)
         .mul(vis)
-        .mul(1.2),
+        .mul(0.75),
       1
     );
   })();

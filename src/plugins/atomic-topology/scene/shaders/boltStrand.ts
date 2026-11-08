@@ -133,7 +133,7 @@ export function createBoltMaterial(
     const haloTerm = hot.mul(exp(s2.mul(-2.2)));
     const coreTerm =
       coreW > 0
-        ? mix(hot, vec3(1, 1, 1), 0.12).mul(exp(s2.mul(-1.2 / (coreW * coreW))).mul(2.6 / 2.8))
+        ? mix(hot, vec3(1, 1, 1), 0.03).mul(exp(s2.mul(-1.2 / (coreW * coreW))).mul(2.0 / 2.8))
         : vec3(0);
     const core = opts.halo
       ? haloTerm.add(coreTerm)
@@ -148,7 +148,7 @@ export function createBoltMaterial(
     const k = falloff
       .mul(u.intensity as any)
       .mul(vis)
-      .mul(opts.halo ? 2.8 : 2.6);
+      .mul(opts.halo ? 1.9 : 1.8);
     return vec4(core.mul(k), 1);
   })();
   material.transparent = true;

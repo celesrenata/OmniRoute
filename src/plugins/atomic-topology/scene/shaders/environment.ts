@@ -79,7 +79,10 @@ const wallPattern = Fn(([a, b, dist, tm]: [any, any, any, any]) => {
     .mul(edgeCol)
     .mul(float(0.25).add(h.mul(0.55)));
   // Screens: lit panels with scanlines.
-  const inner = step(0.1, f.x).mul(step(f.x, 0.9)).mul(step(0.12, f.y)).mul(step(f.y, 0.88));
+  const inner = smoothstep(0.08, 0.16, f.x)
+    .mul(smoothstep(0.92, 0.84, f.x))
+    .mul(smoothstep(0.1, 0.18, f.y))
+    .mul(smoothstep(0.9, 0.82, f.y));
   const screen = step(0.78, h)
     .mul(inner)
     .mul(vec3(0.05, 0.4, 0.55))
@@ -91,11 +94,14 @@ const wallPattern = Fn(([a, b, dist, tm]: [any, any, any, any]) => {
       )
     );
   // LEDs.
-  const lg = vec2(a, b).div(vec2(8, 11));
+  const lg = vec2(a, b).div(vec2(15, 19));
   const lcell = floor(lg);
-  const lf = fract(lg).sub(0.5);
+  const ljit = vec2(h21(lcell.add(2.2)), h21(lcell.add(5.9)))
+    .sub(0.5)
+    .mul(0.24);
+  const lf = fract(lg).sub(0.5).sub(ljit);
   const lh = h21(lcell.add(13.1));
-  const ledOn = step(0.92, lh);
+  const ledOn = step(0.86, lh);
   const lsel = h21(lcell.add(3.3));
   const ledCol = mix(
     mix(vec3(1.0, 0.5, 0.12), vec3(1.0, 0.2, 0.65), step(0.82, lsel)),
@@ -104,17 +110,36 @@ const wallPattern = Fn(([a, b, dist, tm]: [any, any, any, any]) => {
   );
   const blink = float(0.7).add(sin(tm.mul(2.0).add(lh.mul(60))).mul(0.3));
   const led = ledOn
-    .mul(exp(dot(lf, lf).mul(-22).div(blur)))
+    .mul(
+      exp(
+        dot(lf, lf)
+          .mul(-200)
+          .div(min(blur, float(2.2)).pow(2))
+      )
+    )
     .mul(ledCol)
     .mul(blink)
-    .mul(3.5);
+    .mul(2.6);
   // Long warm light bars running down the corridor (receding orange lines).
   const bf = fract(a.div(170)).sub(0.5);
   const bar = exp(bf.abs().mul(170).negate().div(blur.mul(1.4)))
     .mul(vec3(1.0, 0.5, 0.16))
     .mul(step(0.35, h21(vec2(floor(a.div(170)), 4.4))))
     .mul(2.2);
-  return base.add(edge).add(screen).add(led.mul(1.3)).add(bar);
+  // Dimensional rack: dark recessed bevel, horizontal vent slats, lit shelf lip.
+  const bevel = smoothstep(0.0, 9.0, dEdge).mul(0.6).add(0.4);
+  const slats = sin(b.mul(0.7)).mul(0.5).add(0.5).mul(step(h, 0.55)).mul(0.035);
+  const lip = exp(f.y.sub(0.5).abs().mul(-0.0).sub(float(1).sub(f.y).mul(60)))
+    .mul(vec3(0.05, 0.3, 0.45))
+    .mul(0.6);
+  return base
+    .mul(bevel)
+    .add(vec3(0.02, 0.05, 0.09).mul(slats))
+    .add(edge.mul(0.8))
+    .add(lip)
+    .add(screen)
+    .add(led.mul(1.1))
+    .add(bar);
 });
 
 /** Reflective tech floor: x,z in world units. */
@@ -267,7 +292,18 @@ export function createEnvironment(): Environment {
     });
     If(hitWall, () => {
       const w = wallPattern(p.y, p.z, tHit, time);
-      col.assign(w.mul(exp(tHit.mul(-0.0006))));
+      // Receding structural ribs (lit orange edges) so the corridor has depth.
+      const rz = fract(p.z.div(260));
+      const rib = exp(abs(rz.sub(0.5)).sub(0.5).abs().mul(-0.0).sub(rz.mul(55)))
+        .mul(vec3(1.0, 0.5, 0.15))
+        .mul(1.4);
+      const ribDark = smoothstep(0.0, 0.08, rz).mul(0.35).add(0.65);
+      col.assign(
+        w
+          .mul(ribDark)
+          .add(rib)
+          .mul(exp(tHit.mul(-0.0009)))
+      );
     });
     // Far end of the corridor: luminous vanishing glow.
     If(far, () => {
@@ -336,7 +372,7 @@ export function createEnvironment(): Environment {
   domeMat.side = DoubleSide;
   const dome = new Mesh(domeGeo, domeMat);
   dome.position.y = FLOOR_Y;
-  dome.scale.y = 0.38;
+  dome.scale.y = 0.6;
   dome.renderOrder = 5;
   disposables.push(domeGeo, domeMat);
 

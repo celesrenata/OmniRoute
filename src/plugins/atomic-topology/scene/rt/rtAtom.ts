@@ -16,7 +16,7 @@ import {
   Vector3,
   type Camera,
 } from "three/webgpu";
-import { abs, exp, float, uniform, uv, vec3, vec4 } from "three/tsl";
+import { abs, exp, float, smoothstep, uniform, uv, vec3, vec4 } from "three/tsl";
 import { fnv1a } from "../cloudShells";
 import type { EnergyState } from "../energyState";
 import { desaturateLinear, hexToLinear, packNucleus, type PackedNucleus } from "../nucleonPack";
@@ -271,7 +271,7 @@ export function createRtAtom(
       const pc = palette[i % palette.length];
       const e = createElectron(wireU, [0.1 + 0.9 * pc[0], 0.1 + 0.9 * pc[1], 0.1 + 0.9 * pc[2]]);
       e.core.scale.setScalar(0.85);
-      e.glow.scale.setScalar(7.5);
+      e.glow.scale.setScalar(4.6);
       wireGroup.add(e.core, e.glow);
       registry.add(e);
       electrons.push(e);
@@ -298,7 +298,7 @@ export function createRtAtom(
     const bc = (opts.neutral ? NEUTRAL_PALETTE : LANE_PALETTE)[(s % 5) % (opts.neutral ? 3 : 5)];
     const halo = new Mesh(
       variants[0],
-      createBoltMaterial(bu, { halo: true, color: bc, width: 0.42, coreRatio: 0.3 })
+      createBoltMaterial(bu, { halo: true, color: bc, width: 0.3, coreRatio: 0.28 })
     );
     halo.frustumCulled = false;
     halo.renderOrder = 12;
@@ -315,10 +315,15 @@ export function createRtAtom(
   streakMat.colorNode = (() => {
     const p = uv().sub(0.5).mul(2);
     const ax = abs(p.x);
-    const core = exp(p.y.div(0.11).pow(2).negate()).mul(exp(ax.mul(-2.6)));
+    // Notch the centre so the streak never washes the nucleus gem.
+    const notch = smoothstep(0.05, 0.17, ax).mul(0.9).add(0.1);
+    const core = exp(p.y.div(0.08).pow(2).negate())
+      .mul(exp(ax.mul(-2.6)))
+      .mul(notch);
     const wide = exp(p.y.div(0.38).pow(2).negate())
       .mul(exp(ax.mul(-5)))
-      .mul(0.5);
+      .mul(0.35)
+      .mul(notch);
     const fade = float(1).sub(ax).max(0);
     return vec4(
       vec3(0.2, 0.8, 1.0)
@@ -381,6 +386,11 @@ export function createRtAtom(
     }
     const dist = f.camera.position.distanceTo(worldCenter);
     const cr = params.cloudRadius;
+    // Close range: bolts/streak back off so they never dominate the frame.
+    const closeK = Math.min(
+      1,
+      Math.max(0.4, f.camera.position.distanceTo(worldCenter) / (cr * 4.2))
+    );
     const half = ((cr * dist) / Math.sqrt(Math.max(dist * dist - cr * cr, 1))) * 1.08;
     for (const [u, isMirror] of [
       [uniforms, false],
@@ -429,7 +439,7 @@ export function createRtAtom(
     // Anamorphic streak: spans well beyond the cloud, brighter when excited.
     // Quad sized to the visible band only (fill cost: it is additive over MSAA HDR).
     streak.scale.set(cr * 6, cr * 0.16, 1);
-    streakK.value = (0.25 + 1.6 * params.excitation) * params.brightness;
+    streakK.value = (0.2 + 1.0 * params.excitation) * params.brightness * closeK;
 
     // Bolt ribbons carry world-space endpoints: cancel the group's translation.
     boltGroup.position.copy(worldCenter).negate();
@@ -442,7 +452,9 @@ export function createRtAtom(
       const flick = f.reducedMotion
         ? 0.7
         : 0.65 + 0.35 * Math.abs(Math.sin(flickerClock * (9 + s * 3) + s));
-      (slot.u.intensity as any).value = on ? flick * (0.7 + 0.9 * f.energy.excitation) : 0;
+      (slot.u.intensity as any).value = on
+        ? flick * (0.55 + 0.7 * f.energy.excitation) * closeK * closeK
+        : 0;
       const v = f.reducedMotion
         ? 0
         : ((Math.floor(flickerClock * 7 + s * 2) % BOLT_VARIANTS) + BOLT_VARIANTS) % BOLT_VARIANTS;
