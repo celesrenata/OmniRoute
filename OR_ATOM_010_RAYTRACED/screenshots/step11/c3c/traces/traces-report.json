@@ -1,0 +1,15 @@
+{
+  "errors": [],
+  "stats": {
+    "segments": 5200,
+    "joints": 3844,
+    "terminals": 1551,
+    "nets": 885,
+    "length": 257348
+  },
+  "perfDefault": {
+    "fps": 60,
+    "p95": 17.3
+  },
+  "detailAtom": "provider:bench-primary"
+}
