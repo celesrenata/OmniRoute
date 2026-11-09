@@ -48,7 +48,9 @@ import {
 import {
   buildReplayRequests,
   buildReplaySnapshot,
+  replayMoment,
   replaySnapshotKey,
+  type ReplayMoment,
   type ReplayRequest,
 } from "./replaySnapshot";
 
@@ -71,6 +73,8 @@ export interface ReplayView {
   rowCount: number;
   truncated: boolean;
   reducedMotion: boolean;
+  /** What the recorded history shows at the playhead (null until ready). */
+  moment: ReplayMoment | null;
   /** Short, non-sensitive error label (never a raw server message). */
   error: string | null;
 }
@@ -181,6 +185,7 @@ export function createReplayController(options: ReplayControllerOptions): Replay
       rowCount: timeline?.rowCount ?? 0,
       truncated,
       reducedMotion,
+      moment: phase === "ready" && clock ? replayMoment(requests, clock.positionMs) : null,
       error,
     };
   }

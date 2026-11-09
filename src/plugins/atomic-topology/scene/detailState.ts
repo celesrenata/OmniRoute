@@ -143,6 +143,23 @@ export interface DetailContext {
   events?: readonly AtomicEvent[];
   /** Measured feed stale / unavailable: live in-flight counts do not drive feeders. */
   inFlightStale?: boolean;
+  /** Replay: the descriptor is derived from recorded history, so say "replayed", never live. */
+  replayed?: boolean;
+}
+
+/** Activity line while replaying: from the replayed descriptor only (recorded requests). */
+export function replayedActivityLine(d: AtomVisualDescriptor): string {
+  const n = d.activeRequests ?? 0;
+  switch (d.visualState.state) {
+    case "error":
+      return "replayed: failed (recorded failure)";
+    case "active":
+      return `replayed: in flight (${n} recorded request${n === 1 ? "" : "s"})`;
+    case "last":
+      return "replayed: completed (recorded success)";
+    default:
+      return "replayed: quiet (no recorded request in flight)";
+  }
 }
 
 const noData = "no data";
@@ -308,7 +325,9 @@ export function buildDetailModel(d: AtomVisualDescriptor, ctx: DetailContext): D
     laneHue: d.laneHue || LANE_HUES.unknown,
     deviceFacts,
     jobs,
-    activity: activityLine(d.visualState.state, d.energyTier, d.lastActivityAt, ctx.now),
+    activity: ctx.replayed
+      ? replayedActivityLine(d)
+      : activityLine(d.visualState.state, d.energyTier, d.lastActivityAt, ctx.now),
     provenance:
       "Values are measured telemetry; decorative idle light is not activity. " +
       "Panels appear only when a real value exists.",

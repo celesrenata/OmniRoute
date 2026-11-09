@@ -1138,6 +1138,7 @@ export function AtomicTopologyRenderer({
               now: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
               events: eventPool ? eventPool.events() : undefined,
               inFlightStale: replaying ? false : telemetryState !== "available",
+              replayed: replaying,
             })}
             onClose={() => onDetailExit?.()}
             onReplay={replay ? undefined : onReplayRequest}

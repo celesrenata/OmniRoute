@@ -253,6 +253,48 @@ export function buildReplaySnapshot(
   return snap;
 }
 
+/** What the recorded history says is happening at the playhead (whole fleet). */
+export type ReplayMomentState = "quiet" | "in-flight" | "completed" | "failed";
+export interface ReplayMoment {
+  state: ReplayMomentState;
+  /** Recorded requests in flight at the playhead (a measured span, not yet ended). */
+  inFlight: number;
+}
+/**
+ * The replayed moment at `atMs`, from recorded requests only: in flight wins, then a recorded
+ * failure / success inside {@link REPLAY_RESULT_HOLD_MS}, else quiet. Same rules as the snapshot.
+ */
+export function replayMoment(requests: readonly ReplayRequest[], atMs: number): ReplayMoment {
+  let inFlight = 0;
+  let failedAt: number | null = null;
+  let okAt: number | null = null;
+  for (const req of requests) {
+    if (req.startAt > atMs) continue;
+    const ended = req.endAt != null && req.endAt <= atMs;
+    if (!ended && req.endAt !== req.startAt) inFlight += 1;
+    if (ended && atMs - (req.endAt as number) < REPLAY_RESULT_HOLD_MS) {
+      if (req.outcome === "failed") failedAt = Math.max(failedAt ?? 0, req.endAt as number);
+      else if (req.outcome === "ok") okAt = Math.max(okAt ?? 0, req.endAt as number);
+    }
+  }
+  if (failedAt != null) return { state: "failed", inFlight };
+  if (inFlight > 0) return { state: "in-flight", inFlight };
+  if (okAt != null) return { state: "completed", inFlight };
+  return { state: "quiet", inFlight };
+}
+/** Short label for the transport bar / aria. */
+export function replayMomentLabel(m: ReplayMoment): string {
+  switch (m.state) {
+    case "in-flight":
+      return `${m.inFlight} in flight`;
+    case "completed":
+      return m.inFlight > 0 ? `completed · ${m.inFlight} in flight` : "completed";
+    case "failed":
+      return m.inFlight > 0 ? `failed · ${m.inFlight} in flight` : "failed";
+    default:
+      return "quiet";
+  }
+}
 /**
  * Cheap change key: the scene only needs a re-render when something it reads
  * from the snapshot changes. Excludes `capturedAt` on purpose.
