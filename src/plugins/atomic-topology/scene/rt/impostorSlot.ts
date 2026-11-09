@@ -53,6 +53,8 @@ export interface ImpostorDynamic {
   glassRadius: number;
   /** Small-atom LOD weight (0 full atom .. 1 bold small LOD). */
   lod: number;
+  /** Focus-view neighbour dim (1 = unchanged). */
+  dim: number;
 }
 
 export interface ImpostorSlot {
@@ -126,6 +128,7 @@ export function createImpostorSlot(registry: RtRegistry): ImpostorSlot {
         (x.glassRadius as any).value = d.glassRadius;
         (x.far as any).value = d.far;
         (x.lod as any).value = d.lod;
+        (x.dim as any).value = d.dim;
         (x.crowd as any).value = d.crowd;
         (x.energy.value as Vector3).set(d.excitation, d.saturation, d.brightness);
         (x.phase as any).value = d.phase;

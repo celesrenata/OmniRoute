@@ -479,6 +479,7 @@ export function RtTopologyContent({
       f.alert = alertById.current.get(d.id) ?? 0;
       // Focus view: de-emphasise every non-focused atom so the focused one is isolated.
       const hero = heroRef.current;
+      f.fullDetail = focusNodeId === d.id || (hero.index === i && hero.w > 0.3);
       f.dim =
         focusNodeId && focusNodeId !== d.id
           ? FOCUS_NEIGHBOUR_DIM

@@ -197,6 +197,8 @@ export interface AtomUniforms {
   floorY: ReturnType<typeof uniform>;
   /** Small-atom LOD weight: 0 = full ray-traced atom, 1 = bold small-size LOD. */
   lod: ReturnType<typeof uniform>;
+  /** Focus-view neighbour dim (1 = unchanged); applied by the small-atom LOD. */
+  dim: ReturnType<typeof uniform>;
 }
 
 /** Create the per-atom uniform set (all typed arrays preallocated, no per-frame allocation). */
@@ -241,6 +243,7 @@ export function createAtomUniforms(): AtomUniforms {
     rim: uniform(new Vector3(0.1, 0.85, 1)),
     floorY: uniform(-62),
     lod: uniform(0),
+    dim: uniform(1),
   };
 }
 
@@ -729,11 +732,12 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     // Idle fades toward grey (saturation uniform), never washed to white.
     const l = dot(col, vec3(0.2126, 0.7152, 0.0722));
     col = max(mix(vec3(l), col, sat.mul(0.5).add(0.5)), 0).mul(crowdK.mul(0.35).add(0.65));
+    const dimK = u.dim as any;
     const edgeFade = float(1).sub(smoothstep(0.93, 1.04, r));
-    col = col.mul(edgeFade);
+    col = col.mul(edgeFade).mul(dimK);
     const refl = select(mirrorOn.greaterThan(0.5), float(0.3), float(1));
     const alpha = saturate(inside.mul(0.9).add(halo.x.mul(0.3)).add(ballIn)).mul(refl);
-    return vec4(col.mul(refl), alpha.mul(edgeFade));
+    return vec4(col.mul(refl), alpha.mul(edgeFade).mul(dimK.mul(0.6).add(0.4)));
   });
 
   const fragment = Fn(() => {

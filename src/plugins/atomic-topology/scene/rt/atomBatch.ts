@@ -128,6 +128,8 @@ export interface BatchAtomFrame {
   alert?: number;
   /** 0..1 gain multiplier for non-focused atoms in the focus view (1 = unchanged). Default 1. */
   dim?: number;
+  /** Keep the full ray-traced atom (focused / close-up hero): never uses the small-atom LOD. */
+  fullDetail?: boolean;
 }
 
 export interface BatchFrameContext {
@@ -510,7 +512,7 @@ export function createAtomBatch(
       );
       const lodRadiusPx =
         (Math.min(1, Math.max(0.5, lodMul)) * CLOUD_BOUND_RADIUS * lodScale) / lodDist / pxScale;
-      const smallLod = smallAtomLod(lodRadiusPx * 2);
+      const smallLod = f.fullDetail ? 0 : smallAtomLod(lodRadiusPx * 2);
       const params = clampShaderParams({
         marchSteps: cullOn ? marchStepsFor(f.marchSteps, projRadiusPx) : f.marchSteps,
         exposure: 1,
@@ -732,6 +734,7 @@ export function createAtomBatch(
         nucleons: nucScratch,
         glassRadius: ne * 1.14,
         lod: smallLod,
+        dim,
       });
 
       // Electron angles per wire (heads ride the wire shader).
