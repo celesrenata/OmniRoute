@@ -255,11 +255,21 @@ export function createBoardTraces(): BoardTraces {
   const pos = new Vector3();
   const scl = new Vector3();
   const UP = new Vector3(0, 1, 0);
+  let lastKey = "";
   const setLayout = (
     ext: BoardExtent,
     padList: readonly Avoid[],
     parts: readonly PartPlacement[]
   ): void => {
+    // Routing costs ~300 ms; the layout effect re-runs on telemetry/aspect changes that leave
+    // the board unchanged. Parts derive from ext + pads, so those fully key the result.
+    const r1 = (v: number): number => Math.round(v * 10) / 10;
+    const key = JSON.stringify([
+      [ext.wallX, ext.ceilY, ext.nearZ, ext.farZ, ext.floorY].map(r1),
+      padList.map((p) => [r1(p.x), r1(p.z), r1(p.r)]),
+    ]);
+    if (key === lastKey) return;
+    lastKey = key;
     const L = routeTraces(ext, padList, parts, { maxSegments: MAX_SEGMENTS });
     const y = ext.floorY + 0.05;
     const sa = barGeo.getAttribute("aSegA") as InstancedBufferAttribute;
