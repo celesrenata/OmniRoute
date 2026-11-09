@@ -1,3 +1,10 @@
+# Gate B: OPERATOR SIGN-OFF
+
+**APPROVED** by the operator (round 8, code `e4ddb34b1`, record `cf6802808`). Carried non-blocking polish gaps are in OPERATOR_DIRECTIVES.md item 33 (particulate rim, petal voids at 40-80 px, warm-corridor walls, real /home bokeh/label overlap/nucleus legibility, close-up blue nuclei and sparse wires).
+Item 17 legacy cleanup check: grep for `atomic-fx=legacy`, `HazeQualityTier`, `HAZE_TIER_TABLE` over src/, open-sse/, tests/, scripts/, docs/ finds no remnants (only the live `atomic-fx=rt` bench flag and one comment mentioning the old renderer's FOCUS_SCALE). No code change needed. Next: Step 11.
+
+---
+
 # CHECKPOINT 2 (Gate B) operator sign-off package
 
 Code SHA `e4ddb34b12b2ec4d9c57cc98451dd1058d02b4fe` (round 8), branch `feat/atomic-raytraced-renderer`, real GPU (Apple M5 Max, WebGPU `apple/metal-3`, headed Chrome, DPR 2). Not deployed or pushed.
