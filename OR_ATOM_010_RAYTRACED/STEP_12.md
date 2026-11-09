@@ -115,3 +115,8 @@ A neutral opaque cover (also on error) hides the whole scene while the history l
 - `npm run typecheck:core`: 45 errors, same as base, none in atomic-topology; eslint on src/plugins/atomic-topology and the replay tests: clean
 - Console errors on the real /home (excluding the known dev-origin WS ones): none
 - Not done: no perf re-measure for this round (overlay-only change); the video was cut from per-atom recordings (Kiro 12.5 s + Bedrock failure 3.8 s)
+
+## Operator sign-off
+
+Step 12 APPROVED by the operator at checkpoint 4b (fix round, directive 42; code cde6be1f8 and earlier fix commits 176565915, 37b487111, c076e92af).
+Carried to the perf/polish phase (OPERATOR_DIRECTIVES.md item 43): make the replayed in-flight state visibly distinct from quiet in the scene, with replayed packets on the proven link plus feeder activity driven by the replayed request count, from recorded data only.
