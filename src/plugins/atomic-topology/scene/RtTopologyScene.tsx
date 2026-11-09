@@ -154,6 +154,10 @@ export function RtTopologyContent({
   const linkRt = useRef(new Map<string, LinkRuntime>());
   const framesRef = useRef<BatchAtomFrame[]>([]);
   const dirtyRef = useRef(4);
+  // Visibility savings on by default; `?cull=0` is the dev A/B baseline for measuring them.
+  const cullRef = useRef(
+    typeof window === "undefined" || new URLSearchParams(window.location.search).get("cull") !== "0"
+  );
   const lastCam = useRef(new Matrix4());
   const pausedRef = useRef(paused);
   useEffect(() => {
@@ -475,11 +479,16 @@ export function RtTopologyContent({
       camera,
       reducedMotion: reduced,
       pixelHeight: pxH,
+      cull: cullRef.current,
     });
     gpu.env.follow(camera);
     const tg = cameraState.target;
     gpu.motes.update(camera, focusTmp.current.set(tg[0], tg[1], tg[2]));
     gpu.post.pipeline.render();
+    if (process.env.NODE_ENV !== "production") {
+      const w = window as unknown as { __atomicRtFrames?: number };
+      w.__atomicRtFrames = (w.__atomicRtFrames ?? 0) + 1;
+    }
   }, 1);
 
   return <ContainerCameraClamp />;

@@ -407,13 +407,19 @@ export function createStrandField(data: AtomData, capacity: number): StrandField
     geometries,
     setBuckets(bucketOfRow) {
       lists.forEach((l) => (l.length = 0));
-      bucketOfRow.forEach((b, row) => lists[Math.min(Math.max(b, 0), lists.length - 1)].push(row));
-      // Sparkles carry the closed cyan rim silhouette: never LOD'd, every row
-      // draws the full rank-sorted sparkle set (bucket "1").
-      const all = bucketOfRow.length;
+      // Bucket < 0 = culled (outside the view frustum): no strands, no sparkles.
+      const visibleRows: number[] = [];
+      bucketOfRow.forEach((b, row) => {
+        if (b < 0) return;
+        visibleRows.push(row);
+        lists[Math.min(b, lists.length - 1)].push(row);
+      });
+      // Sparkles carry the closed cyan rim silhouette: never LOD'd, every
+      // visible row draws the full rank-sorted sparkle set (last bucket).
+      const all = visibleRows.length;
       const last = buckets.length - 1;
       buckets.forEach((bk, i) => {
-        const key = `${lists[i].join(",")}|${all}`;
+        const key = `${lists[i].join(",")}|${i === last ? visibleRows.join(",") : ""}`;
         if (key === bk.last) return;
         bk.last = key;
         const s = bk.s;
@@ -423,7 +429,7 @@ export function createStrandField(data: AtomData, capacity: number): StrandField
         s.geometry.instanceCount = lists[i].length;
         const pArr = bk.p.rows.array as Float32Array;
         const pn = i === last ? all : 0;
-        for (let k = 0; k < pn; k += 1) pArr[k] = k;
+        for (let k = 0; k < pn; k += 1) pArr[k] = visibleRows[k];
         bk.p.rows.needsUpdate = true;
         bk.p.geometry.instanceCount = pn;
       });

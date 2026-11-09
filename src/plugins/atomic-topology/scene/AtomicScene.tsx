@@ -209,6 +209,7 @@ function RtAtomicScene({
             }}
             onLost={onLost}
           />
+          <VisibilityGate />
           <CameraRig context={context} />
           <CameraStateWriter context={context} />
           <SceneOrbitControls />
@@ -225,6 +226,46 @@ function RtAtomicScene({
   );
 }
 
+/**
+ * Stops the render loop while nothing can be seen (directive 19): the tab is
+ * hidden (`visibilitychange`) or the canvas is scrolled out of view / not
+ * visible (`IntersectionObserver`). The loop resumes, and invalidates once, as
+ * soon as it is visible again. Independent of (and in addition to) the pause
+ * prop, which keeps freezing the clock while frames still render.
+ */
+function VisibilityGate() {
+  const gl = useThree((s) => s.gl);
+  const setFrameloop = useThree((s) => s.setFrameloop);
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    const canvas = gl.domElement;
+    if (!canvas) return;
+    let inView = true;
+    const apply = (): void => {
+      const run = inView && !document.hidden;
+      setFrameloop(run ? "always" : "never");
+      if (run) invalidate();
+    };
+    const io =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver((entries) => {
+            const last = entries[entries.length - 1];
+            if (last) {
+              inView = last.isIntersecting;
+              apply();
+            }
+          })
+        : null;
+    io?.observe(canvas);
+    document.addEventListener("visibilitychange", apply);
+    return () => {
+      io?.disconnect();
+      document.removeEventListener("visibilitychange", apply);
+      setFrameloop("always");
+    };
+  }, [gl, setFrameloop, invalidate]);
+  return null;
+}
 /** Set before a dev-forced `device.destroy()` so it counts as a real loss. */
 const forcedLoss = { value: false };
 

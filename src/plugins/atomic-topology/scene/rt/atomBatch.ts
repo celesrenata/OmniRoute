@@ -44,6 +44,12 @@ import {
   texelOffset,
 } from "./atomLayout";
 import { createRtRegistry, type RtRegistry } from "./rtRegistry";
+import {
+  createFrustumPlanes,
+  extractFrustumPlanes,
+  marchStepsFor,
+  sphereVisible,
+} from "./visibility";
 import { floorY } from "./sharedUniforms";
 
 /** World units an idle (tightest) atom sinks into its dome. */
@@ -128,6 +134,11 @@ export interface BatchFrameContext {
   reducedMotion: boolean;
   /** Drawing-buffer height in device pixels (screen-space hairline widths). */
   pixelHeight: number;
+  /**
+   * Visibility savings (frustum culling, projected-size march steps). Default on;
+   * `false` is the dev A/B baseline (`?cull=0`) used to measure the savings.
+   */
+  cull?: boolean;
 }
 
 interface BoltSlotState {
@@ -319,6 +330,8 @@ export function createAtomBatch(
   const tmp = new Vector3();
   const viewDir = new Vector3();
   const rot = new Quaternion();
+  const viewProj = new Matrix4();
+  const planes = createFrustumPlanes();
   const dyn = data.dynArr;
   const bucketOfRow: number[] = [];
   // Screen-space overlap scratch (per row): x, y (view-plane), r (angular radius).
@@ -438,6 +451,11 @@ export function createAtomBatch(
     const pxH = ctx.pixelHeight > 0 ? ctx.pixelHeight : 1882;
     const pxScale = (2 * Math.tan((fov * Math.PI) / 360)) / pxH;
     const n = Math.min(states.length, Math.max(0, frames.length - offset));
+    const cullOn = ctx.cull !== false;
+    if (cullOn) {
+      viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      extractFrustumPlanes(viewProj.elements, planes);
+    }
     // Overlap pre-pass: atoms whose projected discs interpenetrate stack additive
     // light into pink-white. Each atom is subdued by how much of its disc is
     // covered by neighbours of comparable or larger projected size, so a lone
@@ -478,8 +496,10 @@ export function createAtomBatch(
     for (let row = 0; row < n; row += 1) {
       const st = states[row];
       const f = frames[offset + row];
+      // Projected radius of the cloud in device px (for the march-step scale).
+      const projRadiusPx = projBuf[row * 3 + 2] / pxScale;
       const params = clampShaderParams({
-        marchSteps: f.marchSteps,
+        marchSteps: cullOn ? marchStepsFor(f.marchSteps, projRadiusPx) : f.marchSteps,
         exposure: 1,
         excitation: f.energy.excitation,
         saturation: f.energy.saturation,
@@ -537,6 +557,19 @@ export function createAtomBatch(
       const crowdS = crowd + (1 - crowd) * 0.3 * idleK;
       const crowdG = Math.max(0.12 * dim, (dim * crowdS) / (1 + OVERLAP_SUBDUE * overlapBuf[row]));
       const bri = params.brightness;
+      // Visibility: an atom (or its floor reflection) wholly outside the view
+      // frustum draws nothing. The radius covers the quad, glass and flares.
+      const visR = Math.max(half, cr * 1.6);
+      const rowVisible =
+        !cullOn ||
+        sphereVisible(planes, worldCenter.x, worldCenter.y, worldCenter.z, visR) ||
+        sphereVisible(
+          planes,
+          worldCenter.x,
+          2 * (floorY.value as number) - worldCenter.y,
+          worldCenter.z,
+          visR
+        );
       // Size-driven part of the gain keeps a floor so a lone atom still reads as a
       // dense violet flower at default distance (finding: glassy orbs); the
       // overlap divisor is NOT floored, so crowds still never wash out.
@@ -580,7 +613,9 @@ export function createAtomBatch(
       const activeFrac = activeStrandFraction(exc, bri);
       const litFrac = activeFrac * lod;
       st.bucket = strandBucket(litFrac, st.bucket);
-      bucketOfRow[row] = st.bucket;
+      bucketOfRow[row] = rowVisible ? st.bucket : -1;
+      slots[row].mesh.visible = rowVisible;
+      slots[row].mirror.visible = rowVisible;
       setF(row, FIELD.ORIENT1_ACTIVE, m[1], m[4], m[7], litFrac);
       setF(row, FIELD.SPARE1, Math.pow(crowdG, 2.8), activeFrac, alert, 0);
       setF(row, FIELD.ORIENT2_PX, m[2], m[5], m[8], pxScale);
