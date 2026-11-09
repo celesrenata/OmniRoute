@@ -3432,9 +3432,23 @@ paths:
           schema:
             type: integer
             default: 0
+        - name: since
+          in: query
+          description: Only rows with timestamp >= this ISO-8601 instant (request replay window start). Also applied to in-memory active/recent rows. Invalid values return 400.
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          description: Only rows with timestamp <= this ISO-8601 instant (request replay window end). Invalid values return 400.
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: Paginated call logs
+        "400":
+          description: Invalid since/until value
 
   /api/usage/call-logs/{id}:
     get:

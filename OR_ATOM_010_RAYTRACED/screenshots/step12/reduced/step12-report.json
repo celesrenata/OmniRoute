@@ -1,0 +1,694 @@
+{
+  "windowMin": 5,
+  "reduced": true,
+  "errors": [
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+  ],
+  "steps": {
+    "opened": {
+      "phase": "ready",
+      "recordCount": 48,
+      "rowCount": 24,
+      "windowMs": 300000,
+      "marker": "REPLAY · 2026-11-09 08:21:10recorded history, not live",
+      "telemetryBadgeHidden": true,
+      "nodes": [
+        {
+          "id": "hub",
+          "chip": "idle"
+        },
+        {
+          "id": "provider:aihorde",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:kiro",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:openai",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:mistral",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:bedrock",
+          "chip": "idle"
+        },
+        {
+          "id": "provider:ollama-local",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:vllm",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:llama-cpp",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:ovms-arc",
+          "chip": "idle"
+        }
+      ]
+    },
+    "callLogTruth": {
+      "rows": 24,
+      "expected": {
+        "bedrock": {
+          "started": 10,
+          "completed": 0,
+          "failed": 10
+        },
+        "kiro": {
+          "started": 14,
+          "completed": 14,
+          "failed": 0
+        }
+      },
+      "windowIso": {
+        "since": "2026-11-09T16:21:10.984Z",
+        "until": "2026-11-09T16:26:10.984Z"
+      }
+    },
+    "playedThrough": {
+      "stoppedAtEnd": true,
+      "injected": {
+        "kiro": {
+          "started": 14,
+          "completed": 14,
+          "failed": 0
+        },
+        "bedrock": {
+          "started": 10,
+          "completed": 0,
+          "failed": 10
+        }
+      },
+      "timelineCounts": {
+        "kiro": {
+          "started": 14,
+          "completed": 14,
+          "failed": 0
+        },
+        "bedrock": {
+          "started": 10,
+          "completed": 0,
+          "failed": 10
+        }
+      },
+      "expectedFromCallLogs": {
+        "bedrock": {
+          "started": 10,
+          "completed": 0,
+          "failed": 10
+        },
+        "kiro": {
+          "started": 14,
+          "completed": 14,
+          "failed": 0
+        }
+      },
+      "injectedEqualsCallLogs": true,
+      "timelineEqualsCallLogs": true,
+      "samples": 286
+    },
+    "moments": [
+      {
+        "name": "in-flight",
+        "at": 1794241305843,
+        "provider": "kiro",
+        "marker": "REPLAY · 2026-11-09 08:21:45recorded history, not live",
+        "nodes": [
+          {
+            "id": "hub",
+            "chip": "active"
+          },
+          {
+            "id": "provider:aihorde",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:kiro",
+            "chip": "active"
+          },
+          {
+            "id": "provider:openai",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:mistral",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:bedrock",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:ollama-local",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:vllm",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:llama-cpp",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:ovms-arc",
+            "chip": "idle"
+          }
+        ],
+        "feeders": {
+          "hub": {
+            "basis": "inflight",
+            "value": 1,
+            "target": 0.27023815442731974,
+            "level": 0
+          },
+          "provider:aihorde": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:kiro": {
+            "basis": "inflight",
+            "value": 1,
+            "target": 0.27023815442731974,
+            "level": 0
+          },
+          "provider:openai": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:mistral": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:bedrock": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:ollama-local": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:vllm": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:llama-cpp": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:ovms-arc": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          }
+        }
+      },
+      {
+        "name": "after-success",
+        "at": 1794241306753,
+        "provider": "kiro",
+        "marker": "REPLAY · 2026-11-09 08:21:46recorded history, not live",
+        "nodes": [
+          {
+            "id": "hub",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:aihorde",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:kiro",
+            "chip": "last"
+          },
+          {
+            "id": "provider:openai",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:mistral",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:bedrock",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:ollama-local",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:vllm",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:llama-cpp",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:ovms-arc",
+            "chip": "idle"
+          }
+        ],
+        "feeders": {
+          "hub": {
+            "basis": "calls",
+            "value": 1,
+            "target": 0.08377494012675354,
+            "level": 0.27023815442731974
+          },
+          "provider:aihorde": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:kiro": {
+            "basis": "calls",
+            "value": 1,
+            "target": 0.08377494012675354,
+            "level": 0.27023815442731974
+          },
+          "provider:openai": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:mistral": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:bedrock": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:ollama-local": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:vllm": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:llama-cpp": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:ovms-arc": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          }
+        }
+      },
+      {
+        "name": "failure",
+        "at": 1794241323665,
+        "provider": "bedrock",
+        "marker": "REPLAY · 2026-11-09 08:22:03recorded history, not live",
+        "nodes": [
+          {
+            "id": "hub",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:aihorde",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:kiro",
+            "chip": "last"
+          },
+          {
+            "id": "provider:openai",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:mistral",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:bedrock",
+            "chip": "error"
+          },
+          {
+            "id": "provider:ollama-local",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:vllm",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:llama-cpp",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:ovms-arc",
+            "chip": "idle"
+          }
+        ],
+        "feeders": {
+          "hub": {
+            "basis": "calls",
+            "value": 7,
+            "target": 0.3506049186069831,
+            "level": 0.08377494012675354
+          },
+          "provider:aihorde": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:kiro": {
+            "basis": "calls",
+            "value": 6,
+            "target": 0.3199232330374462,
+            "level": 0.08377494012675354
+          },
+          "provider:openai": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:mistral": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:bedrock": {
+            "basis": "calls",
+            "value": 1,
+            "target": 0.08377494012675354,
+            "level": 0
+          },
+          "provider:ollama-local": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:vllm": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:llama-cpp": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:ovms-arc": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          }
+        }
+      },
+      {
+        "name": "quiet-before-first-event",
+        "at": 1794241271484,
+        "provider": null,
+        "marker": "REPLAY · 2026-11-09 08:21:11recorded history, not live",
+        "nodes": [
+          {
+            "id": "hub",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:aihorde",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:kiro",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:openai",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:mistral",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:bedrock",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:ollama-local",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:vllm",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:llama-cpp",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:ovms-arc",
+            "chip": "idle"
+          }
+        ],
+        "feeders": {
+          "hub": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0.3506049186069831
+          },
+          "provider:aihorde": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:kiro": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0.3199232330374462
+          },
+          "provider:openai": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:mistral": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:bedrock": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0.08377494012675354
+          },
+          "provider:ollama-local": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:vllm": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:llama-cpp": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          },
+          "provider:ovms-arc": {
+            "basis": "calls",
+            "value": 0,
+            "target": 0,
+            "level": 0
+          }
+        }
+      }
+    ],
+    "focusAfterSpace": "Pause replay",
+    "keyboard": {
+      "arrowRightDeltaMs": 1500,
+      "nextEventAdvanced": true,
+      "spaceToggledPlay": true,
+      "pausedAgain": true
+    },
+    "perfReplayPlaying": {
+      "fps": 60,
+      "p50": 16.7,
+      "p95": 17.7,
+      "p99": 17.7,
+      "over30": 0
+    },
+    "exited": {
+      "markerAfter": null,
+      "panelCount": 0,
+      "view": {
+        "phase": "closed",
+        "windowMs": 300000,
+        "clock": null,
+        "recordCount": 0,
+        "rowCount": 0,
+        "truncated": false,
+        "reducedMotion": true,
+        "error": null
+      },
+      "telemetryBadgeBack": true,
+      "nodes": [
+        {
+          "id": "hub",
+          "chip": "idle"
+        },
+        {
+          "id": "provider:aihorde",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:kiro",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:openai",
+          "chip": "last"
+        },
+        {
+          "id": "provider:mistral",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:bedrock",
+          "chip": "error"
+        },
+        {
+          "id": "provider:ollama-local",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:vllm",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:llama-cpp",
+          "chip": "healthy"
+        },
+        {
+          "id": "provider:ovms-arc",
+          "chip": "idle"
+        }
+      ]
+    },
+    "emptyWindowNote": "covered by unit tests; live window used here contained recorded traffic"
+  },
+  "gpuAdapter": {
+    "vendor": "apple",
+    "architecture": "metal-3"
+  },
+  "liveBefore": {
+    "telemetryBadge": 1,
+    "replayMarker": null,
+    "replayEntryVisibleWithoutDetail": 0,
+    "nodes": [
+      {
+        "id": "hub",
+        "chip": "idle"
+      },
+      {
+        "id": "provider:aihorde",
+        "chip": "healthy"
+      },
+      {
+        "id": "provider:kiro",
+        "chip": "healthy"
+      },
+      {
+        "id": "provider:openai",
+        "chip": "healthy"
+      },
+      {
+        "id": "provider:mistral",
+        "chip": "healthy"
+      },
+      {
+        "id": "provider:bedrock",
+        "chip": "error"
+      },
+      {
+        "id": "provider:ollama-local",
+        "chip": "healthy"
+      },
+      {
+        "id": "provider:vllm",
+        "chip": "healthy"
+      },
+      {
+        "id": "provider:llama-cpp",
+        "chip": "healthy"
+      },
+      {
+        "id": "provider:ovms-arc",
+        "chip": "idle"
+      }
+    ]
+  },
+  "atomId": "provider:kiro",
+  "replayEntryInDetail": 1,
+  "errorsAfter": []
+}

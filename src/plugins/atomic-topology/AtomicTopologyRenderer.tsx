@@ -87,6 +87,13 @@ import { AtomicLegend } from "./overlays/AtomicLegend";
 import { AtomicLabels } from "./overlays/AtomicLabels";
 import { AtomicTooltip } from "./overlays/AtomicTooltip";
 import { AtomicDetailPanel } from "./overlays/AtomicDetailPanel";
+import { AtomicReplayPanel } from "./overlays/AtomicReplayPanel";
+import {
+  createReplayController,
+  timelineCounts,
+  type ReplayController,
+} from "./scene/replayController";
+import { fetchTraceHistory } from "@/shared/topology/telemetry/traceHistoryFetch";
 import { detailLabelCss } from "./overlays/detailLabelCss";
 import { deviceVisualStateInput } from "./overlays/activityVocabulary";
 import {
@@ -134,6 +141,21 @@ declare global {
     ) => { ok: boolean; reason: string; linkId?: string };
     /** Dev-only: focus an atom and open its detail view (live verification of providers whose label click navigates away). */
     __atomicOpenDetail?: (atomId: string) => boolean;
+    /** Dev-only: drive and inspect the Step 12 request replay (live verification). */
+    __atomicReplay?: {
+      open: (windowMs?: number) => Promise<void>;
+      close: () => void;
+      play: () => void;
+      pause: () => void;
+      seek: (positionMs: number) => void;
+      setSpeed: (speed: number) => void;
+      stepNext: () => void;
+      stepPrev: () => void;
+      tick: (dtMs: number) => void;
+      view: () => unknown;
+      injected: () => unknown;
+      timeline: () => unknown;
+    };
   }
 }
 
@@ -870,6 +892,15 @@ export interface AtomicTopologyRendererProps {
   onDetailRequest?: (atomId: string) => void;
   /** The viewer left the detail view (Escape / Back button). */
   onDetailExit?: () => void;
+  /**
+   * Request replay (Step 12). `replay` is the active session (mounts the REPLAY marker + controls);
+   * `replaying` is true while the snapshot/pool props already ARE the replay-derived ones.
+   * `onReplayRequest` shows the detail panel's "Replay recorded requests" action.
+   */
+  replay?: ReplayController | null;
+  replaying?: boolean;
+  onReplayRequest?: () => void;
+  onReplayExit?: () => void;
 }
 
 /**
@@ -896,6 +927,10 @@ export function AtomicTopologyRenderer({
   detailAtomId,
   onDetailRequest,
   onDetailExit,
+  replay,
+  replaying = false,
+  onReplayRequest,
+  onReplayExit,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
 
@@ -1027,7 +1062,10 @@ export function AtomicTopologyRenderer({
     resetToken,
     detailAtomId: detailDescriptor ? detailDescriptor.id : null,
     // Feeder traces (directive 40): a live in-flight count only drives them while fresh.
-    telemetryStale: telemetryState !== "available",
+    // Replay derives its in-flight counts from recorded rows, so they are never "stale".
+    telemetryStale: replaying ? false : telemetryState !== "available",
+    // Replay: the scene reads the playhead from this ref (null = live clock + live pool).
+    replayNowRef: replaying && replay ? replay.nowRef : null,
   };
 
   const handleProviderClick = useCallback(
@@ -1080,7 +1118,7 @@ export function AtomicTopologyRenderer({
         className="atomic-overlays"
         style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
       >
-        <AtomicTelemetryStatus state={telemetryState} capturedAt={capturedAt} />
+        {replay ? null : <AtomicTelemetryStatus state={telemetryState} capturedAt={capturedAt} />}
         <AtomicLegend descriptors={descriptors} />
         <AtomicControls paused={paused} />
         <AtomicLabels
@@ -1098,9 +1136,10 @@ export function AtomicTopologyRenderer({
             model={buildDetailModel(detailDescriptor, {
               now: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
               events: eventPool ? eventPool.events() : undefined,
-              inFlightStale: telemetryState !== "available",
+              inFlightStale: replaying ? false : telemetryState !== "available",
             })}
             onClose={() => onDetailExit?.()}
+            onReplay={replay ? undefined : onReplayRequest}
           />
         ) : (
           <AtomicTooltip
@@ -1109,6 +1148,13 @@ export function AtomicTopologyRenderer({
             onOpenDetail={onDetailRequest}
           />
         )}
+        {replay ? (
+          <AtomicReplayPanel
+            controller={replay}
+            onExit={() => onReplayExit?.()}
+            reservedRight={detailDescriptor ? 344 : 0}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1203,6 +1249,7 @@ export function createAtomicTopologyInstance(
         ? (event.detail as { pause?: unknown }).pause
         : !state.paused;
     state.paused = detail === true;
+    replay.setHostPaused(state.paused);
     render();
   };
   const onResetView = (): void => {
@@ -1226,6 +1273,16 @@ export function createAtomicTopologyInstance(
   // on `update`, and cleared on `dispose`. The scene reads it per-frame
   // (inside `useFrame`) for transient discharges — never React state.
   const pool = createAtomicEventPool();
+
+  // Request replay (Step 12): one session at a time, opened only from the detail panel. The
+  // controller holds its own pool + derived snapshot; the live pool/snapshot keep ingesting
+  // underneath so leaving replay returns to the current live state immediately.
+  const replay: ReplayController = createReplayController({
+    getBaseSnapshot: () => state.snapshot,
+    fetchHistory: (windowMs, signal) => fetchTraceHistory({ windowMs, nowMs: Date.now(), signal }),
+    onSnapshot: () => render(),
+    reducedMotion: detectTopologyCapabilities().reducedMotion,
+  });
 
   // Proven pulse gate (OR-ATOM-009 S9.4): a fresh gate per ingest (event-rate
   // surface — the per-frame packet loop reads `descriptor.proven`, NOT the
@@ -1307,6 +1364,34 @@ export function createAtomicTopologyInstance(
     };
     window.__atomicPulse = pulseTrigger;
     window.__atomicOpenDetail = openDetailDev;
+    window.__atomicReplay = {
+      open: (windowMs) => {
+        const p = replay.open(windowMs);
+        render();
+        return p;
+      },
+      close: () => replay.close(),
+      play: () => replay.play(),
+      pause: () => replay.pause(),
+      seek: (positionMs) => replay.seek(positionMs),
+      setSpeed: (speed) => replay.setSpeed(speed),
+      stepNext: () => replay.stepNext(),
+      stepPrev: () => replay.stepPrev(),
+      tick: (dtMs) => replay.tick(dtMs),
+      view: () => replay.getView(),
+      injected: () => replay.injectedCounts(),
+      timeline: () => {
+        const tl = replay.getTimeline();
+        return tl
+          ? {
+              sinceMs: tl.sinceMs,
+              untilMs: tl.untilMs,
+              rows: tl.rowCount,
+              counts: timelineCounts(tl),
+            }
+          : null;
+      },
+    };
   }
 
   const render = (): void => {
@@ -1314,15 +1399,27 @@ export function createAtomicTopologyInstance(
     // `root.render` is a batched, idempotent React commit — calling it with the
     // same props is a no-op re-render, so every imperative method below is
     // safe to repeat.
+    const replaySnapshot = replay.getSnapshot();
     root.render(
       <AtomicTopologyRenderer
-        snapshot={state.snapshot}
+        snapshot={replaySnapshot ?? state.snapshot}
         size={state.size}
         paused={state.paused}
         resetToken={state.resetToken}
         focusNodeId={state.focusNodeId}
         options={state.options}
-        eventPool={pool}
+        eventPool={replaySnapshot ? replay.pool : pool}
+        replay={replay.isActive() ? replay : null}
+        replaying={replaySnapshot != null}
+        onReplayRequest={() => {
+          if (disposed) return;
+          void replay.open();
+          render();
+        }}
+        onReplayExit={() => {
+          if (disposed) return;
+          replay.close();
+        }}
         onFocusRequest={(nodeId: string) => {
           if (disposed) return;
           state.focusNodeId = nodeId;
@@ -1380,6 +1477,8 @@ export function createAtomicTopologyInstance(
         if (exit.resetView) state.resetToken += 1;
       }
       ingestSnapshot(snapshot);
+      // The live structure changed under an open replay: rebuild the derived snapshot.
+      if (replay.isActive()) replay.invalidate();
       render();
     },
     resize(width: number, height: number): void {
@@ -1390,6 +1489,7 @@ export function createAtomicTopologyInstance(
     setPaused(paused: boolean): void {
       if (disposed) return;
       state.paused = paused;
+      replay.setHostPaused(paused);
       render();
     },
     focusNode(nodeId: string): void {
@@ -1410,6 +1510,8 @@ export function createAtomicTopologyInstance(
       // trigger from the shared window surface.
       if (window.__atomicPulse === pulseTrigger) delete window.__atomicPulse;
       if (window.__atomicOpenDetail === openDetailDev) delete window.__atomicOpenDetail;
+      replay.dispose();
+      delete window.__atomicReplay;
       // Release the event pool so no pooled events survive the teardown.
       pool.clear();
       try {

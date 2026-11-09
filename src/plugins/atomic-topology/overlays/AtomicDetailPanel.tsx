@@ -65,9 +65,12 @@ function Rows({ rows }: { rows: ReadonlyArray<{ label: string; value: string }> 
 export function AtomicDetailPanel({
   model,
   onClose,
+  onReplay,
 }: {
   model: DetailModel | null;
   onClose: () => void;
+  /** Step 12: opens the request replay (absent = no replay entry, e.g. already replaying). */
+  onReplay?: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const open = model != null;
@@ -89,16 +92,21 @@ export function AtomicDetailPanel({
     setCollapsed((host?.clientWidth ?? 1200) < 900);
   };
   const compact = collapsed === true;
+  // The host re-renders with a fresh onClose on every replay tick/update: keep the latest in a ref
+  // so the focus move happens once per open, not on every render (it stole focus from the replay controls).
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
+  }, [open]);
   if (!model) return null;
   const total = Math.max(1, model.totalNucleons);
 
@@ -142,6 +150,26 @@ export function AtomicDetailPanel({
       >
         {compact ? "Show details" : "Hide details"}
       </button>
+      {onReplay ? (
+        <button
+          type="button"
+          data-atomic-replay-open="true"
+          onClick={onReplay}
+          style={{
+            marginTop: 6,
+            marginLeft: 6,
+            padding: "2px 8px",
+            borderRadius: 6,
+            border: "1px solid rgba(251, 191, 36, 0.55)",
+            background: "transparent",
+            color: "#fcd34d",
+            cursor: "pointer",
+            font: "600 11px system-ui, sans-serif",
+          }}
+        >
+          Replay recorded requests
+        </button>
+      ) : null}
       {compact ? (
         <button
           ref={closeRef}

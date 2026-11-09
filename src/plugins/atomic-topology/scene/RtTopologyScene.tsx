@@ -54,6 +54,7 @@ import {
   stepFeeder,
   type FeederState,
 } from "./feederUsage";
+import { REPLAY_HEAT_GAIN, trafficHeat } from "./replaySnapshot";
 import { fnv1a } from "./cloudShells";
 import {
   createAtomBatchSet,
@@ -167,15 +168,19 @@ export function RtTopologyContent({
   const camera = useThree((s) => s.camera) as PerspectiveCamera;
   const size = useThree((s) => s.size);
 
-  const { cameraState, cameraAspect, fitRadius, pool, telemetryStale } = useAtomicSceneContext();
+  const { cameraState, cameraAspect, fitRadius, pool, telemetryStale, replayNowRef } =
+    useAtomicSceneContext();
   // Usage-driven feeder traces (directive 40): per-atom eased level, targets re-read at 4 Hz.
   const feeders = useRef(new Map<string, FeederState>());
   const feederTargets = useRef(new Map<string, number>());
   const feederLastMs = useRef(-Infinity);
-  const feedLive = useRef({ pool, telemetryStale });
+  const feedLive = useRef({ pool, telemetryStale, replayNowRef });
   useEffect(() => {
-    feedLive.current = { pool, telemetryStale };
-  }, [pool, telemetryStale]);
+    feedLive.current = { pool, telemetryStale, replayNowRef };
+  }, [pool, telemetryStale, replayNowRef]);
+  // Replay traffic heat (Step 12): per-atom target (4 Hz) and eased level (per frame).
+  const heatTargets = useRef(new Map<string, number>());
+  const heatLevels = useRef(new Map<string, number>());
   const gpuRef = useRef<Gpu | null>(null);
   const alertById = useRef(new Map<string, number>());
   const focusTmp = useRef(new Vector3());
@@ -374,10 +379,14 @@ export function RtTopologyContent({
    * Targets refresh at 4 Hz; levels ease every frame (instant in reduced motion).
    */
   const updateFeederLevels = (gpu: Gpu, dt: number, reduced: boolean): void => {
-    const wall = Date.now();
-    if (wall - feederLastMs.current >= 250) {
+    const replayAt = feedLive.current.replayNowRef?.value ?? null;
+    const wall = replayAt ?? Date.now();
+    // abs(): a replay seek can move the clock backwards.
+    if (Math.abs(wall - feederLastMs.current) >= 250) {
       feederLastMs.current = wall;
       const { pool: p, telemetryStale: stale } = feedLive.current;
+      const heat = heatTargets.current;
+      heat.clear();
       const fctx = { events: p ? p.events() : null, nowMs: wall, inFlightStale: stale ?? true };
       const targets = feederTargets.current;
       targets.clear();
@@ -385,6 +394,8 @@ export function RtTopologyContent({
       for (const d of descriptors) {
         const sig = atomFeederSignal(d, fctx);
         targets.set(d.id, feederTarget(sig));
+        if (replayAt != null)
+          heat.set(d.id, trafficHeat(p ? p.events() : null, d.providerId, wall));
         dbg[d.id] = { ...sig, target: targets.get(d.id), level: feeders.current.get(d.id)?.level };
       }
       if (process.env.NODE_ENV !== "production") {
@@ -499,7 +510,15 @@ export function RtTopologyContent({
           : alertBase;
       if (state === "error") alertById.current.set(link.target, alertNow);
       if (strikeAge >= 0) anyStrike[Math.floor(i / gpu.linkCap)] = true;
-      const base = linkBaseIntensity(state, link.visualState.style.opacity);
+      // Replay traffic heat: a decaying glow trail on the link (recorded events only).
+      const heatGoal = heatTargets.current.get(link.target) ?? 0;
+      const heatPrev = heatLevels.current.get(link.target) ?? 0;
+      const heatNow = reduced
+        ? heatGoal
+        : heatPrev + (heatGoal - heatPrev) * (1 - Math.exp(-dt / 0.25));
+      heatLevels.current.set(link.target, heatNow);
+      const base =
+        linkBaseIntensity(state, link.visualState.style.opacity) + REPLAY_HEAT_GAIN * heatNow;
       const put = (k: number, x: number, y: number, z: number, w: number) => {
         const q = o + k * 4;
         arr[q] = x;

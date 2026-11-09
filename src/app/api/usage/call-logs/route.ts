@@ -81,6 +81,13 @@ export function rowMatchesFilter(row: any, filter: Record<string, any>): boolean
   if (filter.combo && row?.comboName == null) {
     return false;
   }
+  // since / until bound the row timestamp (inclusive), mirroring the SQL clauses. Without this the
+  // in-memory active/recent rows merged in above would bypass the replay window.
+  if (filter.since != null || filter.until != null) {
+    const at = rowTimestampMs(row);
+    if (filter.since != null && at < Date.parse(String(filter.since))) return false;
+    if (filter.until != null && at > Date.parse(String(filter.until))) return false;
+  }
   if (
     filter.correlationId &&
     !matchesSearch(row?.correlationId || "", String(filter.correlationId))
@@ -241,6 +248,18 @@ export async function GET(request: Request) {
     if (searchParams.get("combo")) filter.combo = searchParams.get("combo");
     if (searchParams.get("search")) filter.search = searchParams.get("search");
     if (searchParams.get("correlationId")) filter.correlationId = searchParams.get("correlationId");
+    // Replay window (Step 12): additive ISO-8601 bounds on the row timestamp.
+    for (const key of ["since", "until"] as const) {
+      const raw = searchParams.get(key);
+      if (!raw) continue;
+      if (!Number.isFinite(Date.parse(raw))) {
+        return NextResponse.json(
+          { error: `Invalid ${key}: expected an ISO-8601 date` },
+          { status: 400 }
+        );
+      }
+      filter[key] = new Date(raw).toISOString();
+    }
     if (searchParams.get("limit")) filter.limit = parseInt(searchParams.get("limit"));
     if (searchParams.get("offset")) filter.offset = parseInt(searchParams.get("offset"));
     // Home Recent Requests feed sets excludeTests=1 so connection-test probe rows

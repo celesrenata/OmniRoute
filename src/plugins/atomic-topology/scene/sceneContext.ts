@@ -154,6 +154,12 @@ export interface AtomicSceneContextValue {
    * then no longer drive the usage feeder traces (directive 40). Absent = treated as stale.
    */
   telemetryStale?: boolean;
+  /**
+   * Replay (Step 12): the playhead (epoch ms) the scene reads per frame, mutated in place by the
+   * replay controller. `value === null` (or the ref absent) means live: wall clock + live pool.
+   * While non-null, `pool` already holds the replay pool and live telemetry-driven effects are off.
+   */
+  replayNowRef?: { value: number | null } | null;
 }
 
 /**
