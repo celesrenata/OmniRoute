@@ -95,7 +95,10 @@ export const pcbBoard = Fn(
     const laneD = abs(laneC);
     const inBand = step(0.0, lane).mul(step(lane, float(3)));
     const laneH = h21(vec2(lane, cell.x.mul(7.3).add(cell.y.mul(3.7)).add(seed)));
-    const laneOn = inBand.mul(step(0.12, laneH)).mul(isBus);
+    // The floor (detail 1) gets real routed nets as geometry (`boardTraces.ts`, directive 37),
+    // so these painted per-cell lane stubs ("loose rods") only remain on the walls / ceiling.
+    const lanes = float(1).sub(step(0.99, detail));
+    const laneOn = inBand.mul(step(0.12, laneH)).mul(isBus).mul(lanes);
     // Lane kinds: metallic copper (PBR-ish bevel + specular), glowing neon cyan, glowing neon orange.
     const kindH = h21(vec2(lane.add(cell.x.mul(5.1)), cell.y.add(seed)));
     const isNeonO = step(0.86, kindH);

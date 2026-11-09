@@ -61,6 +61,7 @@ import { floorY as sharedFloorY } from "../rt/sharedUniforms";
 import { pcbBoard, pcbPanel } from "./pcbBoard";
 import { createHeroPlatform } from "./heroPlatform";
 import { createBoardParts } from "./boardParts";
+import { createBoardTraces } from "./boardTraces";
 
 /** Bench floor height (world units); the topology host derives its own from layout bounds. */
 export const FLOOR_Y = -66;
@@ -116,6 +117,12 @@ export function createEnvironment(
   disposables.push(hero);
   const boardParts = createBoardParts();
   disposables.push(boardParts);
+  // Routed copper nets with racing pulses (directive 37), wired to the parts' pins.
+  const boardTraces = createBoardTraces();
+  disposables.push(boardTraces);
+  if (typeof window !== "undefined") {
+    (window as unknown as { __atomicTraceStats?: unknown }).__atomicTraceStats = boardTraces.stats;
+  }
   // Floor haze field (magnetic / high-voltage parts): world rect + R8 texture.
   const hazeRect = uniform(new Vector4(...boardParts.haze.rect.value));
   /** Floor point the warm light trails radiate from (the hub platform), x/z. */
@@ -509,16 +516,16 @@ export function createEnvironment(
     (floorU as { value: number }).value = fy;
     const peds = l.pedestals.slice(0, MAX_PEDESTALS);
     // Real 3D board components: deterministic placement around the atom pads.
-    boardParts.setLayout(
-      {
-        wallX: l.wallX ?? WALL_X,
-        ceilY: l.ceilY ?? CEIL_Y,
-        nearZ: l.nearZ ?? NEAR_Z,
-        farZ: l.farZ ?? FAR_Z,
-        floorY: fy,
-      },
-      peds.map((q) => ({ x: q.x, z: q.z, r: 62 * (q.scale ?? 1) }))
-    );
+    const boardExt = {
+      wallX: l.wallX ?? WALL_X,
+      ceilY: l.ceilY ?? CEIL_Y,
+      nearZ: l.nearZ ?? NEAR_Z,
+      farZ: l.farZ ?? FAR_Z,
+      floorY: fy,
+    };
+    const padList = peds.map((q) => ({ x: q.x, z: q.z, r: 62 * (q.scale ?? 1) }));
+    const placed = boardParts.setLayout(boardExt, padList);
+    boardTraces.setLayout(boardExt, padList, placed);
     (hazeRect.value as Vector4).set(...boardParts.haze.rect.value);
     const hubPed = peds.find((q) => q.hub ?? false);
     (trailCenter.value as Vector4).set(hubPed?.x ?? 0, hubPed?.z ?? 0, 0, 0);
@@ -549,7 +556,13 @@ export function createEnvironment(
     Array.isArray(layoutIn) ? { pedestals: layoutIn.map(([x, z]) => ({ x, z })) } : layoutIn
   );
   return {
-    objects: [roomMesh, hero.group, ...boardParts.objects, ...parts.map((p) => p.mesh)],
+    objects: [
+      roomMesh,
+      hero.group,
+      ...boardParts.objects,
+      ...boardTraces.objects,
+      ...parts.map((p) => p.mesh),
+    ],
     time,
     setLife: (life: number) => {
       (dims2.value as Vector4).y = life;

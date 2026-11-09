@@ -430,8 +430,8 @@ function partMatrix(p: PartPlacement, lift: number, scale: number, out: Matrix4)
 
 export interface BoardParts {
   objects: Mesh[];
-  /** Re-place the parts and haze field for a new container / atom footprint. */
-  setLayout: (ext: BoardExtent, avoid: readonly Avoid[]) => void;
+  /** Re-place the parts and haze field for a new container / atom footprint (returns them). */
+  setLayout: (ext: BoardExtent, avoid: readonly Avoid[]) => PartPlacement[];
   /** Haze field texture (floor, row-major) + its world rectangle. */
   haze: { texture: DataTexture; rect: { value: [number, number, number, number] } };
   setLife: (life: number) => void;
@@ -475,7 +475,7 @@ export function createBoardParts(): BoardParts {
   hazeTex.needsUpdate = true;
   const rect = { value: [-1000, -1000, 2000, 2000] as [number, number, number, number] };
 
-  const setLayout = (ext: BoardExtent, avoid: readonly Avoid[]): void => {
+  const setLayout = (ext: BoardExtent, avoid: readonly Avoid[]): PartPlacement[] => {
     const parts = placeBoardParts(ext, avoid);
     const by = groupByKind(parts);
     let di = 0;
@@ -514,6 +514,7 @@ export function createBoardParts(): BoardParts {
     for (let i = 0; i < field.length; i += 1) hazeData[i] = Math.round(Math.min(1, field[i]) * 255);
     hazeTex.needsUpdate = true;
     rect.value = [-ext.wallX, ext.farZ, ext.wallX * 2, ext.nearZ - ext.farZ];
+    return parts;
   };
 
   return {
