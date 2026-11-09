@@ -161,7 +161,8 @@ export function createEnvironment(
         dd,
         time,
         select(isFloor, float(1), float(2)),
-        life
+        life,
+        select(isFloor, float(1), float(0.12))
       );
       // Floor: glossy solder-mask sheen at grazing angles; ceiling: dimmer.
       const gl = pow(float(1).sub(abs(rd.y)), 3);
@@ -178,7 +179,8 @@ export function createEnvironment(
           dd,
           time,
           float(3).add(rd.x.greaterThan(0).select(1, 0)),
-          life
+          life,
+          float(0.16)
         ).mul(1.5)
       );
     });
@@ -190,7 +192,8 @@ export function createEnvironment(
           dd,
           time,
           float(5).add(rd.z.greaterThan(0).select(1, 0)),
-          life
+          life,
+          float(0.16)
         ).mul(1.5)
       );
     });

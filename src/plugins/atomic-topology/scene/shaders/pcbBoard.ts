@@ -50,113 +50,118 @@ const aaLine = (d: any, hw: any, pw: any) => {
  * @param tm      time (seconds; ignored when `life` is 0)
  * @param seed    per-face seed so faces do not tile identically
  * @param life    1 = animated embers, 0 = static board (reduced motion)
+ * @param detail  1 = full artwork (floor), <1 = calmer walls / ceiling
  */
-export const pcbBoard = Fn(([u, v, dist, tm, seed, life]: [any, any, any, any, any, any]) => {
-  const p = vec2(u, v);
-  const pw = max(fwidth(u), fwidth(v)).mul(1.0).add(1e-4);
-  const col = vec3(0.012, 0.024, 0.052).toVar();
+export const pcbBoard = Fn(
+  ([u, v, dist, tm, seed, life, detail]: [any, any, any, any, any, any, any]) => {
+    const p = vec2(u, v);
+    const pw = max(fwidth(u), fwidth(v)).mul(1.0).add(1e-4);
+    const col = vec3(0.012, 0.024, 0.052).toVar();
 
-  // --- soldermask sheen: very low frequency, gives the surface a satin gradient ----
-  const sheen = h21(floor(p.div(96)).add(seed))
-    .mul(0.5)
-    .add(h21(floor(p.div(23)).add(seed.mul(1.9))).mul(0.5));
-  col.addAssign(vec3(0.006, 0.014, 0.03).mul(sheen));
+    // --- soldermask sheen: very low frequency, gives the surface a satin gradient ----
+    const sheen = h21(floor(p.div(96)).add(seed))
+      .mul(0.5)
+      .add(h21(floor(p.div(23)).add(seed.mul(1.9))).mul(0.5));
+    col.addAssign(vec3(0.006, 0.014, 0.03).mul(sheen));
 
-  // --- 96-unit routing cells: one bus orientation per cell ----------------------
-  const CELL = 96;
-  const cell = floor(p.div(CELL));
-  const cf = fract(p.div(CELL)).mul(CELL);
-  const ch = h21(cell.add(seed.mul(3.1)));
-  const mode = floor(ch.mul(6)); // 0 horiz, 1 vert, 2 diag45, 3 diag135, 4 ground pour, 5 via field
-  const isMode = (k: number) => step(0.5, float(1).sub(abs(mode.sub(k)).min(1)));
-  const isH = isMode(0);
-  const isV = isMode(1);
-  const isD1 = isMode(2);
-  const isD2 = isMode(3);
-  const isBus = isH.add(isV).add(isD1).add(isD2);
-  // Across / along coordinates in the bus frame (45 degree buses rotate the frame).
-  const r45 = vec2(cf.x.add(cf.y), cf.y.sub(cf.x)).mul(0.70710678);
-  const across = isH.mul(cf.y).add(isV.mul(cf.x)).add(isD1.mul(r45.y)).add(isD2.mul(r45.x));
-  const along = isH.mul(cf.x).add(isV.mul(cf.y)).add(isD1.mul(r45.x)).add(isD2.mul(r45.y));
-  // Four parallel lanes, 3.4 pitch, 1.4 wide, centred (with a seeded offset) in the cell.
-  const off = h21(cell.add(9.1)).sub(0.5).mul(40);
-  const centre = isH
-    .add(isV)
-    .mul(CELL / 2)
-    .add(isD2.mul(CELL * 0.70710678))
-    .add(off);
-  const laneF = across.sub(centre).add(float(2 * 3.4));
-  const lane = floor(laneF.div(3.4));
-  const laneD = abs(fract(laneF.div(3.4)).sub(0.5)).mul(3.4);
-  const inBand = step(0.0, lane).mul(step(lane, float(3)));
-  const laneH = h21(vec2(lane, cell.x.mul(7.3).add(cell.y.mul(3.7)).add(seed)));
-  const laneOn = inBand.mul(step(0.18, laneH)).mul(isBus);
-  const accent = step(0.86, h21(vec2(lane.add(cell.x.mul(5.1)), cell.y.add(seed))));
-  const traceCov = aaLine(laneD, float(0.7), pw).mul(laneOn);
-  const traceCol = mix(vec3(0.05, 0.42, 0.62), vec3(0.95, 0.5, 0.14), accent);
-  // Mask over trace shows a faint raised edge: thin brighter rim, darker core.
-  const rim = aaLine(laneD.sub(0.55).abs(), float(0.16), pw).mul(laneOn).mul(0.5);
-  col.addAssign(traceCol.mul(traceCov.mul(0.8)).add(vec3(0.1, 0.5, 0.7).mul(rim).mul(0.5)));
+    // --- 96-unit routing cells: one bus orientation per cell ----------------------
+    const CELL = 96;
+    const cell = floor(p.div(CELL));
+    const cf = fract(p.div(CELL)).mul(CELL);
+    const ch = h21(cell.add(seed.mul(3.1)));
+    const mode = floor(ch.mul(6)); // 0 horiz, 1 vert, 2 diag45, 3 diag135, 4 ground pour, 5 via field
+    const isMode = (k: number) => step(0.5, float(1).sub(abs(mode.sub(k)).min(1)));
+    const isH = isMode(0);
+    const isV = isMode(1);
+    const isD1 = isMode(2);
+    const isD2 = isMode(3);
+    const isBus = isH.add(isV).add(isD1).add(isD2);
+    // Across / along coordinates in the bus frame (45 degree buses rotate the frame).
+    const r45 = vec2(cf.x.add(cf.y), cf.y.sub(cf.x)).mul(0.70710678);
+    const across = isH.mul(cf.y).add(isV.mul(cf.x)).add(isD1.mul(r45.y)).add(isD2.mul(r45.x));
+    const along = isH.mul(cf.x).add(isV.mul(cf.y)).add(isD1.mul(r45.x)).add(isD2.mul(r45.y));
+    // Four parallel lanes, 3.4 pitch, 1.4 wide, centred (with a seeded offset) in the cell.
+    const off = h21(cell.add(9.1)).sub(0.5).mul(40);
+    const centre = isH
+      .add(isV)
+      .mul(CELL / 2)
+      .add(isD2.mul(CELL * 0.70710678))
+      .add(off);
+    const laneF = across.sub(centre).add(float(2 * 3.4));
+    const lane = floor(laneF.div(3.4));
+    const laneD = abs(fract(laneF.div(3.4)).sub(0.5)).mul(3.4);
+    const inBand = step(0.0, lane).mul(step(lane, float(3)));
+    const laneH = h21(vec2(lane, cell.x.mul(7.3).add(cell.y.mul(3.7)).add(seed)));
+    const laneOn = inBand.mul(step(0.18, laneH)).mul(isBus);
+    const accent = step(0.86, h21(vec2(lane.add(cell.x.mul(5.1)), cell.y.add(seed))));
+    const traceCov = aaLine(laneD, float(0.7), pw).mul(laneOn).mul(detail);
+    const traceCol = mix(vec3(0.05, 0.42, 0.62), vec3(0.95, 0.5, 0.14), accent);
+    // Mask over trace shows a faint raised edge: thin brighter rim, darker core.
+    const rim = aaLine(laneD.sub(0.55).abs(), float(0.16), pw).mul(laneOn).mul(0.5).mul(detail);
+    col.addAssign(traceCol.mul(traceCov.mul(0.8)).add(vec3(0.1, 0.5, 0.7).mul(rim).mul(0.5)));
 
-  // Embers: light packets flowing along each lane (seeded speed / direction / spacing).
-  const period = float(34).add(laneH.mul(46));
-  const dirS = step(0.5, h21(vec2(lane.add(2.2), cell.x.add(cell.y))))
-    .mul(2)
-    .sub(1);
-  const spd = float(7).add(laneH.mul(20)).mul(dirS);
-  const q = fract(along.div(period).sub(tm.mul(spd).div(period).mul(life)).add(laneH.mul(9)));
-  const ember = exp(q.mul(-20)).mul(smoothstep(0.0, 0.01, q));
-  const emberOn = step(0.45, h21(vec2(lane.add(3.3), cell.x.add(cell.y.mul(1.7)))));
-  col.addAssign(
-    mix(vec3(0.3, 0.95, 1.0), vec3(1.0, 0.62, 0.22), accent)
-      .mul(ember.mul(traceCov).mul(emberOn).mul(2.2))
-      .mul(float(0.3).add(life.mul(0.7)))
-  );
+    // Embers: light packets flowing along each lane (seeded speed / direction / spacing).
+    const period = float(34).add(laneH.mul(46));
+    const dirS = step(0.5, h21(vec2(lane.add(2.2), cell.x.add(cell.y))))
+      .mul(2)
+      .sub(1);
+    const spd = float(7).add(laneH.mul(20)).mul(dirS);
+    const q = fract(along.div(period).sub(tm.mul(spd).div(period).mul(life)).add(laneH.mul(9)));
+    const ember = exp(q.mul(-20)).mul(smoothstep(0.0, 0.01, q));
+    const emberOn = step(0.45, h21(vec2(lane.add(3.3), cell.x.add(cell.y.mul(1.7)))));
+    col.addAssign(
+      mix(vec3(0.3, 0.95, 1.0), vec3(1.0, 0.62, 0.22), accent)
+        .mul(ember.mul(traceCov).mul(emberOn).mul(2.2))
+        .mul(float(0.3).add(life.mul(0.7)))
+    );
 
-  // --- ground pour hatch (45 degrees, 2.6 pitch) in pour cells ----------------------
-  const isPour = isMode(4);
-  const hatch = aaLine(abs(fract(r45.x.div(2.6)).sub(0.5)).mul(2.6), float(0.22), pw).mul(isPour);
-  col.addAssign(vec3(0.03, 0.12, 0.2).mul(hatch).mul(0.55));
+    // --- ground pour hatch (45 degrees, 2.6 pitch) in pour cells ----------------------
+    const isPour = isMode(4);
+    const hatch = aaLine(abs(fract(r45.x.div(2.6)).sub(0.5)).mul(2.6), float(0.22), pw)
+      .mul(isPour)
+      .mul(detail);
+    col.addAssign(vec3(0.03, 0.12, 0.2).mul(hatch).mul(0.55));
 
-  // --- vias + pads on a 12-unit lattice (gold ring, drilled hole) -------------------
-  const VG = 12;
-  const vcell = floor(p.div(VG));
-  const vc = fract(p.div(VG))
-    .mul(VG)
-    .sub(VG / 2);
-  const vh = h21(vcell.add(seed.mul(2.7)));
-  const viaOn = step(0.9, vh).add(
-    step(0.5, vh)
-      .mul(step(vh, 0.58))
-      .mul(isPour.add(isMode(5)))
-  );
-  const vr = length(vc);
-  const padCov = aaLine(vr.sub(1.9), float(1.0), pw).mul(viaOn.min(1));
-  const holeCov = aaLine(vr, float(0.55), pw).mul(viaOn.min(1));
-  col.assign(mix(col, vec3(0.5, 0.36, 0.14).mul(0.9), padCov.mul(0.85)));
-  col.assign(mix(col, vec3(0.004, 0.006, 0.012), holeCov));
+    // --- vias + pads on a 12-unit lattice (gold ring, drilled hole) -------------------
+    const VG = 12;
+    const vcell = floor(p.div(VG));
+    const vc = fract(p.div(VG))
+      .mul(VG)
+      .sub(VG / 2);
+    const vh = h21(vcell.add(seed.mul(2.7)));
+    const viaOn = step(0.9, vh).add(
+      step(0.5, vh)
+        .mul(step(vh, 0.58))
+        .mul(isPour.add(isMode(5)))
+    );
+    const vr = length(vc);
+    const padCov = aaLine(vr.sub(1.9), float(1.0), pw).mul(viaOn.min(1));
+    const holeCov = aaLine(vr, float(0.55), pw).mul(viaOn.min(1));
+    col.assign(mix(col, vec3(0.5, 0.36, 0.14).mul(0.9), padCov.mul(0.85)));
+    col.assign(mix(col, vec3(0.004, 0.006, 0.012), holeCov));
 
-  // --- silkscreen: component outline boxes + dashed rules + ticks -------------------
-  const sc = floor(p.div(96));
-  const sf = fract(p.div(96)).mul(96);
-  const sh = h21(sc.add(seed.mul(5.3)));
-  const boxOn = step(0.7, sh);
-  const bc = vec2(h21(sc.add(1.1)).mul(40).add(14), h21(sc.add(2.2)).mul(40).add(14));
-  const bs = vec2(h21(sc.add(3.3)).mul(18).add(8), h21(sc.add(4.4)).mul(14).add(6));
-  const bd = abs(sf.sub(bc)).sub(bs);
-  const sdBox = max(bd.x, bd.y);
-  const outline = aaLine(abs(sdBox), float(0.28), pw).mul(boxOn);
-  const tick = aaLine(abs(fract(sf.x.div(3.2)).sub(0.5)).mul(3.2), float(0.25), pw)
-    .mul(step(abs(sf.y.sub(bc.y.sub(bs.y).sub(3))), 1.0))
-    .mul(boxOn)
-    .mul(step(abs(sf.x.sub(bc.x)), bs.x));
-  col.addAssign(
-    vec3(0.5, 0.62, 0.75)
-      .mul(outline.add(tick.mul(0.8)))
-      .mul(0.16)
-  );
+    // --- silkscreen: component outline boxes + dashed rules + ticks -------------------
+    const sc = floor(p.div(96));
+    const sf = fract(p.div(96)).mul(96);
+    const sh = h21(sc.add(seed.mul(5.3)));
+    const boxOn = step(0.7, sh);
+    const bc = vec2(h21(sc.add(1.1)).mul(40).add(14), h21(sc.add(2.2)).mul(40).add(14));
+    const bs = vec2(h21(sc.add(3.3)).mul(18).add(8), h21(sc.add(4.4)).mul(14).add(6));
+    const bd = abs(sf.sub(bc)).sub(bs);
+    const sdBox = max(bd.x, bd.y);
+    const outline = aaLine(abs(sdBox), float(0.28), pw).mul(boxOn).mul(detail);
+    const tick = aaLine(abs(fract(sf.x.div(3.2)).sub(0.5)).mul(3.2), float(0.25), pw)
+      .mul(step(abs(sf.y.sub(bc.y.sub(bs.y).sub(3))), 1.0))
+      .mul(boxOn)
+      .mul(step(abs(sf.x.sub(bc.x)), bs.x));
+    col.addAssign(
+      vec3(0.5, 0.62, 0.75)
+        .mul(outline.add(tick.mul(0.8)))
+        .mul(0.16)
+    );
 
-  // Crisp detail fades to its mean colour with distance (and sub-pixel size) via aaLine's
-  // area term; the extra gentle atmospheric falloff keeps the far wall calm.
-  return col.mul(exp(dist.mul(-0.00012)).mul(0.5).add(0.5));
-});
+    // Crisp detail fades to its mean colour with distance (and sub-pixel size) via aaLine's
+    // area term; the extra gentle atmospheric falloff keeps the far wall calm.
+    return col.mul(exp(dist.mul(-0.00012)).mul(0.5).add(0.5));
+  }
+);
