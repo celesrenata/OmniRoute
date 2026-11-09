@@ -14,12 +14,35 @@ import type { PerspectiveCamera } from "three";
 import { useAtomicSceneContext } from "./sceneContext";
 import { containerBounds, softClampToBounds } from "./containerBounds";
 
+// Dev A/B only: `?clamp=0` disables the containment (proves it never fights focus/zoom).
+const noClamp =
+  typeof window !== "undefined" &&
+  process.env.NODE_ENV !== "production" &&
+  new URLSearchParams(window.location.search).get("clamp") === "0";
+
+/** Dev-only camera dump for the camera-limit / focus evidence scripts. */
+function writeCamDebug(
+  pos: { x: number; y: number; z: number },
+  target: readonly number[],
+  bounds: unknown,
+  far: number
+): void {
+  if (process.env.NODE_ENV === "production" || typeof window === "undefined") return;
+  (window as unknown as { __atomicCamDbg?: unknown }).__atomicCamDbg = {
+    pos: [pos.x, pos.y, pos.z],
+    target: [...target],
+    bounds,
+    far,
+  };
+}
+
 export function ContainerCameraClamp() {
   const camera = useThree((s) => s.camera) as PerspectiveCamera;
   const { cameraState } = useAtomicSceneContext();
   useFrame(() => {
     const b = containerBounds.value;
-    if (!b) return;
+    writeCamDebug(camera.position, cameraState.target, b, camera.far);
+    if (!b || noClamp) return;
     const p = camera.position;
     const c = softClampToBounds([p.x, p.y, p.z], b);
     if (c[0] === p.x && c[1] === p.y && c[2] === p.z) return;

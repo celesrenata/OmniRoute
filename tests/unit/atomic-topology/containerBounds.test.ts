@@ -36,3 +36,47 @@ test("softClampToBounds: clamps all three axes, returns a new tuple", () => {
   const inside = softClampToBounds([0, 300, 500], B);
   assert.deepEqual(inside, [0, 300, 500]);
 });
+
+import { buildGoldenSnapshot } from "../../../src/app/dev/atomic-bench/goldenSnapshot";
+import { resolveAtomDescriptors } from "../../../src/plugins/atomic-topology/AtomicTopologyRenderer";
+import {
+  computeCameraFit,
+  computeCameraFocus,
+  computeFitRadiusFromPositions,
+} from "../../../src/plugins/atomic-topology/cameraFit";
+import { environmentLayoutFor } from "../../../src/plugins/atomic-topology/scene/rt/topologyScene";
+
+test("containment never fights the default pose or any focus pose (directive 25)", () => {
+  for (const atomCount of [8, 16, 20, 32] as const) {
+    for (const aspect of [1, 1.6, 2.2]) {
+      const ds = resolveAtomDescriptors(buildGoldenSnapshot({ atomCount } as never));
+      const radius = computeFitRadiusFromPositions(
+        ds.filter((d) => d.kind !== "hub").map((d) => d.position),
+        120
+      );
+      const fit = computeCameraFit({ fovDeg: 50, aspect, radius });
+      const env = environmentLayoutFor(ds, { position: fit.position });
+      const bounds = {
+        min: [-env.wallX, env.floorY, env.farZ] as [number, number, number],
+        max: [env.wallX, env.ceilY, env.nearZ] as [number, number, number],
+      };
+      assert.deepEqual(softClampToBounds(fit.position, bounds), fit.position, "default pose");
+      for (const d of ds) {
+        const f = computeCameraFocus(d.position, { fovDeg: 50, aspect, radius });
+        assert.deepEqual(
+          softClampToBounds(f.position, bounds),
+          f.position,
+          `focus pose of ${d.id} (${atomCount} atoms, aspect ${aspect}) is untouched`
+        );
+      }
+    }
+  }
+});
+
+test("container is snug: the far wall hugs the topology, not a warehouse", () => {
+  const ds = resolveAtomDescriptors(buildGoldenSnapshot({ atomCount: 20 } as never));
+  const maxR = Math.max(...ds.map((d) => Math.hypot(d.position.x, d.position.z)));
+  const env = environmentLayoutFor(ds, { position: [0, 315, 1261] });
+  assert.ok(-env.farZ <= maxR + 600, "far wall within 600 of the outermost atom");
+  assert.ok(env.wallX <= maxR + 700, "side walls frame the layout");
+});

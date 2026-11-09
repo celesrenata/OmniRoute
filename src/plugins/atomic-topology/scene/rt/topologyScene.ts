@@ -103,17 +103,30 @@ export function environmentLayoutFor(
       };
     });
   const scale = Math.max(1, maxR / 420);
+  // Snug container (directive 24): walls frame the topology. Every pose the
+  // unchanged camera can take WITHOUT user input must lie in the free zone of
+  // the soft containment (directive 25: it never fights focus): the default fit
+  // pose and every focus pose (= fit pose slid onto an atom, see
+  // `computeCameraFocus`), so the extents add the atoms' own extents to the
+  // fit pose plus {@link CONTAINER_MARGIN}.
   const cam = enclose?.position ?? [0, 0, 0];
   const camOk = cam.every(Number.isFinite);
-  const camZ = camOk ? cam[2] : 0;
-  const camY = camOk ? cam[1] : 0;
   const camX = camOk ? Math.abs(cam[0]) : 0;
+  const camY = camOk ? cam[1] : 0;
+  const camZ = camOk ? cam[2] : 0;
+  let maxZ = 0;
+  let maxAbsX = 0;
+  for (const a of atoms) {
+    if (![a.position.x, a.position.y, a.position.z].every(Number.isFinite)) continue;
+    maxZ = Math.max(maxZ, a.position.z);
+    maxAbsX = Math.max(maxAbsX, Math.abs(a.position.x));
+  }
   return {
     pedestals,
-    nearZ: Math.max(900, camZ + maxR * 0.5 + CONTAINER_MARGIN),
-    wallX: Math.max(420, maxR + 520, camX + CONTAINER_MARGIN),
-    ceilY: Math.max(300, maxY + 260 + maxR * 0.45, camY + CONTAINER_MARGIN),
-    farZ: -Math.max(1700, maxR + 1600),
+    nearZ: Math.max(900, camZ + maxZ + CONTAINER_MARGIN),
+    wallX: Math.max(420, maxR + 460, camX + maxAbsX + CONTAINER_MARGIN),
+    ceilY: Math.max(300, camY + maxY + CONTAINER_MARGIN),
+    farZ: -Math.max(900, maxR + 560),
     scale,
     floorY,
     moteCenter: [0, (minY + maxY) / 2 + 60, 0],
