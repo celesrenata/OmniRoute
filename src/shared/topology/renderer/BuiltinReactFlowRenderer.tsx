@@ -45,12 +45,18 @@ type HostedContainer = HTMLElement & { [CONTAINER_HOST_KEY]?: Builtin2DHost | nu
 
 class Builtin2DHost {
   private root: Root | null = null;
+  /** The instance that currently owns this host (a re-mount adopts it). */
+  owner: symbol | null = null;
 
   constructor(
     private readonly container: HTMLElement,
-    private readonly options: TopologyRendererOptions
+    private options: TopologyRendererOptions
   ) {
     this.root = createRoot(container);
+  }
+
+  setOptions(options: TopologyRendererOptions): void {
+    this.options = options;
   }
 
   render(snapshot: TopologySceneSnapshot): void {
@@ -76,17 +82,24 @@ function mount(
   snapshot: TopologySceneSnapshot,
   options: TopologyRendererOptions
 ): TopologyRendererInstance {
-  // The host disposes before re-mounting, but defensively unmount any prior
-  // root on the same container so a double-mount never leaks a React root.
+  // A second mount on the same container (React StrictMode re-runs the host's
+  // mount effect while the first instance's dispose is still deferred) ADOPTS
+  // the existing root instead of unmounting it synchronously: unmounting a root
+  // from inside the host's commit triggers React's "synchronously unmount a root
+  // while React was already rendering" error. Only the owning instance may
+  // render into or dispose the root, so a superseded instance's late dispose is
+  // a no-op and exactly one React root ever lives in the container.
   const hosted = container as HostedContainer;
-  if (hosted[CONTAINER_HOST_KEY]) hosted[CONTAINER_HOST_KEY].dispose();
-
-  const host = new Builtin2DHost(container, options);
+  const host = hosted[CONTAINER_HOST_KEY] ?? new Builtin2DHost(container, options);
+  const owner = Symbol("renderer2d.instance");
+  host.owner = owner;
+  host.setOptions(options);
   hosted[CONTAINER_HOST_KEY] = host;
   host.render(snapshot);
 
   return {
     update(next: TopologySceneSnapshot): void {
+      if (host.owner !== owner) return;
       host.render(next);
     },
     resize(_width: number, _height: number): void {
@@ -99,6 +112,8 @@ function mount(
       // No-op in M1: the home panel has no focus-node requirement.
     },
     dispose(): void {
+      if (host.owner !== owner) return; // superseded by a newer mount that owns the root
+      host.owner = null;
       host.dispose();
       hosted[CONTAINER_HOST_KEY] = null;
     },
