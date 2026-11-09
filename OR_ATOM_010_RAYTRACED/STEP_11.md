@@ -212,3 +212,12 @@ Open items (honest):
 - No real GPU atom (39.4).
 - Feeders on real /home have not been seen lit (no real usage / WS origin).
 - FORBIDDEN_ORIGIN remains by policy.
+
+## Sign-off (Step 11 approved)
+
+The operator APPROVED Step 11 at checkpoint 3d (head `1d0ccd994`). Decision on 39.3: the current fullscreen pacing is accepted for now. Uncapped fullscreen detail runs 68-86 fps; with vsync it runs 63-79 fps with no frame over 30 ms. Deferred to the perf phase (OPERATOR_DIRECTIVES.md item 41):
+
+- mixed-resolution rendering for the hero atom's translucent layers, to reach >=120 fps uncapped without a look change;
+- verifying the usage-driven feeder traces (directive 40) on real /home data.
+
+Still open, carried forward: no real GPU atom on the fleet (39.4), and FORBIDDEN_ORIGIN on the dev server stays by policy.
