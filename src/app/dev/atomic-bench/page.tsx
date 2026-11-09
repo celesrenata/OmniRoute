@@ -68,7 +68,7 @@ function parseAtomCount(raw: string | null): number | undefined {
 
 function useBenchScene(
   atomCount: number | undefined,
-  opts: { allIdle?: boolean; errorPhase?: "error" | "recovered" } = {}
+  opts: { allIdle?: boolean; errorPhase?: "error" | "recovered" | "completed" } = {}
 ) {
   const { allIdle, errorPhase } = opts;
   return useMemo(() => {
@@ -91,13 +91,15 @@ function useBenchScene(
  * again, every 6 s, so the scene shows the real failure transition (red
  * branching bolt + nucleus flash) instead of a static error.
  */
-function useFailureCycle(enabled: boolean): "error" | "recovered" {
-  const [phase, setPhase] = useState<"error" | "recovered">("error");
+function useFailureCycle(mode: "off" | "cycle" | "strike"): "error" | "recovered" | "completed" {
+  const enabled = mode !== "off";
+  const [phase, setPhase] = useState<"error" | "recovered" | "completed">("error");
   useEffect(() => {
     if (!enabled) return;
-    const id = setInterval(() => setPhase((p) => (p === "error" ? "recovered" : "error")), 3000);
+    const other = mode === "strike" ? "completed" : "recovered";
+    const id = setInterval(() => setPhase((p) => (p === "error" ? other : "error")), 3000);
     return () => clearInterval(id);
-  }, [enabled]);
+  }, [enabled, mode]);
   return phase;
 }
 
@@ -164,7 +166,10 @@ function BenchBody() {
   const showBadge = searchParams.get("badge") !== "0";
   const atomCount = parseAtomCount(searchParams.get("atoms"));
 
-  const errorPhase = useFailureCycle(searchParams.get("failure") === "cycle");
+  const failureMode = searchParams.get("failure");
+  const errorPhase = useFailureCycle(
+    failureMode === "strike" ? "strike" : failureMode === "cycle" ? "cycle" : "off"
+  );
   const allIdle = searchParams.get("idle") === "1";
   const { snapshot, eventPool } = useBenchScene(atomCount, { allIdle, errorPhase });
   const [ready, setReady] = useState(false);

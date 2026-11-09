@@ -68,7 +68,7 @@ export interface GoldenSnapshotOptions {
    * active (no error), so flipping back to the default `"error"` is a real
    * state transition that books the failure discharge. Omitted -> `"error"`.
    */
-  errorPhase?: "error" | "recovered";
+  errorPhase?: "error" | "recovered" | "completed";
   /**
    * DEMO idle topology (Gate B): every provider idle, no in-flight requests and
    * no fleet reconciliation (nothing measured -> lower energy state).
@@ -208,7 +208,10 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
 export function buildGoldenSnapshot(options: GoldenSnapshotOptions = {}): TopologySceneSnapshot {
   const fleet = buildFleet(options);
   const reconciliation = options.allIdle ? undefined : reconcileSnapshot(fleet);
-  const recovered = options.errorPhase === "recovered";
+  // `completed`: the error provider just finished a request (last-used, not failing): the
+  // transition into it books the completion discharge; back to `error` books the failure strike.
+  const completed = options.errorPhase === "completed";
+  const recovered = options.errorPhase === "recovered" || completed;
   const idleAll = !!options.allIdle;
 
   // Scaled providers: the first 4 get one in-flight model each (KNOWN lane,
@@ -257,7 +260,7 @@ export function buildGoldenSnapshot(options: GoldenSnapshotOptions = {}): Topolo
           // bench-error: no active requests (error state)
           ...scaledRequests,
         ],
-    lastProvider: idleAll ? undefined : "bench-primary",
+    lastProvider: idleAll ? undefined : completed ? "bench-error" : "bench-primary",
     errorProvider: idleAll || recovered ? undefined : "bench-error",
     lifecycleEvents:
       idleAll || recovered
