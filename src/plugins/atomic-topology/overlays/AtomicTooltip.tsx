@@ -28,30 +28,14 @@
  */
 import { Fragment } from "react";
 import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
+import { activityCopy, activityLine } from "./activityVocabulary";
 
 /**
  * Human copy for the spin row, by provenance. "measured-zero" is a *real*
  * observed 0 (quiet upstream) and must not read as missing; "unavailable"
  * means no telemetry was sampled at all (no fabricated rate).
  */
-/**
- * Activity row (operator directive 30): decorative vitality must never read as live
- * work, so the tooltip states which energy tier the atom is in and why.
- */
-export function activityCopy(
-  tier: 0 | 1 | 2 | 3,
-  lastActivityAt: number | null,
-  now: number
-): string {
-  if (tier === 0) return "no data (stale or unknown health)";
-  if (tier === 3) return "active (live or measured work)";
-  if (tier === 2 && lastActivityAt != null && Number.isFinite(lastActivityAt)) {
-    const mins = Math.max(0, Math.round((now - lastActivityAt) / 60_000));
-    return mins < 1 ? "recent activity < 1m ago" : `recent activity ${mins}m ago`;
-  }
-  return "idle, no measured activity";
-}
-
+export { activityCopy };
 function spinCopy(descriptor: AtomVisualDescriptor): string {
   const { value, mode } = descriptor.spin;
   switch (mode) {
@@ -197,7 +181,8 @@ export function AtomicTooltip({
         <dd>{state}</dd>
         <dt>Activity</dt>
         <dd>
-          {activityCopy(
+          {activityLine(
+            state,
             descriptor.energyTier,
             descriptor.lastActivityAt,
             capturedAt ?? descriptor.lastActivityAt ?? 0

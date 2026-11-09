@@ -22,7 +22,12 @@ fs.mkdirSync(outDir, { recursive: true });
 const browser = await chromium.launch({
   channel: "chrome",
   headless: false,
-  args: ["--enable-unsafe-webgpu", "--enable-gpu", "--ignore-gpu-blocklist"],
+  args: [
+    "--enable-unsafe-webgpu",
+    "--enable-gpu",
+    "--ignore-gpu-blocklist",
+    ...(process.env.UNCAPPED ? ["--disable-frame-rate-limit", "--disable-gpu-vsync"] : []),
+  ],
 });
 const report = { errors: [], steps: {} };
 
@@ -42,6 +47,34 @@ async function session(name, { reduced = false, video = false } = {}) {
   return { ctx, page };
 }
 
+const framePerf = (page) =>
+  page.evaluate(
+    () =>
+      new Promise((res) => {
+        const d = [];
+        let last = performance.now();
+        const t0 = last;
+        const tick = (now) => {
+          d.push(now - last);
+          last = now;
+          if (now - t0 < 5000) requestAnimationFrame(tick);
+          else {
+            d.shift();
+            const a = [...d].sort((x, y) => x - y);
+            const q = (p) =>
+              Math.round(a[Math.min(a.length - 1, Math.floor(a.length * p))] * 10) / 10;
+            res({
+              fps: Math.round((d.length / (d.reduce((x, y) => x + y, 0) / 1000)) * 10) / 10,
+              p50: q(0.5),
+              p95: q(0.95),
+              p99: q(0.99),
+              spikes30: d.filter((x) => x > 30).length,
+            });
+          }
+        };
+        requestAnimationFrame(tick);
+      })
+  );
 const camDist = (page) =>
   page.evaluate(() => {
     const d = window.__atomicCamDbg;
@@ -65,12 +98,13 @@ async function gpuId(page) {
 // ---- Flow 1: default -> focus -> detail (fly-in frames) -> exit -------------
 {
   const { ctx, page } = await session("flow", { video: !!process.env.VIDEO });
-  await page.goto(`${base}/dev/atomic-bench?atoms=20&paused=0`);
+  await page.goto(`${base}/dev/atomic-bench?atoms=20&paused=0&instance=1`);
   await page.waitForSelector('[data-ready="true"]', { timeout: 120000 });
   await page.waitForTimeout(3500);
   const id = await gpuId(page);
   report.gpuId = id;
   report.steps.defaultCam = await camDist(page);
+  report.steps.perfDefault = await framePerf(page);
   report.steps.detailPanelAtDefault = await page.locator('[data-atomic-detail="true"]').count();
   report.steps.openButtonAtDefault = await page.locator("[data-atomic-open-detail]").count();
   await page.screenshot({ type: "jpeg", quality: 88, path: path.join(outDir, "default.jpg") });
@@ -79,6 +113,7 @@ async function gpuId(page) {
   await page.locator(`[data-atom-id="${id}"]`).first().click({ force: true });
   await page.waitForTimeout(2500);
   report.steps.focusCam = await camDist(page);
+  report.steps.perfFocus = await framePerf(page);
   report.steps.openButtonAtFocus = await page.locator("[data-atomic-open-detail]").count();
   await page.screenshot({ type: "jpeg", quality: 88, path: path.join(outDir, "focus.jpg") });
 
@@ -110,8 +145,26 @@ async function gpuId(page) {
         }
       : null;
   });
+  report.steps.focusedLabelDisplay = await page.evaluate((i) => {
+    const el = document.querySelector(`.atomic-labels [data-atom-id="${i}"]`);
+    return el ? getComputedStyle(el).display : "missing";
+  }, id);
+  report.steps.otherLabelOpacity = await page.evaluate((i) => {
+    const el = [...document.querySelectorAll(".atomic-labels__row")].find(
+      (e) => e.getAttribute("data-atom-id") !== i
+    );
+    return el ? getComputedStyle(el).opacity : null;
+  }, id);
+  report.steps.labelChip = await page.evaluate((i) => {
+    const el = document.querySelector(`.atomic-labels [data-atom-id="${i}"] .atomic-labels__state`);
+    return el ? el.textContent : null;
+  }, id);
   report.steps.tooltipHiddenInDetail =
     (await page.locator('[data-atomic-tooltip="true"]').count()) === 0;
+  report.steps.detailCamPos = await camDist(page);
+  report.steps.perfDetailOpen = await framePerf(page);
+  await page.waitForTimeout(6000);
+  report.steps.detailCamAfterDrift = await camDist(page);
   await page.screenshot({ type: "jpeg", quality: 88, path: path.join(outDir, "detail.jpg") });
 
   // Exit with Escape: previous framing returns, panel is gone.
@@ -126,6 +179,14 @@ async function gpuId(page) {
   await page.waitForTimeout(2200);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("atomic:reset-view")));
   await page.waitForTimeout(800);
+  // The bench lacks the dashboard CSS that makes the control hit-testable, so click
+  // it programmatically (same React onClick -> window event -> instance listener path).
+  await page.evaluate(() => document.querySelector('[data-atomic-control="reset"]').click());
+  await page.waitForTimeout(2500);
+  report.steps.panelAfterResetClick = await page.locator('[data-atomic-detail="true"]').count();
+  report.steps.camAfterResetClick = await camDist(page);
+  report.steps.tooltipAfterResetClick = await page.locator('[data-atomic-tooltip="true"]').count();
+  await page.screenshot({ type: "jpeg", quality: 88, path: path.join(outDir, "reset.jpg") });
   report.steps.panelAfterResetEvent = await page.locator('[data-atomic-detail="true"]').count();
   const video = page.video();
   await ctx.close();

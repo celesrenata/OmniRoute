@@ -38,7 +38,10 @@ import {
   createAtomicEventPool,
   mapLifecycleToAtomicEvents,
 } from "@/plugins/atomic-topology/eventPool";
-import { AtomicTopologyRenderer } from "@/plugins/atomic-topology/AtomicTopologyRenderer";
+import {
+  AtomicTopologyRenderer,
+  createAtomicTopologyInstance,
+} from "@/plugins/atomic-topology/AtomicTopologyRenderer";
 
 import { buildGoldenSnapshot } from "./goldenSnapshot";
 import {
@@ -157,7 +160,64 @@ function BenchRouter() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sp]);
-  return params ? <GoldenAtomBench params={params} /> : <BenchBody />;
+  if (params) return <GoldenAtomBench params={params} />;
+  // `?instance=1` mounts the REAL imperative renderer instance (the dashboard's
+  // contract), so window-event controls (Reset view, pause) are testable live.
+  return sp.get("instance") === "1" ? <InstanceBench /> : <BenchBody />;
+}
+/**
+ * The bench driven through `createAtomicTopologyInstance`, exactly as the
+ * dashboard host does: the instance owns focus / detail / reset state and
+ * listens for the `atomic:reset-view` and `atomic:toggle-pause` window events.
+ * Dev-only: `window.__benchInstance` exposes the instance for live checks.
+ */
+function InstanceBench() {
+  const sp = useSearchParams();
+  const atomCount = parseAtomCount(sp.get("atoms"));
+  const { snapshot } = useBenchScene(atomCount, { allIdle: sp.get("idle") === "1" });
+  const hostRef = useRef<HTMLElement | null>(null);
+  const [ready, setReady] = useState(false);
+  const nodeParam = sp.get("node");
+  const paused = sp.get("paused") !== "0";
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const inst = createAtomicTopologyInstance(host, snapshot, {
+      emptyStateLabel: "Atomic bench: WebGL2 unavailable",
+    });
+    inst.resize(BENCH_WIDTH, BENCH_HEIGHT);
+    inst.setPaused(paused);
+    if (nodeParam) inst.focusNode(nodeParam);
+    (window as unknown as { __benchInstance?: unknown }).__benchInstance = inst;
+    const check = () => {
+      if (host.querySelector("canvas")) setReady(true);
+    };
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(host, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      delete (window as unknown as { __benchInstance?: unknown }).__benchInstance;
+      // Deferred: a synchronous root unmount during React's own render/cleanup is illegal.
+      setTimeout(() => inst.dispose(), 0);
+    };
+  }, [snapshot, paused, nodeParam]);
+  return (
+    <main
+      data-atomic-bench="true"
+      data-provenance="DEMO"
+      data-bench-mode="instance"
+      data-ready={ready ? "true" : "false"}
+      ref={hostRef}
+      style={{
+        position: "relative",
+        width: BENCH_WIDTH,
+        height: BENCH_HEIGHT,
+        background: "#05060f",
+        overflow: "hidden",
+      }}
+    />
+  );
 }
 function BenchBody() {
   const searchParams = useSearchParams();

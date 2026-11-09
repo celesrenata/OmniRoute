@@ -21,6 +21,7 @@
  */
 import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
 import type { AtomicEvent } from "../eventPool";
+import { activityLine } from "../overlays/activityVocabulary";
 import { LANE_HUES } from "../visualEncoding";
 import { fnv1a } from "./cloudShells";
 import { buildNucleusCluster } from "./nucleusCluster";
@@ -158,16 +159,6 @@ function modelBasis(d: AtomVisualDescriptor, id: string): string {
   return "fleet residency (proven runtime)";
 }
 
-function activityLine(d: AtomVisualDescriptor, now: number): string {
-  if (d.energyTier === 0) return "no data (stale or unknown health)";
-  if (d.energyTier === 3) return "active (live or measured work)";
-  if (d.energyTier === 2 && d.lastActivityAt != null && Number.isFinite(d.lastActivityAt)) {
-    const mins = Math.max(0, Math.round((now - d.lastActivityAt) / 60_000));
-    return mins < 1 ? "recent activity < 1m ago" : `recent activity ${mins}m ago`;
-  }
-  return "idle, no measured activity";
-}
-
 /** Count nucleons per model group using the scene's own deterministic allocator. */
 export function countNucleonsByModel(
   atomId: string,
@@ -302,7 +293,7 @@ export function buildDetailModel(d: AtomVisualDescriptor, ctx: DetailContext): D
     laneHue: d.laneHue || LANE_HUES.unknown,
     deviceFacts,
     jobs,
-    activity: activityLine(d, ctx.now),
+    activity: activityLine(d.visualState.state, d.energyTier, d.lastActivityAt, ctx.now),
     provenance:
       "Values are measured telemetry; decorative idle light is not activity. " +
       "Panels appear only when a real value exists.",

@@ -6,19 +6,33 @@
       "pos": [0, 315, 1261],
       "target": [0, 0, 0]
     },
+    "perfDefault": {
+      "fps": 60,
+      "p50": 16.7,
+      "p95": 17.6,
+      "p99": 17.7,
+      "spikes30": 0
+    },
     "detailPanelAtDefault": 0,
     "openButtonAtDefault": 0,
     "focusCam": {
-      "dist": 520.3063042708009,
+      "dist": 520.3063059100446,
       "pos": [46, 251, -31],
       "target": [46, 48, -510]
+    },
+    "perfFocus": {
+      "fps": 60,
+      "p50": 16.7,
+      "p95": 17.6,
+      "p99": 17.7,
+      "spikes30": 0
     },
     "openButtonAtFocus": 1,
     "flight": [
       {
         "at": 250,
         "cam": {
-          "dist": 516.358053140954,
+          "dist": 516.4139684087141,
           "pos": [50, 249, -34],
           "target": [46, 48, -510]
         }
@@ -26,45 +40,72 @@
       {
         "at": 700,
         "cam": {
-          "dist": 442.35737291692806,
-          "pos": [113, 220, -108],
+          "dist": 429.0943118422991,
+          "pos": [113, 180, -107],
           "target": [46, 48, -510]
         }
       },
       {
         "at": 1200,
         "cam": {
-          "dist": 283.90312135355043,
-          "pos": [172, 159, -280],
+          "dist": 242.2303778180591,
+          "pos": [161, 79, -299],
           "target": [46, 48, -510]
         }
       }
     ],
     "detailCam": {
-      "dist": 312.84477542140814,
-      "pos": [171, 249, -306],
+      "dist": 213.99941711610217,
+      "pos": [168, 69, -335],
       "target": [46, 48, -510]
     },
     "detailPanel": {
       "atom": "gpu:bench-host:bench-gpu-b",
       "sections": ["activity", "nucleus", "orbital", "device", "jobs"],
       "jobs": ["Active jobs1 (fleet telemetry sample)", "Queued jobs0 (fleet telemetry sample)"],
-      "text": "gpu:bench-host:bench-gpu-bgpuActivity: active (live or measured work)Nucleus · modelsbench/mixtral-8x7b34/34 nucleons · fleet residency (proven runtime)Orbitals · laneLaneunknownSpin1.61 rad/s (measured output tok/s)Queue vibrationempty queue (measured)In flightno dataDevice (measured)GPU util35.0%VRAM8.00 / 24.00 GBTemp48.0 °CPower120.0 WHosted runtimesruntime:bench-host:bench-rt-b (proven runtime_device)JobsActive jobs1 (fleet telemetry sample)Queued jobs0 (fleet telemetry sample)Values are measured telemetry; decorative idle light is not activity. Panels appear only when a real value exists.Back to topology (Esc)"
+      "text": "gpu:bench-host:bench-gpu-bgpuActivity: active · active (live or measured work)Nucleus · modelsbench/mixtral-8x7b34/34 nucleons · fleet residency (proven runtime)Orbitals · laneLaneunknownSpin1.61 rad/s (measured output tok/s)Queue vibrationempty queue (measured)In flightno dataDevice (measured)GPU util35.0%VRAM8.00 / 24.00 GBTemp48.0 °CPower120.0 WHosted runtimesruntime:bench-host:bench-rt-b (proven runtime_device)JobsActive jobs1 (fleet telemetry sample)Queued jobs0 (fleet telemetry sample)Values are measured telemetry; decorative idle light is not activity. Panels appear only when a real value exists.Back to topology (Esc)"
     },
+    "focusedLabelDisplay": "none",
+    "otherLabelOpacity": "0.4",
+    "labelChip": "active",
     "tooltipHiddenInDetail": true,
+    "detailCamPos": {
+      "dist": 213.99941711610217,
+      "pos": [168, 69, -335],
+      "target": [46, 48, -510]
+    },
+    "perfDetailOpen": {
+      "fps": 60,
+      "p50": 16.7,
+      "p95": 17.5,
+      "p99": 17.6,
+      "spikes30": 0
+    },
+    "detailCamAfterDrift": {
+      "dist": 213.9994764620463,
+      "pos": [187, 69, -350],
+      "target": [46, 48, -510]
+    },
     "exitCam": {
-      "dist": 520.2981336395103,
+      "dist": 520.29813527879,
       "pos": [46, 251, -31],
       "target": [46, 48, -510]
     },
     "panelAfterExit": 0,
-    "panelAfterResetEvent": 1,
-    "reducedDetailCam400ms": {
-      "dist": 304.92208425368136,
-      "pos": [172, 236, -306],
+    "panelAfterResetClick": 0,
+    "camAfterResetClick": {
+      "dist": 520.2898603761278,
+      "pos": [46, 251, -31],
       "target": [46, 48, -510]
     },
-    "providerDetail": "PrimaryproviderActivity: active (live or measured work)Nucleus · modelsbench/claude-sonnet-411/34 nucleons · live in-flightbench/mixtral-8x7b12/34 nucleons · live in-flightbench/llama-70b11/34 nucleons · live in-flightOrbitals · laneLaneunknownSpin1.75 rad/s (measured output tok/s)Queue vibrationmeasured (amplitude 0.0)In flight3Values are measured telemetry; decorative idle light is not activity. Panels appear only when a real value exists.Back to topology (Esc)"
+    "tooltipAfterResetClick": 1,
+    "panelAfterResetEvent": 0,
+    "reducedDetailCam400ms": {
+      "dist": 213.99999999999991,
+      "pos": [158, 69, -328],
+      "target": [46, 48, -510]
+    },
+    "providerDetail": "PrimaryproviderActivity: active · active (live or measured work)Nucleus · modelsbench/claude-sonnet-411/34 nucleons · live in-flightbench/mixtral-8x7b12/34 nucleons · live in-flightbench/llama-70b11/34 nucleons · live in-flightOrbitals · laneLaneunknownSpin1.75 rad/s (measured output tok/s)Queue vibrationmeasured (amplitude 0.0)In flight3Values are measured telemetry; decorative idle light is not activity. Panels appear only when a real value exists.Back to topology (Esc)"
   },
   "gpuId": "gpu:bench-host:bench-gpu-b"
 }

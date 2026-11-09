@@ -87,6 +87,8 @@ import { AtomicLegend } from "./overlays/AtomicLegend";
 import { AtomicLabels } from "./overlays/AtomicLabels";
 import { AtomicTooltip } from "./overlays/AtomicTooltip";
 import { AtomicDetailPanel } from "./overlays/AtomicDetailPanel";
+import { detailLabelCss } from "./overlays/detailLabelCss";
+import { deviceVisualStateInput } from "./overlays/activityVocabulary";
 import {
   DETAIL_CLOSED,
   buildDetailModel,
@@ -130,6 +132,8 @@ declare global {
       providerId: string,
       kind?: "request-started" | "request-completed" | "request-failed"
     ) => { ok: boolean; reason: string; linkId?: string };
+    /** Dev-only: focus an atom and open its detail view (live verification of providers whose label click navigates away). */
+    __atomicOpenDetail?: (atomId: string) => boolean;
   }
 }
 
@@ -698,6 +702,13 @@ export function resolveAtomDescriptors(
           : undefined
         : (providersByRuntime.get(placement.id)?.[0]?.providerId ?? undefined);
 
+      // Directive 30: fresh telemetry = healthy/connected (tier 1, tier 3 while it
+      // reports work); stale / decayed telemetry = absent (tier 0, the only grey tier).
+      const deviceEnergyTier: 0 | 1 | 2 | 3 = deviceStale
+        ? 0
+        : (spinTps ?? 0) > 0 || (sumRuntime((r) => r.activeJobs) ?? 0) > 0
+          ? 3
+          : 1;
       descriptors.push({
         id: placement.id,
         kind: placement.kind,
@@ -715,16 +726,11 @@ export function resolveAtomDescriptors(
         // the spin itself (a decayed sample spins the nucleus down, never
         // holds a fake speed; multi-runtime GPUs carry null — no split).
         measuredTps: deviceStale ? null : spinTps,
-        // Device atoms are telemetry evidence, not route traffic: no route
-        // link connects them, so they render as idle/unknown (neutral).
-        visualState: resolveVisualState({ health: "unknown", traffic: "idle" }),
-        // Directive 30: fresh telemetry = healthy/connected (tier 1, tier 3 while it
-        // reports work); stale / decayed telemetry = absent (tier 0, the only grey tier).
-        energyTier: deviceStale
-          ? 0
-          : (spinTps ?? 0) > 0 || (sumRuntime((r) => r.activeJobs) ?? 0) > 0
-            ? 3
-            : 1,
+        // Device atoms are telemetry evidence, not route traffic: no route link
+        // connects them. Their chip state is derived from the energy tier so the
+        // label, tooltip and detail panel share one vocabulary (directive 34.3).
+        visualState: resolveVisualState(deviceVisualStateInput(deviceEnergyTier)),
+        energyTier: deviceEnergyTier,
         lastActivityAt: null,
         activeRequests: null,
         ringIndex: placement.ringIndex,
@@ -1083,6 +1089,9 @@ export function AtomicTopologyRenderer({
           cameraState={cameraState}
         />
         {detailDescriptor ? (
+          <style data-atomic-detail-labels="true">{detailLabelCss(detailDescriptor.id)}</style>
+        ) : null}
+        {detailDescriptor ? (
           <AtomicDetailPanel
             model={buildDetailModel(detailDescriptor, {
               now: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
@@ -1256,6 +1265,20 @@ export function createAtomicTopologyInstance(
         kind?: AtomicEventKind
       ) => { ok: boolean; reason: string; linkId?: string })
     | null = null;
+  const openDetailDev = (atomId: string): boolean => {
+    if (disposed) return false;
+    const next = openDetail(
+      state.detail,
+      atomId,
+      resolveAtomDescriptors(state.snapshot),
+      state.focusNodeId
+    );
+    if (next === state.detail) return false;
+    state.detail = next;
+    state.focusNodeId = atomId;
+    render();
+    return true;
+  };
   if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
     pulseTrigger = (providerId: string, kind?: AtomicEventKind) => {
       if (disposed || typeof providerId !== "string" || providerId.length === 0) {
@@ -1280,6 +1303,7 @@ export function createAtomicTopologyInstance(
       return { ok: admission.ok, reason: admission.reason, linkId };
     };
     window.__atomicPulse = pulseTrigger;
+    window.__atomicOpenDetail = openDetailDev;
   }
 
   const render = (): void => {
@@ -1382,6 +1406,7 @@ export function createAtomicTopologyInstance(
       // from an earlier StrictMode mount must not delete a newer instance's
       // trigger from the shared window surface.
       if (window.__atomicPulse === pulseTrigger) delete window.__atomicPulse;
+      if (window.__atomicOpenDetail === openDetailDev) delete window.__atomicOpenDetail;
       // Release the event pool so no pooled events survive the teardown.
       pool.clear();
       try {

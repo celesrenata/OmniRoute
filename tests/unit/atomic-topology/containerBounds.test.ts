@@ -80,3 +80,15 @@ test("container is snug: the far wall hugs the topology, not a warehouse", () =>
   assert.ok(-env.farZ <= maxR + 600, "far wall within 600 of the outermost atom");
   assert.ok(env.wallX <= maxR + 700, "side walls frame the layout");
 });
+test("detail relaxation keeps a low eye-level pose untouched but never reaches the floor", async () => {
+  const m = await import("../../../src/plugins/atomic-topology/scene/containerBounds.ts");
+  const b = {
+    min: [-1000, -66, -1000] as [number, number, number],
+    max: [1000, 780, 2200] as [number, number, number],
+  };
+  const low: [number, number, number] = [0, 69, 0];
+  assert.ok(m.softClampToBounds(low, b)[1] > 100, "default band lifts a low pose");
+  assert.equal(m.softClampToBounds(low, b, true)[1], 69, "relaxed band leaves it");
+  const under = m.softClampToBounds([0, -500, 0], b, true);
+  assert.ok(under[1] > b.min[1], "still never reaches or passes the floor");
+});

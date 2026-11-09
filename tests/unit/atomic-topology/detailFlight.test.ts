@@ -5,7 +5,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  DETAIL_DISTANCE_FACTOR,
+  DETAIL_ELEVATION_RAD,
+  DETAIL_FOV_DEG,
+  DETAIL_HERO_DISTANCE,
+  DETAIL_DRIFT_AMPLITUDE_RAD,
+  detailFov,
+  driftYawRate,
   DETAIL_FLIGHT_MS,
   DETAIL_MIN_DISTANCE,
   detailGoalDistance,
@@ -16,15 +21,33 @@ import {
 
 const len = (v: readonly number[]): number => Math.hypot(v[0], v[1], v[2]);
 
-test("goal distance is closer than the focus view (0.38) and never below the orbit minimum", () => {
-  assert.ok(DETAIL_DISTANCE_FACTOR < 0.38);
-  assert.equal(detailGoalDistance(5000), 5000 * DETAIL_DISTANCE_FACTOR);
+test("goal distance is the close hero distance, never below the orbit minimum", () => {
+  assert.equal(detailGoalDistance(5000), DETAIL_HERO_DISTANCE);
+  assert.ok(DETAIL_HERO_DISTANCE > 200, "stays outside OrbitControls.minDistance");
+  assert.ok(DETAIL_MIN_DISTANCE > 200);
   assert.equal(detailGoalDistance(100), DETAIL_MIN_DISTANCE);
-  assert.ok(DETAIL_MIN_DISTANCE > 200, "stays outside OrbitControls.minDistance");
   assert.equal(detailGoalDistance(NaN), DETAIL_MIN_DISTANCE);
   assert.equal(detailGoalDistance(-4), DETAIL_MIN_DISTANCE);
 });
-
+test("telephoto fov lerps from the scene fov to the hero fov", () => {
+  assert.equal(detailFov(50, 0), 50);
+  assert.equal(detailFov(50, 1), DETAIL_FOV_DEG);
+  assert.ok(DETAIL_FOV_DEG < 50);
+  assert.equal(detailFov(50, NaN), DETAIL_FOV_DEG);
+});
+test("drift is a bounded sway and off in reduced motion", () => {
+  assert.equal(driftYawRate(1000, true), 0);
+  assert.equal(driftYawRate(-5, false), 0);
+  // integrate the rate over a full period: net yaw ~ 0 and the excursion stays within the amplitude
+  let yaw = 0;
+  let max = 0;
+  for (let t = 0; t < 38_000; t += 10) {
+    yaw += driftYawRate(t, false) * 0.01;
+    max = Math.max(max, Math.abs(yaw));
+  }
+  assert.ok(Math.abs(yaw) < 1e-2);
+  assert.ok(max <= DETAIL_DRIFT_AMPLITUDE_RAD + 1e-2);
+});
 test("easing is monotonic, clamped and exact at the ends", () => {
   assert.equal(easeInOutCubic(0), 0);
   assert.equal(easeInOutCubic(1), 1);
@@ -45,23 +68,24 @@ test("reduced motion jumps straight to the end pose (no animation)", () => {
   assert.equal(flightProgress(DETAIL_FLIGHT_MS * 3, false), 1);
 });
 
-test("flight starts at the current offset and ends at the goal distance", () => {
+test("flight starts at the current offset and ends low (eye level) at the goal distance", () => {
   const o0: [number, number, number] = [0, 600, 2400];
   const start = flightOffset(o0, 500, 0);
-  assert.ok(Math.abs(start[0] - o0[0]) < 1e-9 && Math.abs(start[1] - o0[1]) < 1e-9);
-  assert.ok(Math.abs(start[2] - o0[2]) < 1e-9);
+  for (let i = 0; i < 3; i += 1) assert.ok(Math.abs(start[i] - o0[i]) < 1e-6);
   const end = flightOffset(o0, 500, 1);
   assert.ok(Math.abs(len(end) - 500) < 1e-6);
-  // Distance shrinks monotonically on the way in; height ratio (pitch) is preserved.
-  let prev = Infinity;
+  assert.ok(Math.abs(Math.asin(end[1] / len(end)) - DETAIL_ELEVATION_RAD) < 1e-9);
+  // Distance and elevation shrink monotonically on the way in.
+  let prevD = Infinity;
+  let prevY = Infinity;
   for (let i = 0; i <= 20; i += 1) {
     const o = flightOffset(o0, 500, i / 20);
-    assert.ok(len(o) <= prev + 1e-9);
-    prev = len(o);
-    assert.ok(Math.abs(o[1] / len(o) - o0[1] / len(o0)) < 1e-9, "pitch preserved");
+    assert.ok(len(o) <= prevD + 1e-9);
+    assert.ok(o[1] / len(o) <= prevY + 1e-9);
+    prevD = len(o);
+    prevY = o[1] / len(o);
   }
 });
-
 test("degenerate starts fall back to a finite pose at the goal distance", () => {
   for (const bad of [
     [0, 0, 0],

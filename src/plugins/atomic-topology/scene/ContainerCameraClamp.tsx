@@ -12,7 +12,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import type { PerspectiveCamera } from "three";
 
 import { useAtomicSceneContext } from "./sceneContext";
-import { containerBounds, softClampToBounds } from "./containerBounds";
+import { clampRelax, containerBounds, softClampToBounds } from "./containerBounds";
 
 // Dev A/B only: `?clamp=0` disables the containment (proves it never fights focus/zoom).
 const noClamp =
@@ -44,7 +44,7 @@ export function ContainerCameraClamp() {
     writeCamDebug(camera.position, cameraState.target, b, camera.far);
     if (!b || noClamp) return;
     const p = camera.position;
-    const c = softClampToBounds([p.x, p.y, p.z], b);
+    const c = softClampToBounds([p.x, p.y, p.z], b, clampRelax.detail);
     if (c[0] === p.x && c[1] === p.y && c[2] === p.z) return;
     p.set(c[0], c[1], c[2]);
     const t = cameraState.target;

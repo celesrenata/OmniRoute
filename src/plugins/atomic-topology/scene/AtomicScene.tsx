@@ -56,7 +56,15 @@ import type { PerspectiveCamera } from "three";
 import type { AtomicSceneProps } from "../AtomicTopologyRenderer";
 import { computeCameraFit, computeCameraFocus, isUsableCameraFit } from "../cameraFit";
 import { resolveRenderDpr } from "../quality";
-import { detailGoalDistance, flightOffset, flightProgress, DETAIL_FLIGHT_MS } from "./detailFlight";
+import { clampRelax } from "./containerBounds";
+import {
+  detailGoalDistance,
+  detailFov,
+  driftYawRate,
+  flightOffset,
+  flightProgress,
+  DETAIL_FLIGHT_MS,
+} from "./detailFlight";
 
 import { SceneOrbitControls } from "./SceneOrbitControls";
 import { ContextGuard } from "./ContextGuard";
@@ -451,6 +459,11 @@ function CameraStateWriter({ context }: { context: AtomicSceneContextValue }) {
  * The default view never mounts any of this work: with no detail atom the
  * component is inert.
  */
+/** Imperative fov write (the three.js camera is R3F's mutable state, same as `CameraRig`). */
+function applyCameraFov(camera: PerspectiveCamera, fov: number): void {
+  camera.fov = fov;
+  camera.updateProjectionMatrix();
+}
 function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
   const gl = useThree((state) => state.gl);
@@ -466,12 +479,18 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     elapsedMs: number;
     o0: [number, number, number] | null;
     goal: number;
-  }>({ active: false, elapsedMs: 0, o0: null, goal: 0 });
+    /** Cinematic drift (settled shot) is running until the viewer grabs the camera. */
+    drift: boolean;
+    driftMs: number;
+    /** Last eased flight progress (drives the telephoto fov). */
+    e: number;
+  }>({ active: false, elapsedMs: 0, o0: null, goal: 0, drift: false, driftMs: 0, e: 0 });
 
   useEffect(() => {
     const f = flight.current;
     if (!detailId) {
       f.active = false;
+      f.drift = false;
       f.o0 = null;
       return;
     }
@@ -485,9 +504,14 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     f.elapsedMs = 0;
     f.o0 = null; // captured on the first frame, from the live camera
     f.active = true;
+    f.drift = false;
+    f.driftMs = 0;
+    f.e = 0;
+    clampRelax.detail = true; // low eye-level shot: shrink the soft wall band (still inside)
     const dom = gl.domElement;
     const stop = (): void => {
       f.active = false;
+      f.drift = false; // the viewer owns the camera now
     };
     dom?.addEventListener("pointerdown", stop);
     dom?.addEventListener("wheel", stop, { passive: true });
@@ -495,6 +519,8 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
       dom?.removeEventListener("pointerdown", stop);
       dom?.removeEventListener("wheel", stop);
       f.active = false;
+      f.drift = false;
+      clampRelax.detail = false;
     };
   }, [detailId, gl]);
 
@@ -502,7 +528,27 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     const f = flight.current;
     const c = live.current;
     const target = c.focusTarget;
-    if (!f.active || !target) return;
+    if (!target) return;
+    if (f.e > 0 && Math.abs(camera.fov - detailFov(SCENE_FOV_DEG, f.e)) > 1e-3) {
+      applyCameraFov(camera, detailFov(SCENE_FOV_DEG, f.e));
+    }
+    if (!f.active) {
+      // Settled hero shot: slow bounded yaw sway about the atom (off in reduced motion).
+      if (f.drift && !c.reducedMotion) {
+        f.driftMs += Math.min(delta, 0.1) * 1000;
+        const dyaw = driftYawRate(f.driftMs, false) * Math.min(delta, 0.1);
+        const ox = camera.position.x - target.x;
+        const oz = camera.position.z - target.z;
+        const cs = Math.cos(dyaw);
+        const sn = Math.sin(dyaw);
+        camera.position.set(
+          target.x + ox * cs + oz * sn,
+          camera.position.y,
+          target.z - ox * sn + oz * cs
+        );
+      }
+      return;
+    }
     if (!f.o0) {
       f.o0 = [
         camera.position.x - target.x,
@@ -512,9 +558,14 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     }
     f.elapsedMs += Math.min(delta, 0.1) * 1000;
     const e = flightProgress(f.elapsedMs, c.reducedMotion);
+    f.e = Math.max(e, 1e-6);
     const o = flightOffset(f.o0, f.goal, e);
     camera.position.set(target.x + o[0], target.y + o[1], target.z + o[2]);
-    if (f.elapsedMs >= DETAIL_FLIGHT_MS || c.reducedMotion) f.active = false;
+    if (f.elapsedMs >= DETAIL_FLIGHT_MS || c.reducedMotion) {
+      f.active = false;
+      f.drift = !c.reducedMotion;
+      f.driftMs = 0;
+    }
   });
 
   return null;

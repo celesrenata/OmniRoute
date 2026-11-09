@@ -1,0 +1,135 @@
+{
+  "atoms": [
+    {
+      "id": "hub",
+      "chip": "idle"
+    },
+    {
+      "id": "provider:aihorde",
+      "chip": "healthy"
+    },
+    {
+      "id": "provider:kiro",
+      "chip": "healthy"
+    },
+    {
+      "id": "provider:openai",
+      "chip": "last"
+    },
+    {
+      "id": "provider:mistral",
+      "chip": "healthy"
+    },
+    {
+      "id": "provider:bedrock",
+      "chip": "healthy"
+    },
+    {
+      "id": "provider:ollama-local",
+      "chip": "healthy"
+    },
+    {
+      "id": "provider:vllm",
+      "chip": "error"
+    },
+    {
+      "id": "provider:llama-cpp",
+      "chip": "healthy"
+    },
+    {
+      "id": "provider:ovms-arc",
+      "chip": "idle"
+    }
+  ],
+  "errors": [
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, whi",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+  ],
+  "runs": [
+    {
+      "name": "provider",
+      "id": "provider:openai",
+      "chipBefore": "last",
+      "opened": true,
+      "detailCam": {
+        "pos": [2, 21, -16],
+        "target": [-148, 0, -166]
+      },
+      "panel": "OpenAIproviderActivity: last · recent activity < 1m agoNucleus · modelsNo model observed: neutral two-tone nucleus (nothing is guessed).Orbitals · laneLaneunknownSpinTPS unavailable (no telemetry)Queue vibrationempty queue (measured)In flightno dataValues are measured telemetry; decorative idle light is not activity. Panels appear only when a real value exists.Back to topology (Esc)",
+      "labelDisplay": "none",
+      "chipInLabel": "last",
+      "perfDetail": {
+        "fps": 280.2,
+        "p50": 3.1,
+        "p95": 17,
+        "p99": 20.9,
+        "spikes30": 0
+      },
+      "panelAfterEsc": 0,
+      "camAfterEsc": {
+        "pos": [0, 253, 851],
+        "target": [0, 0, 0]
+      },
+      "panelAfterReset": 0,
+      "camAfterReset": {
+        "pos": [0, 253, 851],
+        "target": [0, 0, 0]
+      },
+      "camBeforeAll": {
+        "pos": [0, 253, 851],
+        "target": [0, 0, 0]
+      }
+    },
+    {
+      "name": "hub",
+      "id": "hub",
+      "chipBefore": "idle",
+      "opened": true,
+      "detailCam": {
+        "pos": [127, 21, 171],
+        "target": [0, 0, 0]
+      },
+      "panel": "OmniRoutehubActivity: idle · idle, no measured activityNucleus · modelsNo model observed: neutral two-tone nucleus (nothing is guessed).Orbitals · laneLaneunknownSpinTPS unavailable (no telemetry)Queue vibrationunavailable (no queue telemetry)In flightno dataValues are measured telemetry; decorative idle light is not activity. Panels appear only when a real value exists.Back to topology (Esc)",
+      "labelDisplay": "none",
+      "chipInLabel": "idle",
+      "perfDetail": {
+        "fps": 144.9,
+        "p50": 5.4,
+        "p95": 37.3,
+        "p99": 39.9,
+        "spikes30": 37
+      },
+      "panelAfterEsc": 0,
+      "camAfterEsc": {
+        "pos": [0, 253, 851],
+        "target": [0, 0, 0]
+      },
+      "panelAfterReset": 0,
+      "camAfterReset": {
+        "pos": [0, 253, 851],
+        "target": [0, 0, 0]
+      },
+      "camBeforeAll": {
+        "pos": [0, 253, 851],
+        "target": [0, 0, 0]
+      }
+    }
+  ],
+  "defaultCam": {
+    "pos": [0, 254, 851],
+    "target": [0, 0, 0]
+  },
+  "perfDefault": {
+    "fps": 291.8,
+    "p50": 2.3,
+    "p95": 16.3,
+    "p99": 19.5,
+    "spikes30": 0
+  },
+  "gpuAtomPresent": false
+}
