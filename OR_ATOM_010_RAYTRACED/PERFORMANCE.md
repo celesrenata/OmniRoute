@@ -1,4 +1,32 @@
-# PERFORMANCE (Gate B, round 4)
+# PERFORMANCE (Gate B, round 5)
+
+Code SHA `96c17acf3`. Apple M5 Max, headed Chrome (adapter `apple/metal-3`), 1600x1000 CSS px @ DPR 2, MSAA + bloom + DOF + post, no quality tier, uncapped, 5 s rAF deltas.
+Background GPU load not controlled.
+
+## 8 / 16 / 20 / 32 atoms, uncapped (`node scripts/ad-hoc/pw-atomic-gateB.mjs ladder`; rendered = param + hub + merged devices)
+
+| atoms (rendered)                                                                                                                                                                   | WebGPU avg fps | p50 / p95 / p99 ms | WebGL2 avg fps | p50 / p95 / p99 ms |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------: | ------------------ | -------------: | ------------------ |
+| 8 (10)                                                                                                                                                                             |          326.6 | 0.9 / 15.0 / 15.6  |          239.4 | 4.0 / 7.1 / 9.2    |
+| 16 (18)                                                                                                                                                                            |          275.6 | 2.9 / 16.0 / 19.9  |          227.2 | 4.2 / 7.1 / 9.6    |
+| 20 (22)                                                                                                                                                                            |          231.0 | 1.2 / 21.3 / 22.5  |          202.4 | 4.5 / 8.7 / 11.1   |
+| 32 (34)                                                                                                                                                                            |          192.6 | 2.3 / 21.5 / 22.5  |          174.0 | 5.5 / 10.0 / 12.0  |
+| Targets: ~120 fps @ ~20 atoms and >=60 fps @ 32: **met** on both backends. Spikes: 0. The WebGPU p95 tail (~20 ms) is the same pattern as round 4 and is deferred by directive 21. |
+| DOF cost: the first DOF build (gather on every pixel) measured WebGPU 206 / 185 and WebGL2 162 / 140 fps at 20 / 32; skipping the gather where CoC = 0 restored the numbers above. |
+
+## Forced context / device loss (`pw-atomic-gateB.mjs loss`): 3/3 WebGPU `device.destroy` and 3/3 WebGL2 `WEBGL_lose_context` recovered, 1 canvas, 3196x1996, p50 8.3 ms after.
+
+## Fallback (`fallback`): two failed restores -> host 2D in 1730 ms, 0 atomic canvases, 2D pressed.
+
+## Reduced motion (`reduced`): static while idle true, orbit renders a new frame true.
+
+## 2D <-> Atomic (`toggle 50`): 50/50 mounts each way, peak 1 canvas, 0 at end, switch p50 35 ms / max 142 ms, heap 79.9 -> 88.0 MB over 50 toggles.
+
+## 20-minute soak (`soak 1200000`): 20.0 min on the dashboard (real host, display-synced 120 Hz), 40 samples: avg 120.3 fps every sample, p50 8.3 ms throughout, p95 8.9-9.2 ms, 0 spikes, 1 canvas, context lost 0; heap start 106.8 MB, end 88.4 MB, max 106.8 MB (flat). Console: pre-existing `[LiveWS] FORBIDDEN_ORIGIN` (dev origin, so `telemetry: null`) and the pre-existing React unmount warning.
+
+---
+
+# (history) PERFORMANCE (Gate B, round 4)
 
 Only measured numbers. Unmet targets are stated as unmet. Code SHA `a4e5713ee361d61887c3041358cdadd5e185d4ba`. Apple M5 Max, macOS 26.6.2, headed Chrome 157 (WebGPU adapter
 `apple/metal-3`), Playwright, 1600x1000 CSS px at DPR 2 (3200x2000), MSAA + bloom + post on, no quality tier, uncapped

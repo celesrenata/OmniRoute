@@ -1,4 +1,45 @@
-# Gate B (round 3 + 4): full-topology integration, atmosphere, links, board, performance
+# Gate B (round 5): full-topology integration, atmosphere, focus framing, DOF isolation
+
+Branch `feat/atomic-raytraced-renderer`, code SHA `96c17acf3` (`git log -1 96c17acf3`). **Not deployed**, not pushed, no PR.
+`OPERATOR_DIRECTIVES.md` items 1-25 re-read. `gateB.json` (round 4, CHANGES_REQUESTED, 7 findings) and `gateB.md` were read first; every finding is addressed below.
+Evidence: `screenshots/gateB/round5/` (jpg tracked, full-res PNG on disk only), all from headed Chrome on the Apple M5 Max (WebGPU adapter `apple/metal-3`), golden DEMO topology, 1600x1000 @2x.
+
+## Reviewer findings (gateB.json round 4) and what happened
+
+| #   | Finding                                                          | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Focus view frames the atom small and distant (directive 25)      | **Fixed.** `CameraRig` (`scene/AtomicScene.tsx`) now flies the focus pose in along the same viewing direction to `FOCUS_DISTANCE_FACTOR = 0.38` of the fit distance (no rotation, orbit controls still own zoom/rotation, soft container clamp unaffected). Before/after at the same target `provider:bench-primary`: `focus-before-after.jpg` (left = previous build `a4e5713ee` behaviour captured on this server before the edit, right = now). The focused atom now fills the centre of the frame.                                                                                                                                         |
+| 2   | Cloud/orbits at default 3/5 (glassy white-violet orbs)           | Root cause: at 40-90 px, hundreds of 1 px hairline strands and orbit wires sum additively per pixel to white. Now, driven by the existing projected-size factor `far` (0 at close-up, so the approved close look is unchanged): strand gain x(1-0.55 far) and tip hue held violet, orbit-wire energy x(1-0.7 far), plasma body emission x(1+1.5 far) and body density x(1+3.2 far crowd^2) for a filled violet flower, glass shell faded x(1-0.7 far) so the plasma reads first, cyan rim sparkles lifted. `default-before-after.jpg` shows the change on the same frame. Self-score 4 at default (32-atom centre still paler, see scorecard). |
+| 3   | Resemblance 3/5 (no hero isolation, no DOF)                      | DOF + bokeh + hero isolation added (finding 4/5). Re-scored in `VISUAL_SCORECARD.md`: 4 close-up/focus, **3 at the frozen default framing** (honest: a 22-atom topology at default zoom is not a single hero atom).                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 4   | Close-up neighbour clutter                                       | **Fixed.** Cinematic DOF in the post chain (`scene/rt/rendererFactory.ts`, 16-tap highlight-weighted golden-angle bokeh gather). Focus view: the focused atom's projected disc stays sharp, everything outside defocuses and neighbours dim to 0.24 (was 0.42). Zoomed close-up without a focus: the atom nearest the screen centre becomes the hero once it spans >=0.09 of the view height (`closeHeroWeight`, smooth ramp to 1 at 0.17, unit-tested), neighbours defocus and dim to 0.55. `close-20`, `close-hub`, `focus-20`, `sidebyside-idea5-{close,hub,focus}`.                                                                        |
+| 5   | Immersion at default 3/5 (no visible DOF bokeh / orbs at depths) | The far room (walls/ceiling, depth > 2.3x focus distance) falls into hexagonal bokeh; floating orbs gain lifted (they now read at several depths). Atoms write no depth, so the background threshold is set beyond the floor behind the topology and atoms stay sharp at default. `default-20`, `sidebyside-idea5-default`. PCB container kept (directive 14).                                                                                                                                                                                                                                                                                 |
+| 6   | Stale "host-resolved quality tier" comment                       | Removed (`AtomicScene.tsx` now says: no quality tiers, full retina DPR + AA).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 7   | Engineering gates (informational)                                | Re-measured on this SHA, no regression (below). The DOF gather is branch-skipped where CoC is 0 (first version without the branch cost WebGL2 ~20 %; with it, numbers are back at round-4 levels).                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+
+## Camera: exactly what changed this round
+
+Only the focus branch of `CameraRig` in `scene/AtomicScene.tsx` (directive 25 is the operator's explicit request to restore a close focus framing).
+`cameraFit.ts`, `SceneOrbitControls.tsx`, `layout.ts`, `AtomicLabels.tsx`, `AtomicControls.tsx`, the 2D renderer: **empty diff vs `689178516`** (checked with `git diff --stat`).
+Default pose, reset and auto-fit are untouched (the default fit path does not go through the new code). Telemetry semantics and routing untouched.
+
+## Performance on this SHA (M5 Max, headed Chrome, uncapped, `pw-atomic-gateB.mjs ladder`)
+
+WebGPU 8/16/20/32 atoms (10/18/22/34 rendered): **327 / 276 / 231 / 193 fps**. WebGL2: 239 / 227 / 202 / 174 fps. Targets (~120 @20, >=60 @32) met on both backends.
+Forced loss x3 per backend: recovered every time, 1 canvas. Reduced motion: static while idle, orbit renders. Two failed restores -> host 2D in 1.73 s. 2D<->Atomic x50: peak 1 canvas, 0 at end, switch p50 35 ms. 20-min soak: see `PERFORMANCE.md`.
+
+## Rows below the bar (stated, not hidden)
+
+Overall resemblance at the frozen default framing: 3/5 (self). Everything else self-scored >=4; see `VISUAL_SCORECARD.md`.
+
+## Evidence index (round 5)
+
+`screenshots/gateB/round5/`: `default-8|16|20|32`, `close-20|32`, `close-hub`, `focus-20`, `focus-webgl2`, `idle-20`, `reduced-20`, `webgl2-20`,
+`sidebyside-idea5-{default,default32,close,close32,focus,hub}.jpg`, `focus-before-after.jpg`, `default-before-after.jpg`,
+videos (12 s) `video/{idle-default,active-close,focus-active,strike-default}.webm`. Round-4 strike/link videos remain valid (link code unchanged).
+
+---
+
+# (history) Gate B (round 3 + 4): full-topology integration, atmosphere, links, board, performance
 
 Branch `feat/atomic-raytraced-renderer`, code SHA `a4e5713ee361d61887c3041358cdadd5e185d4ba` (see `TESTS.md`). Not deployed, not pushed.
 `OPERATOR_DIRECTIVES.md` items 1-25 were read and followed. `gateB.json` (CHANGES_REQUESTED, 6 findings) and its review doc were

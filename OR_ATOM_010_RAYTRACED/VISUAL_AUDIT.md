@@ -1,4 +1,18 @@
-# VISUAL_AUDIT: why the Step 8/9 Atomic topology looked flat, and what changed
+# VISUAL_AUDIT (round 5 addendum): why default-zoom atoms read as glassy white orbs, and what changed
+
+Code SHA `96c17acf3`. Evidence: `screenshots/gateB/round5/default-before-after.jpg`, `focus-before-after.jpg`, `sidebyside-idea5-*.jpg`.
+
+| Cause                                                                                     | Where                                                                          | Fix                                                                                                                                     |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Hundreds of 1 px hairline strands + orbit wires per 40-90 px atom sum additively to white | `shaders/plasmaStrands.ts`, `shaders/orbitWire.ts` energy in `rt/atomBatch.ts` | Gains fall with the projected-size factor `far` (0 at close-up): strands x(1-0.55 far), wires x(1-0.7 far), strand tip hue held violet. |
+| Plasma body too faint at distance, so the glass shell's fresnel read first                | `shaders/atomImpostor.ts`                                                      | Body emission x(1+1.5 far), density x(1+3.2 far crowd^2); glass reflection/alpha x(1-0.7 far).                                          |
+| No depth of field; focus neighbours only dimmed                                           | post chain                                                                     | 16-tap bokeh DOF (`rt/rendererFactory.ts`): far-room bokeh, hero disc sharp in focus/close-up, neighbours defocused + dimmed.           |
+| Focus pose was a slide at default distance                                                | `CameraRig`                                                                    | Fly-in to 0.38 of the fit distance (directive 25).                                                                                      |
+| Floating orbs nearly invisible (gain 0.2/(9 coc+1))                                       | `shaders/motes.ts`                                                             | 0.3/(4.5 coc+1): orbs visible at several depths.                                                                                        |
+
+---
+
+# (history) VISUAL_AUDIT: why the Step 8/9 Atomic topology looked flat, and what changed
 
 Branch `feat/atomic-raytraced-renderer`. Source SHA is in `TESTS.md`. Before = the legacy renderer, since deleted (the
 before images are historical captures). After = the default.

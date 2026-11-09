@@ -1,4 +1,10 @@
-# SKILL_APPLICATION
+# SKILL_APPLICATION (round 5 addendum)
+
+Code SHA `96c17acf3`. `webgpu-threejs-tsl` (local) applied again: the DOF is a TSL node in the existing `RenderPipeline` (`pass()` color + `getViewZNode()`, `TextureNode.sample()` taps, `If` branch to skip zero-CoC pixels), uniforms updated per frame without allocation, no new render targets, no quality tiers. No network skills fetched.
+
+---
+
+# (history) SKILL_APPLICATION
 
 Only skills that were actually read and used are listed. Nothing here was fetched from the network.
 

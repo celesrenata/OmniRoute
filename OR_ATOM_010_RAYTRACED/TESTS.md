@@ -1,4 +1,25 @@
-# TESTS (Gate B, round 4)
+# TESTS (Gate B, round 5)
+
+Source SHA of the code under test: `96c17acf3` (branch `feat/atomic-raytraced-renderer`; the following commit only adds docs/evidence).
+Deployment status: **not deployed.** Nothing pushed, no PR opened, no production or fleet change.
+Environment: macOS, Apple M5 Max, headed Chrome via Playwright, dev server from this worktree on :20199.
+
+## Commands and outcomes
+
+| Command                                                                                                 | Outcome                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts`                                     | 458 tests, 457 pass, 0 fail, 1 skipped. New: `closeHeroWeight` ramp test in `rtTopologyScene.test.ts`.                                       |
+| `npx eslint src/plugins/atomic-topology src/app/dev tests/unit/atomic-topology`                         | 0 problems.                                                                                                                                  |
+| `npm run typecheck:core`                                                                                | 45 errors, all pre-existing: the same 45 with this round's diff stashed. 0 in `atomic-topology`.                                             |
+| `npm run lint`                                                                                          | 7 errors, all pre-existing and outside the plugin (scriptVault / scripts.ts); 0 in the plugin.                                               |
+| `npm run test:vitest`                                                                                   | Not run: the vitest include globs (`vitest.config.ts`) do not cover `src/plugins/atomic-topology` or `tests/unit/atomic-topology/*.test.ts`. |
+| `node scripts/ad-hoc/pw-atomic-gateB.mjs ladder / loss / reduced / fallback / toggle 50 / soak 1200000` | See `PERFORMANCE.md` (all on this SHA, real GPU `apple/metal-3`).                                                                            |
+| `node scripts/ad-hoc/pw-atomic-gateB-capture.mjs ...` (+ `VIDEO=12000`)                                 | All round-5 stills and 4 videos, 0 console errors per capture.                                                                               |
+| pre-commit hooks (lint-staged, docs-sync, any-budget, tracked-artifacts, ai-attribution)                | Pass on `96c17acf3`.                                                                                                                         |
+
+---
+
+# (history) TESTS (Gate B, round 4)
 
 Source SHA of the code under test: `a4e5713ee361d61887c3041358cdadd5e185d4ba` (branch `feat/atomic-raytraced-renderer`; later commits only add docs).
 Deployment status: **not deployed.** Nothing pushed, no PR opened, no production or fleet change.
