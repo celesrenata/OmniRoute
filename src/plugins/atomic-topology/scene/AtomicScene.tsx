@@ -51,7 +51,14 @@ import {
   type ReactNode,
 } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import type { PerspectiveCamera } from "three";
+import { Vector3, type PerspectiveCamera } from "three";
+import {
+  detailLabelMask,
+  detailLabelMaskCss,
+  type MaskCircle,
+  type MaskLabel,
+  type MaskRect,
+} from "../overlays/detailLabelMask";
 
 import type { AtomicSceneProps } from "../AtomicTopologyRenderer";
 import { computeCameraFit, computeCameraFocus, isUsableCameraFit } from "../cameraFit";
@@ -527,7 +534,45 @@ function measureDetailOverlays(canvas: HTMLCanvasElement): {
   }
   return { width: c.width, height: c.height, rects, host };
 }
+/** How often the neighbour-label mask is re-measured (DOM reads, never per frame). */
+const DETAIL_MASK_INTERVAL_MS = 100;
+const maskA = new Vector3();
+const maskB = new Vector3();
+/**
+ * Projected silhouette (viewport px) of the inspected atom: its envelope radius taken
+ * along the camera's right axis at the drawn centre. Includes the lens shift, since
+ * the projection matrix carries the view offset.
+ */
+function projectSilhouette(
+  camera: PerspectiveCamera,
+  canvas: DOMRect,
+  center: readonly [number, number, number],
+  radius: number
+): MaskCircle | null {
+  maskA.set(center[0], center[1], center[2]);
+  maskB.setFromMatrixColumn(camera.matrixWorld, 0).multiplyScalar(radius).add(maskA);
+  maskA.project(camera);
+  maskB.project(camera);
+  if (maskA.z > 1 || maskA.z < -1) return null; // behind the camera / clipped
+  const sx = (v: Vector3): number => canvas.left + ((v.x + 1) / 2) * canvas.width;
+  const sy = (v: Vector3): number => canvas.top + ((1 - v.y) / 2) * canvas.height;
+  return {
+    x: sx(maskA),
+    y: sy(maskA),
+    r: Math.hypot(sx(maskB) - sx(maskA), sy(maskB) - sy(maskA)),
+  };
+}
+/** Viewport rect of an element, in the mask's shape. */
+function maskRect(el: Element): MaskRect {
+  const r = el.getBoundingClientRect();
+  return { x: r.left, y: r.top, w: r.width, h: r.height };
+}
 function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
+  const mask = useRef<{ el: HTMLStyleElement | null; ids: Set<string>; lastMs: number }>({
+    el: null,
+    ids: new Set(),
+    lastMs: -Infinity,
+  });
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
   const gl = useThree((state) => state.gl);
   const detailId = context.detailAtomId ?? null;
@@ -652,6 +697,9 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
       f.drift = false;
       f.composed = false;
       clampRelax.detail = false;
+      // Neighbour labels come back on exit (the mask stylesheet is detail-only).
+      mask.current.el?.remove();
+      mask.current = { el: null, ids: new Set(), lastMs: -Infinity };
       // Exact restore: no lens shift; CameraRig re-applies the scene fov on exit.
       camera.clearViewOffset();
       host?.style.removeProperty("--atomic-lens-x");
@@ -727,6 +775,41 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
         f.fov = nf;
         f.shift = ns;
         applyDetailLens(camera, gl.domElement, f.host, nf, ns);
+      }
+    }
+    // Neighbour labels over the hero atom / panel fade out (directive 39.1).
+    const mk = mask.current;
+    const nowMs = performance.now();
+    if (f.host && gl.domElement && nowMs - mk.lastMs >= DETAIL_MASK_INTERVAL_MS) {
+      mk.lastMs = nowMs;
+      const geo = detailAtomGeometries.get(detailId);
+      camera.updateMatrixWorld();
+      const sil = geo
+        ? projectSilhouette(camera, gl.domElement.getBoundingClientRect(), geo.center, geo.envelope)
+        : null;
+      const labels: MaskLabel[] = [];
+      f.host.querySelectorAll<HTMLElement>(".atomic-labels [data-atom-id]").forEach((el) => {
+        labels.push({ id: el.getAttribute("data-atom-id") ?? "", rect: maskRect(el) });
+      });
+      const panels = Array.from(f.host.querySelectorAll("[data-atomic-detail]")).map(maskRect);
+      const ids = detailLabelMask(labels, detailId, sil, panels, mk.ids);
+      const same = ids.size === mk.ids.size && [...ids].every((id) => mk.ids.has(id));
+      if (!same) {
+        mk.ids = ids;
+        if (!mk.el) {
+          mk.el = document.createElement("style");
+          mk.el.setAttribute("data-atomic-detail-label-mask", "true");
+          // Inside the overlay layer, not the host: the host's childList observer
+          // recomposes the shot, and a label mask must never move the camera.
+          (f.host.querySelector(".atomic-overlays") ?? document.head).appendChild(mk.el);
+        }
+        mk.el.textContent = detailLabelMaskCss(ids);
+      }
+      if (typeof window !== "undefined") {
+        (window as unknown as { __atomicLabelMask?: unknown }).__atomicLabelMask = {
+          ids: [...ids],
+          silhouette: sil,
+        };
       }
     }
     if (!f.active) {

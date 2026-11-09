@@ -123,12 +123,53 @@ async function detailRun(t, tag) {
   await page.waitForTimeout(5000);
   run.composition = await composition();
   run.detailCam = await cam();
+  // Directive 39.1: no visible neighbour label may overlap the hero silhouette or panel.
+  run.labels = await page.evaluate((focus) => {
+    const m = window.__atomicLabelMask ?? null;
+    const sil = m?.silhouette ?? null;
+    const panel = document.querySelector("[data-atomic-detail]")?.getBoundingClientRect();
+    const hitsSil = (r) => {
+      if (!sil) return false;
+      const nx = Math.max(r.left, Math.min(sil.x, r.right));
+      const ny = Math.max(r.top, Math.min(sil.y, r.bottom));
+      return (nx - sil.x) ** 2 + (ny - sil.y) ** 2 <= sil.r ** 2;
+    };
+    const hitsPanel = (r) =>
+      Boolean(panel) &&
+      r.left < panel.right &&
+      r.right > panel.left &&
+      r.top < panel.bottom &&
+      r.bottom > panel.top;
+    const visibleOverlaps = [];
+    let visible = 0;
+    for (const el of document.querySelectorAll(".atomic-labels [data-atom-id]")) {
+      const id = el.getAttribute("data-atom-id");
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      const shown =
+        id !== focus &&
+        cs.display !== "none" &&
+        cs.visibility !== "hidden" &&
+        Number(cs.opacity) > 0.02 &&
+        r.width > 0;
+      if (!shown) continue;
+      visible += 1;
+      if (hitsSil(r) || hitsPanel(r)) visibleOverlaps.push(id);
+    }
+    return { masked: m?.ids ?? null, silhouette: sil, visible, visibleOverlaps };
+  }, t.id);
   await host.screenshot({ path: path.join(outDir, `${tag}-detail-${t.name}.png`) });
   run.perfDetail = await perf();
   await page.keyboard.press("Escape");
   await page.waitForTimeout(2500);
   run.panelAfterEsc = await page.locator('[data-atomic-detail="true"]').count();
   run.camAfterEsc = await cam();
+  run.labelsAfterEsc = await page.evaluate(() => ({
+    maskStyles: document.querySelectorAll("[data-atomic-detail-label-mask]").length,
+    transparent: [...document.querySelectorAll(".atomic-labels [data-atom-id]")].filter(
+      (el) => Number(getComputedStyle(el).opacity) < 0.98
+    ).length,
+  }));
   run.viewOffsetCleared = await page.evaluate(
     () =>
       getComputedStyle(document.querySelector("[data-atomic-host]")).getPropertyValue(

@@ -16,7 +16,9 @@ export function detailLabelCss(atomId: string): string {
   const id = cssAttrValue(atomId);
   return (
     `.atomic-labels [data-atom-id="${id}"]{display:none!important}` +
-    `.atomic-labels .atomic-labels__row:not([data-atom-id="${id}"]){opacity:.4}` +
+    `.atomic-labels .atomic-labels__row:not([data-atom-id="${id}"]){opacity:.4;transition:opacity .25s ease}` +
+    // Neighbour labels masked off the hero atom / panel (`detailLabelMask`) fade, not pop.
+    `@media (prefers-reduced-motion:reduce){.atomic-labels .atomic-labels__row{transition:none}}` +
     // The hero shot uses a lens shift (camera.setViewOffset) to centre the atom in the
     // overlay-free area; the projected label layer moves by the same pixels.
     `.atomic-labels--projected{transform:translate(var(--atomic-lens-x,0px),var(--atomic-lens-y,0px))}`
