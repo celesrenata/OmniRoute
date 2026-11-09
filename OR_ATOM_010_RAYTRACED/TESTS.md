@@ -1,3 +1,35 @@
+# TESTS (Gate B, round 7)
+
+Source SHA of the code under test: `a6d18051bac49fe744f91e6cde8c7ae21b72e998` (short `a6d18051b`; branch `feat/atomic-raytraced-renderer`; the following commit only adds docs/evidence).
+Deployment status: **not deployed.** Nothing pushed, no PR opened, no production or fleet change.
+Environment: macOS, Apple M5 Max, Node v24, headed Chrome via Playwright, dev server from this worktree on :20199.
+
+## Commands and outcomes
+
+| Command                                                                                                 | Outcome                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts`                                     | 472 tests, 471 pass, 0 fail, 1 skipped. New: `modelCoreColor.test.ts` (2), `dofCoc.test.ts` (3).                                                          |
+| `npx eslint src/plugins/atomic-topology` (+ new tests)                                                  | 0 problems.                                                                                                                                               |
+| `npm run typecheck:core`                                                                                | 45 errors, all pre-existing (the same 45 as round 6); 0 in `atomic-topology`.                                                                             |
+| `npm run lint`                                                                                          | 7 errors, all pre-existing and outside the plugin (`scriptVaultTools.ts`, `src/lib/db/scripts.ts`, `src/lib/scripts/scriptVault.ts`).                     |
+| `npm run test:vitest`                                                                                   | 54 files, 493 tests passed.                                                                                                                               |
+| `npm run check:cycles`                                                                                  | OK, no cycles (462 files).                                                                                                                                |
+| `node scripts/ad-hoc/pw-atomic-gateB.mjs ladder / loss / fallback / reduced / toggle 50 / soak 1200000` | See `PERFORMANCE.md` (all on this SHA, real GPU `apple/metal-3`).                                                                                         |
+| `node scripts/ad-hoc/pw-atomic-home.mjs ...`                                                            | Real `/home` Atomic captures + LOD distribution on this SHA. The "before" panel comes from round-6 code `fa9e3373b`, captured at the start of this round. |
+| `node scripts/ad-hoc/pw-atomic-gateB-capture.mjs ...` (+ `VIDEO=12000`)                                 | All round-7 stills and 2 videos, 0 console errors per capture.                                                                                            |
+| pre-commit hooks (lint-staged, docs-sync, any-budget, tracked-artifacts, ai-attribution)                | Pass on `b7d7ea448` and `a6d18051b`.                                                                                                                      |
+
+## New or changed tests (this round)
+
+- `modelCoreColor.test.ts`: the core colour is finite, normalised to a bright max channel, follows the dominant mean nucleon tint, and different models give distinguishable cores.
+- `dofCoc.test.ts`: CoC is 0 from the camera out to 1.08 x focus, non-decreasing beyond, saturated at 2.4 x, and the sharp range moves with the focus depth.
+- Shaders (petal sheets, limb, trails, depth writes) are verified only on the real GPU captures; there is no headless shader test.
+
+## Frozen-area guard
+
+`git diff --stat 689178516 HEAD` is empty for `layout.ts`, `cameraFit.ts`, `scene/SceneOrbitControls.tsx`, `overlays/AtomicLabels.tsx`, `overlays/AtomicControls.tsx`. The 2D renderer, telemetry and routing are untouched this round (diff `fa9e3373b..HEAD` touches only scene/shader files and two new tests). New dev-only query params, non-production only: `?hideLayers=`, `?dofdbg=1`. Legacy-tier grep (`HazeQualityTier|HAZE_TIER|qualityTier|LEGACY_BLOOM|atomic-fx=legacy`) in `src` and `tests`: 0 hits.
+---
+
 # TESTS (Gate B, round 6)
 
 Source SHA of the code under test: `076bc2219ed03505ebeef69e9e9487dcb2cf434b` (short `076bc2219`; branch `feat/atomic-raytraced-renderer`; the following commit only adds docs/evidence).

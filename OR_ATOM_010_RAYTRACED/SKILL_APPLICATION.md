@@ -1,3 +1,22 @@
+# SKILL_APPLICATION (Gate B, round 7)
+
+Code SHA `a6d18051bac49fe744f91e6cde8c7ae21b72e998`. Rules applied this round (what each changed in the work):
+
+| Rule                                                | Applied how                                                                                                                                                                                                |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gateB.json` round 6 findings first                 | All four visual findings were addressed before new scope (table in `GATE_B.md`).                                                                                                                           |
+| `OPERATOR_DIRECTIVES.md` 30 (only tier 0 greys)     | Exposed the palette bug: unattributed healthy providers were grey. Fixed without inventing model colours.                                                                                                  |
+| `OPERATOR_DIRECTIVES.md` 32 (viewer-based DOF)      | CoC from camera depth only, truthful depth writes, sharp near field, eased focus, CoC debug view.                                                                                                          |
+| `ART_DIRECTION.md` (idea5) items 2, 3, 6, 8, 11, 12 | Radial petals with voids, defined cyan rim, anamorphic streak, warm floor streaks, teal/orange grade, saturated palette.                                                                                   |
+| Hard freeze                                         | Empty diff for frozen files; the camera is untouched (DOF reads the camera, never moves it); dev toggles are query params only.                                                                            |
+| No quality tiers / optimise, do not downgrade       | Full DPR + MSAA kept; the extra DOF cost is recorded rather than hidden behind a tier.                                                                                                                     |
+| AGENTS.md testing + demo-grade verification         | New unit tests for the pure parts; every visual claim comes from a real headed-Chrome capture on the M5 Max, including the real `/home`.                                                                   |
+| Failure-loop rule                                   | Two gain-tuning passes did not fix the pale real atoms, so I bisected by layer, which found the palette root cause. The volumetric rim shell washed the disc, so I switched technique to an analytic limb. |
+| `webgpu-threejs-tsl` (local)                        | `getViewZNode()` CoC, `depthNode` with `viewZToPerspectiveDepth` on the room, a `colorWrite = false` depth pre-pass mesh, baked 3D-noise `.level(0)` samples in the march.                                 |
+| AGENTS.md git rules                                 | Worktree branch, conventional commits with checks recorded, hooks run, no AI attribution, nothing pushed.                                                                                                  |
+
+---
+
 # SKILL_APPLICATION (Gate B, round 6)
 
 Code SHA `076bc2219ed03505ebeef69e9e9487dcb2cf434b`. Rules applied this round (what each changed in the work):
