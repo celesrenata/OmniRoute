@@ -65,7 +65,8 @@ import {
 import { batchCapacityFor } from "./rt/atomData";
 import { createRtPost, type RtPost } from "./rt/rendererFactory";
 import { createRtRegistry } from "./rt/rtRegistry";
-import { createMirrorPass, type MirrorPass } from "./rt/mirrorPass";
+import { createMirrorPass, resolveMirrorScale, type MirrorPass } from "./rt/mirrorPass";
+import { createHeroPass, resolveHeroScale, type HeroPass } from "./rt/heroPass";
 import { envTime, floorY, pxScale } from "./rt/sharedUniforms";
 import {
   FLOOR_OFFSET,
@@ -141,16 +142,29 @@ interface Gpu {
   env: Environment;
   motes: MoteLayer;
   post: RtPost;
-  /** Reduced-resolution floor reflection (`?mirrorres=<scale>`), null = full-res inline. */
+  /** Reduced-resolution floor reflection (default half-res; `?mirrorres=1` = full-res inline). */
   mirror: MirrorPass | null;
+  /** Reduced-resolution hero translucency (dev flag `?herores=<scale>`, directive 44.2), or null. */
+  hero: HeroPass | null;
   dispose: () => void;
 }
 
-/** Dev A/B only: `?mirrorres=0.5` renders the floor reflection at that scale. */
+/** Hero translucency scale: off unless the dev flag `?herores=<scale>` is set (directive 44.2). */
+function heroResScale(): number | null {
+  const param =
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("herores");
+  return resolveHeroScale(param, process.env.NODE_ENV === "production");
+}
+
+/** Floor-reflection scale: half-res by default (directive 44.1), `?mirrorres=` dev override. */
 function mirrorResScale(): number | null {
-  if (process.env.NODE_ENV === "production" || typeof window === "undefined") return null;
-  const v = Number(new URLSearchParams(window.location.search).get("mirrorres"));
-  return Number.isFinite(v) && v > 0 && v < 1 ? v : null;
+  const param =
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("mirrorres");
+  return resolveMirrorScale(param, process.env.NODE_ENV === "production");
 }
 
 export interface RtTopologyContentProps {
@@ -237,6 +251,15 @@ export function RtTopologyContent({
       registry.add(mirror);
       root.add(...mirror.objects);
     }
+    const hScale = heroResScale();
+    const heroStrandsLow =
+      typeof window === "undefined" ||
+      new URLSearchParams(window.location.search).get("herostrands") !== "0";
+    const hero = hScale != null ? createHeroPass(hScale, heroStrandsLow) : null;
+    if (hero) {
+      registry.add(hero);
+      root.add(...hero.objects);
+    }
     // DOM labels and the R3F pointer layer never pick these meshes.
     root.traverse((o) => {
       (o as { raycast?: unknown }).raycast = () => {};
@@ -289,6 +312,7 @@ export function RtTopologyContent({
       motes,
       post,
       mirror,
+      hero,
       dispose: () => {
         scene.remove(root);
         registry.disposeAll();
@@ -649,6 +673,26 @@ export function RtTopologyContent({
             ? 1 - (1 - CLOSE_NEIGHBOUR_DIM) * hero.w
             : 1;
     });
+    // Hero translucency (dev flag): the focused atom, else the previous frame's close-up hero.
+    let heroIdx = -1;
+    // Dev A/B: `window.__atomicHeroEnabled = false` turns the pass off live (identical-state captures).
+    const heroOff =
+      process.env.NODE_ENV !== "production" &&
+      (window as unknown as { __atomicHeroEnabled?: boolean }).__atomicHeroEnabled === false;
+    if (gpu.hero) {
+      const fIdx = focusNodeId ? atomIndex.get(focusNodeId) : undefined;
+      heroIdx = heroOff
+        ? -1
+        : fIdx != null && frames[fIdx]
+          ? fIdx
+          : heroRef.current.index >= 0 && heroRef.current.w > 0
+            ? heroRef.current.index
+            : -1;
+      gpu.atoms.setHero(heroIdx, gpu.hero.strands);
+      gpu.hero.objects.forEach((o) => (o.visible = heroIdx >= 0));
+      if (process.env.NODE_ENV !== "production")
+        (window as unknown as { __atomicHeroIdx?: number }).__atomicHeroIdx = heroIdx;
+    }
     gpu.atoms.update(frames, {
       dt,
       camera,
@@ -725,6 +769,7 @@ export function RtTopologyContent({
       gpu.mirror.assignLayers(gpu.atoms.group);
       gpu.mirror.render(gl, scene as never, camera);
     }
+    if (gpu.hero && heroIdx >= 0) gpu.hero.render(gl, scene as never, camera);
     gpu.post.pipeline.render();
     if (process.env.NODE_ENV !== "production") {
       const w = window as unknown as { __atomicRtFrames?: number };

@@ -51,6 +51,8 @@ import {
   uniformArray,
   texture3D,
   ceil,
+  floor,
+  vec2,
   vec3,
   vec4,
 } from "three/tsl";
@@ -67,9 +69,17 @@ import {
   AdditiveBlending,
   CustomBlending,
 } from "three/webgpu";
-import { OneFactor, OneMinusSrcAlphaFactor, AddEquation } from "three/webgpu";
+import { OneFactor, OneMinusSrcAlphaFactor, AddEquation, NoBlending } from "three/webgpu";
 import { NUCLEUS_GLASS_IOR } from "../glassOptics";
 import { MAX_NUCLEONS } from "../shaderParams";
+import {
+  HERO_MASK,
+  HERO_Q,
+  HERO_Q2,
+  heroCloudTex,
+  heroLowScale,
+  heroLowSize,
+} from "../rt/heroUniforms";
 import { petalAxes } from "../strandField";
 import { raySphere, sphereOcclusion, sphereSoftShadow } from "./raySphere";
 
@@ -205,6 +215,8 @@ export interface AtomUniforms {
   lod: ReturnType<typeof uniform>;
   /** Focus-view neighbour dim (1 = unchanged); applied by the small-atom LOD. */
   dim: ReturnType<typeof uniform>;
+  /** 1 = this atom's cloud comes from the low-res hero pass (directive 44.2), 0 = marched here. */
+  heroComposite: ReturnType<typeof uniform>;
 }
 
 /** Create the per-atom uniform set (all typed arrays preallocated, no per-frame allocation). */
@@ -250,11 +262,21 @@ export function createAtomUniforms(): AtomUniforms {
     floorY: uniform(-62),
     lod: uniform(0),
     dim: uniform(1),
+    heroComposite: uniform(0),
   };
 }
 
+/**
+ * Impostor material variants: "main" = the full atom (default); "cloudLow" = only the cloud
+ * march of the hero atom, written packed into the low-res hero target (directive 44.2).
+ */
+export type AtomMaterialVariant = "main" | "cloudLow";
+
 /** Build the impostor material for one atom from its uniforms. */
-export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
+export function createAtomMaterial(
+  u: AtomUniforms,
+  variant: AtomMaterialVariant = "main"
+): MeshBasicNodeMaterial {
   const nuc = u.nucleonCenters as any;
   const tint = u.nucleonTints as any;
   const count = u.nucleonCount as any;
@@ -382,6 +404,21 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     return out;
   });
 
+  /** Closest nucleon hit distance only (no shading); -1 on a miss. Same test as traceNucleus. */
+  const nucleusHitT = Fn(([ro, rd]: [any, any]) => {
+    const tBest = float(1e9).toVar();
+    const hit = float(-1).toVar();
+    Loop(count, ({ i }: any) => {
+      const c = nuc.element(i);
+      const h = raySphere(ro, rd, c.xyz, c.w);
+      If(h.x.greaterThan(0).and(h.x.lessThan(tBest)), () => {
+        tBest.assign(h.x);
+        hit.assign(h.x);
+      });
+    });
+    return hit;
+  });
+
   /** Petal bundle axes (same canonical Fibonacci set as the strand field). */
   const petalAxesN = petalAxes().map(([x, y, z]) =>
     normalize((u.orient as any).mul(vec3(x, y, z)))
@@ -507,6 +544,91 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       m: medium.mul(float(1.6).sub(voidK.mul(0.6))).mul(farK.mul(0.8).add(1)),
     };
   };
+  /**
+   * The cloud march (emission `acc`, transmittances `trans` / `transBg`), from the cloud entry to
+   * the cloud exit or the nucleus hit `tNucV` (< 0 = none). Shared by the full atom and the
+   * low-res hero cloud pass, so both march exactly the same samples per pixel.
+   */
+  const marchCloud = (ro: any, rd: any, tNucV: any, acc: any, trans: any, transBg: any) => {
+    const cloudR = u.cloudRadius as any;
+    const hc = raySphere(ro, rd, center, cloudR);
+    If(hc.y.greaterThan(0), () => {
+      const t0 = max(hc.x, 0);
+      const t1 = select(tNucV.greaterThan(0), min(hc.y, tNucV), hc.y);
+      If(t1.greaterThan(t0), () => {
+        // Chord-scaled step count: a constant world-space step length, so short
+        // grazing chords near the silhouette take proportionally fewer samples
+        // (same per-step quality, ~1/3 fewer samples on average across the disc).
+        const maxSteps = float(u.steps as any);
+        const stepsF = max(ceil(t1.sub(t0).div(cloudR.mul(2)).mul(maxSteps)), 12);
+        const dt = t1.sub(t0).div(stepsF);
+        const t = t0.add(dt.mul(interleavedGradientNoise(screenCoordinate.xy))).toVar();
+        // Distance-aware gain: at default zoom the saturated violet body carries
+        // the atom read (filled plasma flower, not a hollow glassy orb).
+        const emission = brightness
+          .mul(1.5)
+          .add(0.22)
+          .mul(0.011)
+          .mul((u.far as any).mul(2.1).add(1));
+        Loop(u.steps as any, () => {
+          If(t.greaterThan(t1).or(trans.lessThan(0.02)), () => {
+            Break();
+          });
+          const q = ro.add(rd.mul(t)).sub(center).div(cloudR);
+          const s = cloudBody(q);
+          const w = s.w;
+          acc.addAssign(s.col.mul(emission).mul(dt).mul(trans));
+          const m = s.m;
+          // The medium also attenuates emission behind it (depth: near petals
+          // occlude far ones), not just the room.
+          trans.mulAssign(exp(w.mul(0.03).add(m.mul(0.07)).mul(dt).negate()));
+          transBg.mulAssign(exp(m.mul(dt).negate()));
+          t.addAssign(dt);
+        });
+      });
+    });
+  };
+
+  /** Upsampled low-res hero cloud for this full-res pixel (see heroPass.ts). */
+  const sampleHeroCloud = (fullHit: any) => {
+    const lowSize = heroLowSize as any;
+    const pLow = screenCoordinate.xy.mul(heroLowScale as any).sub(0.5);
+    const base = floor(pLow);
+    const f = pLow.sub(base);
+    const accS = vec3(0).toVar();
+    const o1 = float(0).toVar();
+    const o2 = float(0).toVar();
+    const wS = float(0).toVar();
+    const want = select(fullHit, float(1), float(0));
+    for (const [dx, dy] of [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const) {
+      const ij = base.add(vec2(dx, dy)).clamp(vec2(0), lowSize.sub(1));
+      const s4 = heroCloudTex.sample(ij.add(0.5).div(lowSize));
+      const packed = s4.w;
+      const hitF = floor(packed.div(HERO_MASK));
+      const rest = packed.sub(hitF.mul(HERO_MASK));
+      const q1 = floor(rest.div(HERO_Q2));
+      const q2 = rest.sub(q1.mul(HERO_Q2));
+      const bx = dx === 0 ? float(1).sub(f.x) : f.x;
+      const by = dy === 0 ? float(1).sub(f.y) : f.y;
+      const match = select(hitF.min(1).equal(want), float(1), float(0.02));
+      const w = bx.mul(by).mul(match).add(1e-6);
+      accS.addAssign(s4.xyz.mul(w));
+      o1.addAssign(q1.mul(w));
+      o2.addAssign(q2.mul(w));
+      wS.addAssign(w);
+    }
+    return {
+      acc: accS.div(wS),
+      trans: float(1).sub(o1.div(wS).div(HERO_Q)),
+      transBg: float(1).sub(o2.div(wS).div(HERO_Q)),
+    };
+  };
+
   const fullFragment = Fn(() => {
     const mirrorOn = u.mirror as any;
     const fy = u.floorY as any;
@@ -560,41 +682,16 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const acc = vec3(0).toVar();
     const trans = float(1).toVar();
     const transBg = float(1).toVar();
-    const hc = raySphere(ro, rd, center, cloudR);
-    If(hc.y.greaterThan(0), () => {
-      const t0 = max(hc.x, 0);
-      const t1 = select(tNuc.greaterThan(0), min(hc.y, tNuc), hc.y);
-      If(t1.greaterThan(t0), () => {
-        // Chord-scaled step count: a constant world-space step length, so short
-        // grazing chords near the silhouette take proportionally fewer samples
-        // (same per-step quality, ~1/3 fewer samples on average across the disc).
-        const maxSteps = float(u.steps as any);
-        const stepsF = max(ceil(t1.sub(t0).div(cloudR.mul(2)).mul(maxSteps)), 12);
-        const dt = t1.sub(t0).div(stepsF);
-        const t = t0.add(dt.mul(interleavedGradientNoise(screenCoordinate.xy))).toVar();
-        // Distance-aware gain: at default zoom the saturated violet body carries
-        // the atom read (filled plasma flower, not a hollow glassy orb).
-        const emission = brightness
-          .mul(1.5)
-          .add(0.22)
-          .mul(0.011)
-          .mul((u.far as any).mul(2.1).add(1));
-        Loop(u.steps as any, () => {
-          If(t.greaterThan(t1).or(trans.lessThan(0.02)), () => {
-            Break();
-          });
-          const q = ro.add(rd.mul(t)).sub(center).div(cloudR);
-          const s = cloudBody(q);
-          const w = s.w;
-          acc.addAssign(s.col.mul(emission).mul(dt).mul(trans));
-          const m = s.m;
-          // The medium also attenuates emission behind it (depth: near petals
-          // occlude far ones), not just the room.
-          trans.mulAssign(exp(w.mul(0.03).add(m.mul(0.07)).mul(dt).negate()));
-          transBg.mulAssign(exp(m.mul(dt).negate()));
-          t.addAssign(dt);
-        });
-      });
+    If((u.heroComposite as any).greaterThan(0.5), () => {
+      // Hero atom: the cloud was marched at low resolution (heroPass); read it back with a
+      // nucleus-hit-aware bilinear upsample (taps across the nucleus silhouette are rejected,
+      // so the full-res nucleus edge never picks up cloud from the other side).
+      const r = sampleHeroCloud(tNuc.greaterThan(0));
+      acc.assign(r.acc);
+      trans.assign(r.trans);
+      transBg.assign(r.transBg);
+    }).Else(() => {
+      marchCloud(ro, rd, tNuc, acc, trans, transBg);
     });
 
     // Equatorial anamorphic flare + hot core flare (HDR-driven, restrained).
@@ -780,13 +877,50 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     return out;
   });
 
+  /**
+   * Low-res hero cloud pass: the same ray, glass refraction and nucleus termination as the full
+   * atom (hit distance only, no shading), then the shared march. Output: rgb = emission,
+   * a = packed (1 - trans, 1 - transBg, nucleus hit). Outside the cloud it writes the clear value.
+   */
+  const cloudLowFragment = Fn(() => {
+    const ro = cameraPosition;
+    const rd = normalize(positionWorld.sub(ro));
+    const tNuc = float(-1).toVar();
+    const hg = raySphere(ro, rd, center, u.glassRadius as any);
+    If(hg.x.greaterThan(0), () => {
+      const pg = ro.add(rd.mul(hg.x));
+      const ng = normalize(pg.sub(center));
+      const rdIn = refract(rd, ng, float(1 / NUCLEUS_GLASS_IOR));
+      const tn = nucleusHitT(pg, rdIn);
+      If(tn.greaterThan(0), () => {
+        tNuc.assign(hg.x.add(tn));
+      });
+    });
+    const acc = vec3(0).toVar();
+    const trans = float(1).toVar();
+    const transBg = float(1).toVar();
+    marchCloud(ro, rd, tNuc, acc, trans, transBg);
+    const q1 = floor(saturate(float(1).sub(trans)).mul(HERO_Q).add(0.5));
+    const q2 = floor(saturate(float(1).sub(transBg)).mul(HERO_Q).add(0.5));
+    const hit = select(tNuc.greaterThan(0), float(HERO_MASK), float(0));
+    return vec4(acc, hit.add(q1.mul(HERO_Q2)).add(q2));
+  });
+
   const material = new MeshBasicNodeMaterial();
-  material.fragmentNode = fragment();
+  material.fragmentNode = variant === "cloudLow" ? cloudLowFragment() : fragment();
   // Billboard quad: covers the cloud bounding sphere silhouette.
   material.positionNode = (u.camRight as any)
     .mul(positionLocal.x)
     .add((u.camUp as any).mul(positionLocal.y))
     .mul(u.quadHalf as any);
+  if (variant === "cloudLow") {
+    // Written as-is into the cleared low-res target (packed data, never blended).
+    material.transparent = false;
+    material.depthWrite = false;
+    material.depthTest = false;
+    material.blending = NoBlending;
+    return material;
+  }
   material.transparent = true;
   material.depthWrite = false;
   material.depthTest = false;

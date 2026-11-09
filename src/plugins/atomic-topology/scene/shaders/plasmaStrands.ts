@@ -53,6 +53,8 @@ import { rankOrder, STRAND_BUCKETS } from "../rt/atomLayout";
 const ROW_ATTRIBUTE = "aRow";
 import { atomFields, type AtomData } from "../rt/atomData";
 import { floorY } from "../rt/sharedUniforms";
+import { heroStrandScale } from "../rt/heroUniforms";
+import { HERO_STRAND_LAYER } from "../rt/heroPass";
 import { sphereVisibility } from "./raySphere";
 
 /** Base (non-instanced) geometries; buckets are views sharing these attributes. */
@@ -165,7 +167,12 @@ function finish(m: MeshBasicNodeMaterial): MeshBasicNodeMaterial {
  * Strand ribbons for every atom. `mirror` renders the floor reflection
  * (geometry reflected about the floor plane, dimmer).
  */
-export function createStrandMaterial(data: AtomData, mirror = false): MeshBasicNodeMaterial {
+export function createStrandMaterial(
+  data: AtomData,
+  mirror = false,
+  /** Low-res hero strand pass (directive 44.2): widths are kept in FULL-res pixels. */
+  low = false
+): MeshBasicNodeMaterial {
   const U = atomFields(data, int(attribute(ROW_ATTRIBUTE, "float").add(0.5)), false);
   const time = U.phase;
   const exc = U.excitation;
@@ -243,16 +250,19 @@ export function createStrandMaterial(data: AtomData, mirror = false): MeshBasicN
   const taper = smoothstep(0, 0.1, t).mul(pow(float(1).sub(t), 0.55));
   const widthPx = widthBase.mul(taper.mul(0.8).add(0.2));
   const farV = U.far;
-  const drawPx = max(widthPx, farV.mul(0.85).add(1.05));
+  // Low-res pass: the same strand in target pixels (width x scale, at least ~1 target px with
+  // proportionally lower coverage), so the upsampled sum matches the full-res energy.
+  const widthT = low ? widthPx.mul(heroStrandScale) : widthPx;
+  const drawPx = max(widthT, farV.mul(0.85).add(1.05));
   const lit = step(rank, U.active);
-  const pxWorld = dist.mul(U.pxScale);
+  const pxWorld = low ? dist.mul(U.pxScale).div(heroStrandScale) : dist.mul(U.pxScale);
   const material = new MeshBasicNodeMaterial();
   // World-space position (the draw has an identity model matrix).
   material.positionNode = center.add(
     pL.add(perp.mul(side.mul(0.5).mul(drawPx).mul(pxWorld).mul(lit)))
   );
   // Energy-conserving thin lines: sub-pixel strands are drawn 1 px wide, dimmer.
-  const coverV = varying(widthPx.div(drawPx).mul(lit));
+  const coverV = varying(widthT.div(drawPx).mul(lit));
   const gmV = varying(gm);
   const tV = varying(t);
   const sideV = varying(side);
@@ -377,7 +387,7 @@ export interface StrandField {
    * Assign atom rows to buckets (bucket index per row). Uploads the per-bucket
    * row lists only when membership actually changed.
    */
-  setBuckets: (bucketOfRow: readonly number[]) => void;
+  setBuckets: (bucketOfRow: readonly number[], heroRow?: number) => void;
 }
 
 export function createStrandField(data: AtomData, capacity: number): StrandField {
@@ -407,20 +417,58 @@ export function createStrandField(data: AtomData, capacity: number): StrandField
     }
     return { s, p, last: "" };
   });
+  // Hero translucency (directive 44.2): the hero row's strands leave the bucket draws and are
+  // drawn once at low res (HERO_STRAND_LAYER) plus once into the floor reflection.
+  const heroBase = bucketGeometry(sb, 1, 1);
+  geometries.push(heroBase.geometry);
+  const lowMat = createStrandMaterial(data, false, true);
+  const heroStrands = new Mesh(heroBase.geometry, lowMat);
+  heroStrands.name = "heroStrands";
+  heroStrands.renderOrder = 9;
+  heroStrands.frustumCulled = false;
+  heroStrands.layers.set(HERO_STRAND_LAYER);
+  heroStrands.visible = false;
+  const heroMirror = new Mesh(heroBase.geometry, mirrorMat);
+  // Named like the bucket mirrors so the floor-reflection pass picks it up.
+  heroMirror.name = "strandMirror";
+  heroMirror.renderOrder = 3;
+  heroMirror.frustumCulled = false;
+  heroMirror.visible = false;
+  meshes.push(heroStrands, heroMirror);
+  let heroKey = "-1|-1";
   const lists: number[][] = STRAND_BUCKETS.map(() => []);
   return {
     meshes,
-    materials: [strandMat, mirrorMat, sparkleMat],
+    materials: [strandMat, mirrorMat, sparkleMat, lowMat],
     geometries,
-    setBuckets(bucketOfRow) {
+    setBuckets(bucketOfRow, heroRow = -1) {
       lists.forEach((l) => (l.length = 0));
       // Bucket < 0 = culled (outside the view frustum): no strands, no sparkles.
       const visibleRows: number[] = [];
+      let heroBucket = -1;
       bucketOfRow.forEach((b, row) => {
         if (b < 0) return;
         visibleRows.push(row);
-        lists[Math.min(b, lists.length - 1)].push(row);
+        const bi = Math.min(b, lists.length - 1);
+        if (row === heroRow) heroBucket = bi;
+        else lists[bi].push(row);
       });
+      const hk = `${heroBucket >= 0 ? heroRow : -1}|${heroBucket}`;
+      if (hk !== heroKey) {
+        heroKey = hk;
+        const on = heroBucket >= 0;
+        (heroBase.rows.array as Float32Array)[0] = on ? heroRow : 0;
+        heroBase.rows.needsUpdate = true;
+        heroBase.geometry.instanceCount = on ? 1 : 0;
+        if (on) {
+          heroBase.geometry.setDrawRange(
+            0,
+            Math.ceil(sb.count * STRAND_BUCKETS[heroBucket]) * sb.perStrand
+          );
+        }
+        heroStrands.visible = on;
+        heroMirror.visible = on;
+      }
       // Sparkles carry the closed cyan rim silhouette: never LOD'd, every
       // visible row draws the full rank-sorted sparkle set (last bucket).
       const all = visibleRows.length;

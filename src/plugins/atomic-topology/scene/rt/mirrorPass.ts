@@ -34,6 +34,20 @@ import {
 } from "three/webgpu";
 
 export const MIRROR_OVER_LAYER = 5;
+/** Default floor-reflection resolution scale (operator directive 44.1: half-res is the default). */
+export const DEFAULT_MIRROR_SCALE = 0.5;
+
+/**
+ * Floor-reflection scale for a `?mirrorres=` value: null = full resolution drawn inline (no
+ * offscreen pass). Production always uses the default; dev builds may override for A/B
+ * (`?mirrorres=1` = full res, `?mirrorres=0.35` etc.).
+ */
+export function resolveMirrorScale(param: string | null, production: boolean): number | null {
+  if (production || param == null || param === "") return DEFAULT_MIRROR_SCALE;
+  const v = Number(param);
+  if (!Number.isFinite(v) || v <= 0) return DEFAULT_MIRROR_SCALE;
+  return v >= 1 ? null : Math.max(0.1, v);
+}
 export const MIRROR_ADD_LAYER = 6;
 
 /** Which mirror layer a mesh name belongs to (null = not a mirror mesh). */

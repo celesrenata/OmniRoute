@@ -350,6 +350,8 @@ export interface AtomBatch {
   configure: (atoms: readonly BatchAtomConfig[]) => void;
   /** Write every atom's row for this frame, sort, set draw counts. */
   update: (frames: readonly BatchAtomFrame[], ctx: BatchFrameContext, offset?: number) => void;
+  /** Hero translucency row (directive 44.2, batch-local; -1 = none). Applied on the next update. */
+  setHeroRow: (row: number, strands?: boolean) => void;
   dispose: () => void;
 }
 
@@ -430,6 +432,8 @@ export function createAtomBatch(
   const planes = createFrustumPlanes();
   const dyn = data.dynArr;
   const bucketOfRow: number[] = [];
+  let heroRow = -1;
+  let heroStrandsOn = true;
   // Screen-space overlap scratch (per row): x, y (view-plane), r (angular radius).
   let projBuf = new Float32Array(0);
   let overlapBuf = new Float32Array(0);
@@ -917,7 +921,13 @@ export function createAtomBatch(
     }
     if (lodStats) (window as unknown as { __atomicLodStats?: unknown }).__atomicLodStats = lodStats;
     bucketOfRow.length = n;
-    strandField.setBuckets(bucketOfRow);
+    // Hero translucency: only a visible hero row goes to the low-res pass.
+    const hero = heroRow >= 0 && heroRow < n && bucketOfRow[heroRow] >= 0 ? heroRow : -1;
+    slots.forEach((slot, row) => {
+      const created = slot.setHero(row === hero);
+      if (created) group.add(created);
+    });
+    strandField.setBuckets(bucketOfRow, heroStrandsOn ? hero : -1);
     depthMesh.count = n;
     depthMesh.instanceMatrix.needsUpdate = true;
     // Upload only the rows in use (one writeBuffer each), not the whole capacity.
@@ -936,6 +946,10 @@ export function createAtomBatch(
     count: () => states.length,
     configure,
     update,
+    setHeroRow: (row, strands = true) => {
+      heroRow = Number.isInteger(row) ? row : -1;
+      heroStrandsOn = strands;
+    },
     dispose: () => {
       registry.disposeAll();
     },
@@ -961,6 +975,8 @@ export interface AtomBatchSet {
   update: (frames: readonly BatchAtomFrame[], ctx: BatchFrameContext) => void;
   /** Total draw-call groups (batches) currently live. */
   batchCount: () => number;
+  /** Hero translucency atom (global index into the atom list; -1 = none). */
+  setHero: (index: number, strands?: boolean) => void;
   dispose: () => void;
 }
 
@@ -995,6 +1011,10 @@ export function createAtomBatchSet(
       });
     },
     batchCount: () => Math.ceil(total / cap),
+    setHero(index, strands = true) {
+      const bi = index >= 0 ? Math.floor(index / cap) : -1;
+      batches.forEach((b, i) => b.setHeroRow(i === bi ? index - i * cap : -1, strands));
+    },
     dispose: () => registry.disposeAll(),
   };
 }

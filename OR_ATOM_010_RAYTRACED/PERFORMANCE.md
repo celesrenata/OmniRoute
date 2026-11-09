@@ -1,3 +1,87 @@
+# PERFORMANCE: profile-and-optimize phase, round 2 (directive 44)
+
+Same machine and method as round 1 (below). Background load: a local model server (`ds4-server`) kept the GPU at 50-99 %
+"Device Utilization" for most of this session. `pw-atomic-profile.mjs` now has `WAIT_QUIET=1`: it waits on a blank page
+until the whole GPU reads <= 10 % for 3 s before each sample, and it records the utilisation right after (`after`).
+Most samples still had `after` 75-98 %, so the fps columns are noisy. GPU timestamps are the steadier signal.
+
+## 44.1 Half-resolution floor reflection is now the default (shipped)
+
+`resolveMirrorScale()` (`scene/rt/mirrorPass.ts`) returns 0.5 by default and always in production. The dev override `?mirrorres=1`
+draws the reflection inline at full resolution, and `?mirrorres=<0.1..0.99>` picks another scale. Round 1 has the approved
+evidence (SSIM 0.998-0.999, diff confined to the reflections, 32 atoms 120 fps at 120 Hz).
+Regression check on this build vs the round-1 `mirrorres=0.5` captures: topo-16 / 20 / 32 / 20-close max diff 0-1 level (identical).
+topo-08 differs only on the board trace pulses (max 214, SSIM 0.998). Its own r1-vs-r2 floor also differs there: the board pulses
+run on wall-clock time and the bench's `paused=1` freezes only the atoms. The Gate A bench scenes (single default/close/idle,
+grid 32), which do not use the reflection pass, match round 1 exactly (max 0-1).
+
+## 44.2 Reduced-resolution hero translucency (built, dev flag only, NOT default)
+
+Flag: `?herores=0.5` (cloud march + strands at 0.5x). `&herostrands=0` = cloud march only, strands at full res.
+Off unless set (`resolveHeroScale`), and never in production.
+
+How it works (`scene/rt/heroPass.ts`, `heroUniforms.ts`, `shaders/atomImpostor.ts`, `shaders/plasmaStrands.ts`, `rt/atomBatch.ts`):
+
+- **Hero:** only the focused atom (detail/focus view), or the close-up hero when no atom is focused. Every other atom is unchanged.
+- **Cloud:** the cloud march (shared code, `marchCloud`) runs for the hero in a low-res pass, `heroCloud` mesh, RGBA32F.
+  - It uses the same ray, glass refraction and nucleus termination (hit distance only, no nucleus shading).
+  - It writes the emission plus both transmittances, packed exactly in fp32 (11 bits each) with a nucleus-hit flag.
+- **Upsample:** the hero's full-res impostor skips the march and reads the target back with a 4-tap bilinear upsample that is
+  nucleus-hit aware (depth-aware). Taps whose nucleus flag differs from the full-res pixel are weighted 0.02, so cloud from
+  the other side never bleeds over the full-res nucleus edge.
+- **Stays full DPR:** the nucleus, glass shell, cyan limb and flare (same shader), plus sparkles (the closed cyan rim), wires,
+  bolts, board, links, labels and UI.
+- **Strands (cloud+strands mode):** the hero row leaves the bucket draws.
+  - It is drawn once into a low-res additive target at width-compensated, energy-conserving pixel size, then composited
+    additively at the strands' renderOrder (9).
+  - It is drawn once into the (half-res) floor reflection.
+
+### Identical-state A/B (`pw-atomic-hero-ab.mjs`)
+
+Each scene is loaded once with the flag. The clock is frozen (bench `paused=1`, /home Pause button), and a press without movement
+stops the detail view's cinematic drift. The pass is switched off and on live (`window.__atomicHeroEnabled`), so camera, time and
+data are identical. "floor" = off vs off again, i.e. the same state's own capture-to-capture noise.
+
+| scene                                            | hero    | cloud + strands at 0.5 (SSIM, % px > 2 / > 8 levels, max) | cloud only at 0.5 (SSIM, % > 2 / > 8, max) | floor max                                    |
+| ------------------------------------------------ | ------- | --------------------------------------------------------- | ------------------------------------------ | -------------------------------------------- |
+| real /home card (~700x418 css), OpenAI detail    | yes     | **0.99929**, 3.71 / 0.62, 72                              | **0.99966**, 2.31 / 0.15, 171              | 72 / 171 (1-2 px)                            |
+| real /home fullscreen (3196x1996), OpenAI detail | yes     | **0.98650**, 9.01 / 4.46, 102                             | **0.99866**, 4.06 / 0.23, 42               | 0                                            |
+| bench detail, provider                           | yes     | **0.99037**, 8.01 / 3.19, 78                              | **0.99833**, 4.27 / 0.40, 35               | 0                                            |
+| bench detail, hub                                | yes     | **0.97823**, 12.15 / 6.02, 115                            | **0.99728**, 6.24 / 0.69, 35               | 0                                            |
+| bench close-up (zoom 8, close hero)              | yes     | 0.97495                                                   | 0.97461                                    | 231 (this scene does not freeze; not usable) |
+| bench default view                               | no hero | identical (max 0)                                         | identical (max 0)                          | 0                                            |
+
+What the diff shows (worst-region crops, 1:1 device px, before | after | diff x16):
+
+- **Cloud + strands:** the hero's hairline strands become visibly softer and slightly thicker at 0.5x. That is a visible change
+  at fullscreen and close-up. Crops: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/preview/hero-ab-cloud-strands_home-fs-detail-worst-crop.jpg`,
+  `.../hero-ab-cloud-strands_bench-detail-hub-worst-crop.jpg`, `.../hero-ab-cloud-strands_home-card-detail-worst-crop.jpg`,
+  `.../hero-ab-cloud-strands_bench-detail-worst-crop.jpg`.
+- **Cloud only:** differences are low-amplitude, fine-grained noise inside the cloud body (the march jitter is now per low-res pixel).
+  There are no edge or nucleus artefacts. Crops: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/preview/hero-ab-cloud-only_home-fs-detail-worst-crop.jpg`,
+  `.../hero-ab-cloud-only_bench-detail-hub-worst-crop.jpg`, `.../hero-ab-cloud-only_home-card-detail-worst-crop.jpg`,
+  `.../hero-ab-cloud-only_bench-detail-worst-crop.jpg`.
+- **Full PNGs** (on disk): `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/hero-ab-cloud-strands/{off,on,diff}/` and `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/hero-ab-cloud-only/{off,on,diff}/`.
+
+### Fullscreen detail perf (real /home, 3196x1996, OpenAI detail, 3 interleaved rounds, `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/ab-hero-fullscreen.txt`)
+
+| build                                    | GPU ms/frame (timestamps) | uncapped fps          |
+| ---------------------------------------- | ------------------------- | --------------------- |
+| default (half-res reflection)            | 6.3 / 6.5 / 10.4          | 106.5 / 105.6 / 64.7  |
+| `herores=0.5&herostrands=0` (cloud only) | 5.8 / 5.1 / 7.7           | 121.6 / 115.2 / 81.6  |
+| `herores=0.5` (cloud + strands)          | 4.5 / 4.5 / 4.5           | 124.3 / 117.4 / 111.7 |
+
+Cloud + strands cuts the hero frame's GPU time by about 30-55 % and reaches ~112-124 fps uncapped in fullscreen detail (target
+
+> = 120: met in 1 of 3 rounds, within the noise of the other two). Cloud only saves less (about 10-25 %). The remaining GPU time
+> under the flag is mostly the hero's full-res impostor shading (nucleus trace, glass, limb), measured with `hideLayers=impostor`
+> at 1.9-2.6 ms. The uncapped p95/p99 stay at the presentation beat from round 1 (25-45 ms); they are not render cost.
+> The run labelled "capped" in that file did not engage vsync in fullscreen and is not used here.
+
+**Decision needed (directive 44.2):** cloud + strands meets the fps target but softens the hero's hairline strands (SSIM 0.978-0.999).
+Cloud only is near-invisible (SSIM 0.997-0.9997) but does not reach 120 fps. Neither is the default until the operator chooses.
+---
+
 # PERFORMANCE: profile-and-optimize phase, round 1 (directives 19, 21, 41)
 
 Apple M5 Max (40-core GPU), macOS, headed Chrome via Playwright, WebGPU adapter `apple/metal-3`, real GPU (no SwiftShader).

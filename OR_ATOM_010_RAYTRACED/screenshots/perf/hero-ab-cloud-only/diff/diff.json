@@ -1,0 +1,152 @@
+[
+  {
+    "scene": "bench-close",
+    "beforeVsAfter": {
+      "maxAbs": 237,
+      "meanAbs": 1.7418,
+      "pctOver2": 25.021,
+      "pctOver8": 6.8596,
+      "psnr": 33.85,
+      "ssim": 0.97461
+    },
+    "beforeR1vsR2": {
+      "maxAbs": 231,
+      "meanAbs": 0.9986,
+      "pctOver2": 13.2,
+      "pctOver8": 3.4501,
+      "psnr": 37.12,
+      "ssim": 0.98867
+    },
+    "worstCrop": {
+      "x": 440,
+      "y": 440,
+      "w": 640,
+      "h": 400
+    }
+  },
+  {
+    "scene": "bench-default",
+    "beforeVsAfter": {
+      "maxAbs": 0,
+      "meanAbs": 0,
+      "pctOver2": 0,
+      "pctOver8": 0,
+      "psnr": null,
+      "ssim": 1
+    },
+    "beforeR1vsR2": {
+      "maxAbs": 0,
+      "meanAbs": 0,
+      "pctOver2": 0,
+      "pctOver8": 0,
+      "psnr": null,
+      "ssim": 1
+    },
+    "worstCrop": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 400
+    }
+  },
+  {
+    "scene": "bench-detail-hub",
+    "beforeVsAfter": {
+      "maxAbs": 35,
+      "meanAbs": 0.2694,
+      "pctOver2": 6.235,
+      "pctOver8": 0.6893,
+      "psnr": 47.27,
+      "ssim": 0.99728
+    },
+    "beforeR1vsR2": {
+      "maxAbs": 0,
+      "meanAbs": 0,
+      "pctOver2": 0,
+      "pctOver8": 0,
+      "psnr": null,
+      "ssim": 1
+    },
+    "worstCrop": {
+      "x": 960,
+      "y": 1120,
+      "w": 640,
+      "h": 400
+    }
+  },
+  {
+    "scene": "bench-detail",
+    "beforeVsAfter": {
+      "maxAbs": 35,
+      "meanAbs": 0.1991,
+      "pctOver2": 4.265,
+      "pctOver8": 0.3989,
+      "psnr": 49,
+      "ssim": 0.99833
+    },
+    "beforeR1vsR2": {
+      "maxAbs": 0,
+      "meanAbs": 0,
+      "pctOver2": 0,
+      "pctOver8": 0,
+      "psnr": null,
+      "ssim": 1
+    },
+    "worstCrop": {
+      "x": 1080,
+      "y": 680,
+      "w": 640,
+      "h": 400
+    }
+  },
+  {
+    "scene": "home-card-detail",
+    "beforeVsAfter": {
+      "maxAbs": 171,
+      "meanAbs": 0.1109,
+      "pctOver2": 2.305,
+      "pctOver8": 0.153,
+      "psnr": 51.84,
+      "ssim": 0.99966
+    },
+    "beforeR1vsR2": {
+      "maxAbs": 171,
+      "meanAbs": 0.0028,
+      "pctOver2": 0.01,
+      "pctOver8": 0.0026,
+      "psnr": 63.68,
+      "ssim": 0.99999
+    },
+    "worstCrop": {
+      "x": 120,
+      "y": 160,
+      "w": 640,
+      "h": 400
+    }
+  },
+  {
+    "scene": "home-fs-detail",
+    "beforeVsAfter": {
+      "maxAbs": 42,
+      "meanAbs": 0.1848,
+      "pctOver2": 4.061,
+      "pctOver8": 0.2285,
+      "psnr": 49.87,
+      "ssim": 0.99866
+    },
+    "beforeR1vsR2": {
+      "maxAbs": 0,
+      "meanAbs": 0,
+      "pctOver2": 0,
+      "pctOver8": 0,
+      "psnr": null,
+      "ssim": 1
+    },
+    "worstCrop": {
+      "x": 880,
+      "y": 920,
+      "w": 640,
+      "h": 400
+    }
+  }
+]

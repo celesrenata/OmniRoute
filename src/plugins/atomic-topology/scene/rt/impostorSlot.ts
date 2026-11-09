@@ -12,6 +12,7 @@
 import { Matrix3, Mesh, PlaneGeometry, Vector3 } from "three/webgpu";
 import { createAtomMaterial, createAtomUniforms, type AtomUniforms } from "../shaders/atomImpostor";
 import { MAX_NUCLEONS } from "../shaderParams";
+import { HERO_CLOUD_LAYER } from "./heroPass";
 import type { RtRegistry } from "./rtRegistry";
 
 type V4Array = { set: (x: number, y: number, z: number, w: number) => void }[];
@@ -62,6 +63,12 @@ export interface ImpostorSlot {
   mirror: Mesh;
   setStatic: (s: ImpostorStatic) => void;
   update: (d: ImpostorDynamic) => void;
+  /**
+   * Hero translucency (directive 44.2): when on, this atom's cloud is marched by a low-res
+   * `heroCloud` mesh (created on first use, HERO_CLOUD_LAYER) and read back by the impostor.
+   * Returns the low-res mesh (for the scene graph) when it was just created, else null.
+   */
+  setHero: (on: boolean) => Mesh | null;
 }
 
 let sharedQuad: PlaneGeometry | null = null;
@@ -91,6 +98,7 @@ export function createImpostorSlot(registry: RtRegistry): ImpostorSlot {
   mirror.frustumCulled = false;
   mirror.renderOrder = 2;
   const both: AtomUniforms[] = [u, mu];
+  let heroMesh: Mesh | null = null;
 
   return {
     mesh,
@@ -151,6 +159,24 @@ export function createImpostorSlot(registry: RtRegistry): ImpostorSlot {
       }
       mesh.position.copy(d.center);
       mirror.position.set(d.center.x, 2 * d.floorY - d.center.y, d.center.z);
+      heroMesh?.position.copy(d.center);
+    },
+    setHero(on) {
+      (u.heroComposite as any).value = on ? 1 : 0;
+      let created: Mesh | null = null;
+      if (on && !heroMesh) {
+        const hmat = createAtomMaterial(u, "cloudLow");
+        registry.add(hmat);
+        heroMesh = new Mesh(sharedQuad!, hmat);
+        heroMesh.name = "heroCloud";
+        heroMesh.frustumCulled = false;
+        heroMesh.renderOrder = 8;
+        heroMesh.layers.set(HERO_CLOUD_LAYER);
+        heroMesh.position.copy(mesh.position);
+        created = heroMesh;
+      }
+      if (heroMesh) heroMesh.visible = on;
+      return created;
     },
   };
 }

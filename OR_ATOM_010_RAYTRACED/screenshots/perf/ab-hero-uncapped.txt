@@ -1,0 +1,12 @@
+"Device Utilization %"=13 r1 [default]      home:fs                hero None fs True uncapped fps 67.5 p50/95/99 13.9 66.6 68.1 gpu 9.83
+r1 [default]      atoms=20&paused=0&node hero None fs False uncapped fps 141.7 p50/95/99 6 23.5 24.5 gpu 3.82
+"Device Utilization %"=96 r1 [herores=0.5]  home:fs                hero 3 fs True uncapped fps 87.6 p50/95/99 6.5 45.7 46.8 gpu 6.32
+r1 [herores=0.5]  atoms=20&paused=0&node hero -1 fs False uncapped fps 155.9 p50/95/99 5.1 22.8 24.2 gpu 3.45
+"Device Utilization %"=90 r2 [default]      home:fs                hero None fs True uncapped fps 76.1 p50/95/99 8.4 64 65.5 gpu 8.71
+r2 [default]      atoms=20&paused=0&node hero None fs False uncapped fps 152.3 p50/95/99 2.9 23.1 24.4 gpu 3.43
+"Device Utilization %"=91 r2 [herores=0.5]  home:fs                hero 3 fs True uncapped fps 86.7 p50/95/99 6 46.3 47.3 gpu 6.26
+r2 [herores=0.5]  atoms=20&paused=0&node hero -1 fs False uncapped fps 153.6 p50/95/99 4.2 22.6 25 gpu 3.55
+"Device Utilization %"=78 r3 [default]      home:fs                hero None fs True uncapped fps 74.8 p50/95/99 2.7 66.2 67.1 gpu 8.45
+r3 [default]      atoms=20&paused=0&node hero None fs False uncapped fps 156 p50/95/99 4.8 23.1 25.1 gpu 3.44
+"Device Utilization %"=92 r3 [herores=0.5]  home:fs                hero 3 fs True uncapped fps 85.4 p50/95/99 11.1 47.4 48.9 gpu 6.57
+r3 [herores=0.5]  atoms=20&paused=0&node hero -1 fs False uncapped fps 152.1 p50/95/99 2.2 24.8 26.4 gpu 3.29

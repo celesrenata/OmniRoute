@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEFAULT_MIRROR_SCALE,
+  resolveMirrorScale,
   MIRROR_ADD_LAYER,
   MIRROR_OVER_LAYER,
   createMirrorPass,
@@ -58,4 +60,19 @@ test("createMirrorPass: composites over (order 2) and additive (order 3), no dep
   } finally {
     pass.dispose();
   }
+});
+
+test("resolveMirrorScale: half-res by default; dev override ?mirrorres=1 = full-res inline", () => {
+  assert.equal(DEFAULT_MIRROR_SCALE, 0.5);
+  assert.equal(resolveMirrorScale(null, false), 0.5);
+  assert.equal(resolveMirrorScale("", false), 0.5);
+  assert.equal(resolveMirrorScale("1", false), null);
+  assert.equal(resolveMirrorScale("2", false), null);
+  assert.equal(resolveMirrorScale("0.35", false), 0.35);
+  assert.equal(resolveMirrorScale("0.01", false), 0.1);
+  assert.equal(resolveMirrorScale("abc", false), 0.5);
+  assert.equal(resolveMirrorScale("0", false), 0.5);
+  // Production ignores the dev override.
+  assert.equal(resolveMirrorScale("1", true), 0.5);
+  assert.equal(resolveMirrorScale(null, true), 0.5);
 });

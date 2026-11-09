@@ -124,6 +124,44 @@ for (const f of fs
   await sharp(amp, { raw: { width: b1.w, height: b1.h, channels: 3 } })
     .png()
     .toFile(path.join(outDir, `${scene}-diff-x16.png`));
-  console.log(JSON.stringify(rows[rows.length - 1]));
+  // Worst region: the CW x CH window (stride 40 px) with the largest summed abs difference,
+  // cropped from before | after | diff x16 side by side (1:1 device pixels).
+  const CW = Math.min(640, b1.w);
+  const CH = Math.min(400, b1.h);
+  let best = { x: 0, y: 0, v: -1 };
+  // Column-strided integral over 8x8 cells keeps this fast on 3200x2000 captures.
+  const cw = Math.ceil(b1.w / 8);
+  const chh = Math.ceil(b1.h / 8);
+  const cell = new Float64Array(cw * chh);
+  for (let y = 0; y < b1.h; y += 1)
+    for (let x = 0; x < b1.w; x += 1) {
+      const i = (y * b1.w + x) * 3;
+      cell[(y >> 3) * cw + (x >> 3)] +=
+        Math.abs(b1.data[i] - a1.data[i]) +
+        Math.abs(b1.data[i + 1] - a1.data[i + 1]) +
+        Math.abs(b1.data[i + 2] - a1.data[i + 2]);
+    }
+  for (let cy = 0; cy + CH / 8 <= chh; cy += 5)
+    for (let cx = 0; cx + CW / 8 <= cw; cx += 5) {
+      let v = 0;
+      for (let yy = cy; yy < cy + CH / 8; yy += 1)
+        for (let xx = cx; xx < cx + CW / 8; xx += 1) v += cell[yy * cw + xx];
+      if (v > best.v) best = { x: cx * 8, y: cy * 8, v };
+    }
+  const crop = (buf) =>
+    sharp(buf, { raw: { width: b1.w, height: b1.h, channels: 3 } })
+      .extract({ left: best.x, top: best.y, width: CW, height: CH })
+      .png()
+      .toBuffer();
+  await sharp({ create: { width: CW * 3 + 32, height: CH, channels: 3, background: "#ffffff" } })
+    .composite([
+      { input: await crop(b1.data), left: 0, top: 0 },
+      { input: await crop(a1.data), left: CW + 16, top: 0 },
+      { input: await crop(amp), left: 2 * CW + 32, top: 0 },
+    ])
+    .png()
+    .toFile(path.join(outDir, `${scene}-worst-crop.png`));
+  rows[rows.length - 1].worstCrop = { x: best.x, y: best.y, w: CW, h: CH };
 }
+for (const r of rows) console.log(JSON.stringify(r));
 fs.writeFileSync(path.join(outDir, "diff.json"), JSON.stringify(rows, null, 2));

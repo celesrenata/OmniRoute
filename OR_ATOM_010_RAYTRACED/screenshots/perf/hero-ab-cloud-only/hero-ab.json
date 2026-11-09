@@ -1,0 +1,23 @@
+{
+  "scale": "0.5",
+  "scenes": {
+    "home-card-detail": {
+      "heroIdx": 3
+    },
+    "home-fs-detail": {
+      "heroIdx": 3
+    },
+    "bench-detail": {
+      "heroIdx": 1
+    },
+    "bench-detail-hub": {
+      "heroIdx": 0
+    },
+    "bench-close": {
+      "heroIdx": 0
+    },
+    "bench-default": {
+      "heroIdx": -1
+    }
+  }
+}

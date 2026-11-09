@@ -12,6 +12,20 @@
  */
 import { chromium } from "playwright";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+
+/** macOS GPU "Device Utilization %" (whole GPU, all processes) from ioreg. */
+function gpuUtil() {
+  try {
+    const out = execFileSync("ioreg", ["-r", "-d", "1", "-w0", "-c", "IOAccelerator"], {
+      encoding: "utf8",
+    });
+    const m = out.match(/"Device Utilization %"=(\d+)/);
+    return m ? Number(m[1]) : null;
+  } catch {
+    return null;
+  }
+}
 
 const BASE = process.env.BENCH_BASE ?? "http://localhost:20199";
 const WINDOW = Number(process.env.WINDOW_MS ?? 8000);
@@ -232,8 +246,31 @@ function summarize(rows) {
 
 const out = [];
 const queries = mode === "ladder" ? [8, 16, 20, 32].map((n) => `atoms=${n}&paused=0`) : rest;
+/** Wait (on a blank page) until the whole GPU is idle for 3 consecutive 1 s samples. */
+async function waitQuiet(maxMs = 180000) {
+  await page.goto("about:blank");
+  const t0 = Date.now();
+  let run = 0;
+  while (Date.now() - t0 < maxMs) {
+    const u = gpuUtil();
+    run = u != null && u <= Number(process.env.QUIET_MAX ?? 10) ? run + 1 : 0;
+    if (run >= 3) return Date.now() - t0;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return -1;
+}
+
 for (const query of queries) {
+  const quietWaitMs = process.env.WAIT_QUIET === "1" ? await waitQuiet() : null;
   await open(query);
+  if (process.env.SHOT_DIR) {
+    fs.mkdirSync(process.env.SHOT_DIR, { recursive: true });
+    const nm = `${query}${process.env.EXTRA ? "_" + process.env.EXTRA : ""}`.replace(
+      /[^a-z0-9=._-]+/gi,
+      "_"
+    );
+    await page.screenshot({ path: `${process.env.SHOT_DIR}/${nm}.png` });
+  }
   const r0 = await page.evaluate(() => window.__atomicRtFrames ?? 0);
   const rows = await sample(WINDOW);
   const r1 = await page.evaluate(() => window.__atomicRtFrames ?? 0);
@@ -244,13 +281,21 @@ for (const query of queries) {
     atoms: document.querySelectorAll("[data-atom-id]").length,
     calls: window.__atomicGpuDbg?.gl?.info?.render?.calls ?? null,
     fullscreen: Boolean(document.fullscreenElement),
+    heroIdx: window.__atomicHeroIdx ?? null,
     canvasPx: (() => {
       const c = window.__atomicGpuDbg?.gl?.domElement;
       return c ? [c.width, c.height] : null;
     })(),
     tris: window.__atomicGpuDbg?.gl?.info?.render?.triangles ?? null,
   }));
-  const rec = { query, ...info, ...s };
+  // Others' load right after this sample (our page is replaced by a blank one first).
+  let utilAfter = null;
+  if (process.env.WAIT_QUIET === "1") {
+    await page.goto("about:blank");
+    await new Promise((r) => setTimeout(r, 1200));
+    utilAfter = gpuUtil();
+  }
+  const rec = { query, quietWaitMs, utilAfter, ...info, ...s };
   out.push(rec);
   console.log(JSON.stringify(rec));
 }
