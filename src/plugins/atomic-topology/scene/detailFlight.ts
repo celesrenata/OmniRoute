@@ -17,14 +17,74 @@ export const DETAIL_HERO_DISTANCE = 300;
 /** Kept for the legacy fit-relative helper: never closer than the orbit minimum plus a margin. */
 export const DETAIL_MIN_DISTANCE = 205;
 /** Near eye-level elevation (radians above the horizontal plane through the atom). */
-export const DETAIL_ELEVATION_RAD = 0.14;
+export const DETAIL_ELEVATION_RAD = 0.2;
 /** Telephoto field of view of the settled hero shot (the scene default is 50). */
 export const DETAIL_FOV_DEG = 38;
-/** Field of view at eased flight progress `e` (lerp from the scene fov to the hero fov). */
-export function detailFov(baseFovDeg: number, e: number): number {
+/** Field of view at eased flight progress `e` (lerp from the scene fov to the goal fov). */
+export function detailFov(
+  baseFovDeg: number,
+  e: number,
+  goalFovDeg: number = DETAIL_FOV_DEG
+): number {
   const p = Math.min(1, Math.max(0, Number.isFinite(e) ? e : 1));
-  return baseFovDeg + (DETAIL_FOV_DEG - baseFovDeg) * p;
+  return baseFovDeg + (goalFovDeg - baseFovDeg) * p;
 }
+/** Predicted bound-radius fraction of the frame height; the visible cyan rim is ~0.9x of it (measured 61-63% live), inside directive 34.1 55-70%. */
+export const DETAIL_TARGET_FRACTION = 0.68;
+/** The rim never spans more than this fraction of the frame WIDTH (narrow hosts). */
+export const DETAIL_MAX_WIDTH_FRACTION = 0.7;
+/** Narrowest telephoto allowed when the framing has to shrink the field of view. */
+export const DETAIL_MIN_FOV_DEG = 22;
+/** Widest hero fov. */
+export const DETAIL_MAX_FOV_DEG = 44;
+/**
+ * Per-atom world cloud radius as the renderer draws it: the energy-dependent cloud
+ * radius multiplier (bounded 0.5..1, as in `shaderParams`) times the atom scale.
+ */
+export function detailAtomRadius(
+  boundRadius: number,
+  cloudRadiusMul: number,
+  scale: number
+): number {
+  const mul = Number.isFinite(cloudRadiusMul) ? Math.min(1, Math.max(0.5, cloudRadiusMul)) : 0.8;
+  const sc = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  return boundRadius * mul * sc;
+}
+/**
+ * Aspect- and atom-aware hero framing: the camera distance and fov that make the
+ * atom's rim (world radius `radius`) span {@link DETAIL_TARGET_FRACTION} of the
+ * frame height (less on narrow hosts, so the rim stays inside the width). The
+ * distance stays outside OrbitControls' frozen minimum; when a small cloud would
+ * need a closer camera, the field of view narrows instead (bounded).
+ */
+export function detailFraming(
+  radius: number,
+  aspect: number
+): { distance: number; fovDeg: number } {
+  const r = Number.isFinite(radius) && radius > 0 ? radius : 52;
+  const a = Number.isFinite(aspect) && aspect > 0.2 ? aspect : 1.6;
+  const frac = Math.min(DETAIL_TARGET_FRACTION, DETAIL_MAX_WIDTH_FRACTION * a);
+  // rim fraction of frame height = r / (distance * tan(fov / 2))
+  const tanOf = (deg: number) => Math.tan((deg * Math.PI) / 360);
+  let distance = r / (frac * tanOf(DETAIL_FOV_DEG));
+  let fovDeg = DETAIL_FOV_DEG;
+  if (distance < DETAIL_MIN_DISTANCE) {
+    distance = DETAIL_MIN_DISTANCE;
+    fovDeg = Math.max(DETAIL_MIN_FOV_DEG, (2 * Math.atan(r / (frac * distance)) * 180) / Math.PI);
+  } else if (distance > DETAIL_HERO_DISTANCE) {
+    distance = Math.min(distance, DETAIL_HERO_DISTANCE * 1.4);
+    fovDeg = Math.min(
+      DETAIL_MAX_FOV_DEG,
+      Math.max(DETAIL_FOV_DEG, (2 * Math.atan(r / (frac * distance)) * 180) / Math.PI)
+    );
+  }
+  return { distance, fovDeg };
+}
+/**
+ * Latest world cloud radius per atom id, written by the scene each frame (the
+ * renderer owns the energy state) and read once when a detail flight starts.
+ */
+export const detailAtomRadii: Map<string, number> = new Map();
 /** Fly-in duration (ms). */
 export const DETAIL_FLIGHT_MS = 1700;
 /** Total yaw swing (radians) accumulated over the flight. */

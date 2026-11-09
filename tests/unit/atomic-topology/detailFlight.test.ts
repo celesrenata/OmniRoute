@@ -10,6 +10,8 @@ import {
   DETAIL_HERO_DISTANCE,
   DETAIL_DRIFT_AMPLITUDE_RAD,
   detailFov,
+  detailFraming,
+  detailAtomRadius,
   driftYawRate,
   DETAIL_FLIGHT_MS,
   DETAIL_MIN_DISTANCE,
@@ -95,4 +97,33 @@ test("degenerate starts fall back to a finite pose at the goal distance", () => 
     assert.ok(o.every(Number.isFinite));
     assert.ok(Math.abs(len(o) - 400) < 1e-6);
   }
+});
+
+test("hero framing keeps the rim at 55-70% of the frame height for every cloud size and aspect", () => {
+  const bound = 52.1;
+  for (const mul of [0.5, 0.6, 0.8, 1]) {
+    for (const scale of [1, 1.12, 1.6]) {
+      for (const aspect of [1.6, 1.67, 2.1]) {
+        const r = detailAtomRadius(bound, mul, scale);
+        const { distance, fovDeg } = detailFraming(r, aspect);
+        assert.ok(distance >= DETAIL_MIN_DISTANCE - 1e-9, "outside OrbitControls minimum");
+        const frac = r / (distance * Math.tan((fovDeg * Math.PI) / 360));
+        assert.ok(
+          frac >= 0.6 && frac <= 0.72,
+          `mul ${mul} scale ${scale} aspect ${aspect}: ${frac}`
+        );
+      }
+    }
+  }
+});
+test("narrow hosts keep the rim inside the width", () => {
+  const r = detailAtomRadius(52.1, 1, 1);
+  const { distance, fovDeg } = detailFraming(r, 0.8);
+  const heightFrac = r / (distance * Math.tan((fovDeg * Math.PI) / 360));
+  assert.ok(heightFrac <= 0.8 * 0.7 + 1e-9);
+});
+test("framing falls back for degenerate input", () => {
+  const f = detailFraming(NaN, NaN);
+  assert.ok(Number.isFinite(f.distance) && Number.isFinite(f.fovDeg));
+  assert.equal(detailAtomRadius(52, NaN, NaN), 52 * 0.8);
 });

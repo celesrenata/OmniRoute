@@ -10,11 +10,11 @@
     },
     {
       "id": "provider:kiro",
-      "chip": "healthy"
+      "chip": "last"
     },
     {
       "id": "provider:openai",
-      "chip": "last"
+      "chip": "healthy"
     },
     {
       "id": "provider:mistral",
@@ -54,21 +54,21 @@
     {
       "name": "provider",
       "id": "provider:openai",
-      "chipBefore": "last",
+      "chipBefore": "healthy",
       "opened": true,
       "detailCam": {
-        "pos": [61, 42, 44],
+        "pos": [20, 49, 3],
         "target": [-148, 0, -166]
       },
-      "panel": "OpenAIproviderActivity: last · recent activity < 1m agoShow detailsBack (Esc)",
+      "panel": "OpenAIproviderActivity: healthy \u00b7 idle, no measured activityShow detailsBack (Esc)",
       "labelDisplay": "none",
-      "chipInLabel": "last",
+      "chipInLabel": "healthy",
       "perfDetail": {
-        "fps": 268.7,
-        "p50": 1.4,
-        "p95": 19.5,
-        "p99": 20.3,
-        "spikes30": 0
+        "fps": 287.9,
+        "p50": 2.5,
+        "p95": 15.6,
+        "p99": 19.9,
+        "spikes30": 4
       },
       "panelAfterEsc": 0,
       "camAfterEsc": {
@@ -91,18 +91,18 @@
       "chipBefore": "idle",
       "opened": true,
       "detailCam": {
-        "pos": [177, 42, 239],
+        "pos": [228, 78, 308],
         "target": [0, 0, 0]
       },
-      "panel": "OmniRoutehubActivity: idle · idle, no measured activityShow detailsBack (Esc)",
+      "panel": "OmniRoutehubActivity: idle \u00b7 idle, no measured activityShow detailsBack (Esc)",
       "labelDisplay": "none",
       "chipInLabel": "idle",
       "perfDetail": {
-        "fps": 228.8,
-        "p50": 2.6,
-        "p95": 20.2,
-        "p99": 21.3,
-        "spikes30": 0
+        "fps": 180.4,
+        "p50": 4,
+        "p95": 15.1,
+        "p99": 21.9,
+        "spikes30": 7
       },
       "panelAfterEsc": 0,
       "camAfterEsc": {
@@ -125,11 +125,18 @@
     "target": [0, 0, 0]
   },
   "perfDefault": {
-    "fps": 399,
-    "p50": 1.2,
-    "p95": 12,
-    "p99": 13.4,
+    "fps": 366.6,
+    "p50": 1.9,
+    "p95": 7.8,
+    "p99": 12.2,
     "spikes30": 0
   },
-  "gpuAtomPresent": false
+  "gpuAtomPresent": false,
+  "gpuAdapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "gpuAdapterNote": "same headed Chrome/M5 Max machine and harness launch flags as step11-report.json"
 }

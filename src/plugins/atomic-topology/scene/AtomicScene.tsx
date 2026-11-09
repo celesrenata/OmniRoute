@@ -60,6 +60,10 @@ import { clampRelax } from "./containerBounds";
 import {
   detailGoalDistance,
   detailFov,
+  detailFraming,
+  detailAtomRadii,
+  DETAIL_FOV_DEG,
+  DETAIL_MIN_DISTANCE,
   driftYawRate,
   flightOffset,
   flightProgress,
@@ -484,7 +488,18 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     driftMs: number;
     /** Last eased flight progress (drives the telephoto fov). */
     e: number;
-  }>({ active: false, elapsedMs: 0, o0: null, goal: 0, drift: false, driftMs: 0, e: 0 });
+    /** Hero field of view for this atom (aspect/atom-aware framing). */
+    goalFov: number;
+  }>({
+    active: false,
+    elapsedMs: 0,
+    o0: null,
+    goal: 0,
+    drift: false,
+    driftMs: 0,
+    e: 0,
+    goalFov: DETAIL_FOV_DEG,
+  });
 
   useEffect(() => {
     const f = flight.current;
@@ -500,7 +515,17 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
       aspect: c.cameraAspect,
       radius: c.fitRadius,
     });
-    f.goal = detailGoalDistance(Math.hypot(fit.position[0], fit.position[1], fit.position[2]));
+    const fitDistance = Math.hypot(fit.position[0], fit.position[1], fit.position[2]);
+    const radius = detailAtomRadii.get(detailId);
+    if (radius != null) {
+      // Atom- and aspect-aware: the rim spans ~63% of the frame height wherever it is opened.
+      const framing = detailFraming(radius, c.cameraAspect);
+      f.goal = Math.min(framing.distance, Math.max(DETAIL_MIN_DISTANCE, fitDistance));
+      f.goalFov = framing.fovDeg;
+    } else {
+      f.goal = detailGoalDistance(fitDistance);
+      f.goalFov = DETAIL_FOV_DEG;
+    }
     f.elapsedMs = 0;
     f.o0 = null; // captured on the first frame, from the live camera
     f.active = true;
@@ -529,8 +554,8 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     const c = live.current;
     const target = c.focusTarget;
     if (!target) return;
-    if (f.e > 0 && Math.abs(camera.fov - detailFov(SCENE_FOV_DEG, f.e)) > 1e-3) {
-      applyCameraFov(camera, detailFov(SCENE_FOV_DEG, f.e));
+    if (f.e > 0 && Math.abs(camera.fov - detailFov(SCENE_FOV_DEG, f.e, f.goalFov)) > 1e-3) {
+      applyCameraFov(camera, detailFov(SCENE_FOV_DEG, f.e, f.goalFov));
     }
     if (!f.active) {
       // Settled hero shot: slow bounded yaw sway about the atom (off in reduced motion).

@@ -43,6 +43,7 @@ import { createRotationSmoothing, tpsToRadiansPerSecond } from "./nucleusMotion"
 import { hexToLinear } from "./nucleonPack";
 import { bookTransition, oneShotIntensity, type OneShotEvent, type OneShotState } from "./oneShot";
 import { STRIKE_CODE, strikeLife, strokeEnvelope, type StrikeKind } from "./strikeTimeline";
+import { detailAtomRadii, detailAtomRadius } from "./detailFlight";
 import { CLOUD_BOUND_RADIUS } from "./shaderParams";
 import { sceneClock, sceneState } from "./sceneState";
 import { useAtomicSceneContext } from "./sceneContext";
@@ -514,6 +515,14 @@ export function RtTopologyContent({
       f.marchSteps = MARCH_STEPS;
       f.scale =
         (d.kind === "hub" ? HUB_SCALE : 1) * (focusNodeId === d.id ? FOCUS_SCALE : 1) * breath;
+      detailAtomRadii.set(
+        d.id,
+        detailAtomRadius(
+          CLOUD_BOUND_RADIUS,
+          energy.cloudRadiusMul,
+          (d.kind === "hub" ? HUB_SCALE : 1) * FOCUS_SCALE
+        )
+      );
       f.alert = alertById.current.get(d.id) ?? 0;
       // Focus view: de-emphasise every non-focused atom so the focused one is isolated.
       const hero = heroRef.current;

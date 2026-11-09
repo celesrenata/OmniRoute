@@ -26,5 +26,12 @@
     "minRad": 0.5200533866882324,
     "medianRad": 1.1642680168151855,
     "stillOrbits": 0
-  }
+  },
+  "gpuAdapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "gpuAdapterNote": "same headed Chrome/M5 Max machine and harness launch flags as step11-report.json"
 }
