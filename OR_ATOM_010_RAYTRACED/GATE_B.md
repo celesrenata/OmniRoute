@@ -1,3 +1,45 @@
+# CHECKPOINT 2 (Gate B) operator sign-off package
+
+Code SHA `e4ddb34b12b2ec4d9c57cc98451dd1058d02b4fe` (round 8), branch `feat/atomic-raytraced-renderer`, real GPU (Apple M5 Max, WebGPU `apple/metal-3`, headed Chrome, DPR 2). Not deployed or pushed.
+Reference: /Users/celes/sources/celesrenata/OmniRoute/.agents/tasks/atomic-raytraced/references/idea5.jpeg
+
+## Side-by-side (ours left, idea5 right)
+
+- Default view, 20 atoms: /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateB/round8/sidebyside-idea5-default-20.jpg
+- Close-up: /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateB/round8/sidebyside-idea5-close-20.jpg
+- Focus, hub close, 32 atoms, real /home (round 7 SHA, visuals otherwise close): /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateB/round7/sidebyside-idea5-{focus-20,close-hub,default-32,home-real}.jpg
+- Round 8 before/after: /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateB/round8/{before,after}-{default,close}-20.jpg
+- Real /home before/after: /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateB/round7/home-before-after-real.jpg
+- DOF proof: /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateB/round7/dof-default-contact.jpg and dof-focus-contact.jpg
+- Videos: /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/gateB/round7/video/trails-default.webm, active-close.webm
+
+## Rubric self-scores (full table: /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/VISUAL_SCORECARD.md; reviewer scores independently)
+
+| Row                                                                                                                                                                             | Default | Real /home | Close/focus                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ---------- | --------------------------- |
+| Model-coloured nucleons                                                                                                                                                         | 4       | 3.5        | 4                           |
+| 3D luminous cloud + orbits                                                                                                                                                      | 4       | 3.5        | 4 (hub 3.5-4 after round 8) |
+| Filaments/discharges                                                                                                                                                            | 4       | 4          | 4                           |
+| Lighting/depth/bloom                                                                                                                                                            | 4       | 4          | 4                           |
+| Resemblance to idea5                                                                                                                                                            | 3.5     | 3.5        | 3.5-4                       |
+| Immersion                                                                                                                                                                       | 4       | 4          | 4                           |
+| Board vibrance/copper/pulses                                                                                                                                                    | 4       | 4          | 4                           |
+| Never looks dead                                                                                                                                                                | 4       | 4          | n/a                         |
+| Viewer-based DOF                                                                                                                                                                | pass    | pass       | pass                        |
+| Not claiming the full bar. Gaps: idea5's particulate cloud rim and fine petal voids at 40-80 px; the scene is a PCB box rather than idea5's warm corridor (operator directive). |
+
+## Measured perf (round 8, uncapped fps; /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/PERFORMANCE.md)
+
+| Atoms                                                                                             | WebGPU | WebGL2 |
+| ------------------------------------------------------------------------------------------------- | ------ | ------ |
+| 8                                                                                                 | 226    | 205    |
+| 16                                                                                                | 218    | 206    |
+| 20                                                                                                | 196    | 190    |
+| 32                                                                                                | 179    | 171    |
+| Targets (>=120 @ 20, >=60 @ 32) met on both. Round 7 soak/loss/fallback/toggle results unchanged. |
+
+---
+
 # Gate B (round 7): idea5 petal cloud body, model-coloured cores, vivid healthy atoms, anamorphic streak, warm floor trails, viewer-based DOF
 
 Branch `feat/atomic-raytraced-renderer`. Code SHA under test **`a6d18051bac49fe744f91e6cde8c7ae21b72e998`** (short `a6d18051b`; visual changes in `b7d7ea448`, depth of field in `a6d18051b`). **Not deployed**, not pushed, no PR.
