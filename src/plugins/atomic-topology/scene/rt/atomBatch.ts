@@ -66,6 +66,20 @@ import { advanceElectronClock, electronAngle } from "../electronMotion";
 
 /** World units an idle (tightest) atom sinks into its dome. */
 const IDLE_SEAT_DROP = 28;
+/**
+ * How far below its layout position an atom's drawn centre sits (idle atoms settle
+ * into their pad as the cloud tightens). Shared with the detail-view composition.
+ */
+export function idleSeatDrop(cloudRadiusMul: number, scale: number): number {
+  const cloudRadius =
+    (Number.isFinite(cloudRadiusMul) ? Math.min(1, Math.max(0.5, cloudRadiusMul)) : 0.8) *
+    CLOUD_BOUND_RADIUS;
+  const settle = Math.min(
+    1,
+    Math.max(0, CLOUD_BOUND_RADIUS - cloudRadius) / (CLOUD_BOUND_RADIUS * (1 - CLOUD_RADIUS_MIN))
+  );
+  return settle * IDLE_SEAT_DROP * (Number.isFinite(scale) && scale > 0 ? scale : 1);
+}
 
 /** Extinction of the absorbing cloud body at full (excited) brightness. */
 const MEDIUM_K = 0.3;

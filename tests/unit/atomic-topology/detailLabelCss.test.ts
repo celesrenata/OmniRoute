@@ -16,6 +16,8 @@ test("the focused label is hidden and others fade; ids are escaped", () => {
   const css = detailLabelCss("gpu:h:g1");
   assert.match(css, /\[data-atom-id="gpu:h:g1"\]\{display:none!important\}/);
   assert.match(css, /:not\(\[data-atom-id="gpu:h:g1"\]\)\{opacity:/);
+  // Labels follow the detail lens shift.
+  assert.match(css, /\.atomic-labels--projected\{transform:translate\(var\(--atomic-lens-x,0px\)/);
   assert.equal(cssAttrValue('a"b\\c'), 'a\\"b\\\\c');
   assert.ok(!detailLabelCss('x"]{}*{').includes('x"]{}'));
 });

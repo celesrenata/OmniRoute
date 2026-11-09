@@ -60,10 +60,15 @@ import { clampRelax } from "./containerBounds";
 import {
   detailGoalDistance,
   detailFov,
-  detailFraming,
-  detailAtomRadii,
+  detailComposition,
+  detailAtomGeometries,
+  detailSafeArea,
+  clearDetailSweep,
+  DETAIL_SWEEP_RAD,
+  viewOffsetPx,
   DETAIL_FOV_DEG,
-  DETAIL_MIN_DISTANCE,
+  type DetailComposition,
+  type DetailRect,
   driftYawRate,
   flightOffset,
   flightProgress,
@@ -463,10 +468,64 @@ function CameraStateWriter({ context }: { context: AtomicSceneContextValue }) {
  * The default view never mounts any of this work: with no detail atom the
  * component is inert.
  */
-/** Imperative fov write (the three.js camera is R3F's mutable state, same as `CameraRig`). */
-function applyCameraFov(camera: PerspectiveCamera, fov: number): void {
+/**
+ * Imperative fov + lens-shift write (the three.js camera is R3F's mutable state, same
+ * as `CameraRig`). DOM labels follow the lens shift through two CSS variables on the
+ * host (see `detailLabelCss`), so they stay on their atoms.
+ */
+function applyDetailLens(
+  camera: PerspectiveCamera,
+  dom: HTMLCanvasElement | undefined,
+  host: HTMLElement | null,
+  fov: number,
+  shift: readonly [number, number]
+): void {
+  const w = dom?.clientWidth ?? 0;
+  const h = dom?.clientHeight ?? 0;
   camera.fov = fov;
-  camera.updateProjectionMatrix();
+  if (w > 0 && h > 0) {
+    const px = viewOffsetPx(shift, w, h);
+    camera.setViewOffset(w, h, px.x, px.y, w, h); // also updates the projection matrix
+    host?.style.setProperty("--atomic-lens-x", `${(-px.x).toFixed(2)}px`);
+    host?.style.setProperty("--atomic-lens-y", `${(-px.y).toFixed(2)}px`);
+  } else {
+    camera.updateProjectionMatrix();
+  }
+}
+/** DOM overlays inside the atomic host that the hero shot must stay clear of. */
+const DETAIL_OVERLAY_SELECTOR =
+  "[data-atomic-legend],[data-atomic-detail],[data-atomic-controls],[data-atomic-telemetry-status]";
+/** The host card's 2D/Atomic toggle sits over the canvas but outside the plugin host. */
+const DETAIL_HOST_OVERLAY_SELECTOR = '[role="group"][aria-label="Topology view mode"]';
+/** Overlay rectangles in canvas CSS px (only what actually covers the canvas). */
+function measureDetailOverlays(canvas: HTMLCanvasElement): {
+  width: number;
+  height: number;
+  rects: DetailRect[];
+  host: HTMLElement | null;
+} {
+  const c = canvas.getBoundingClientRect();
+  const host = canvas.closest<HTMLElement>("[data-atomic-host]");
+  const els: Element[] = host ? Array.from(host.querySelectorAll(DETAIL_OVERLAY_SELECTOR)) : [];
+  const fsEl = typeof document !== "undefined" ? document.fullscreenElement : null;
+  const hostFullscreen = Boolean(host && fsEl && (fsEl === host || fsEl.contains(host)));
+  if (host && !hostFullscreen) {
+    let up: HTMLElement | null = host.parentElement;
+    for (let i = 0; i < 4 && up; i += 1, up = up.parentElement) {
+      const found = up.querySelectorAll(DETAIL_HOST_OVERLAY_SELECTOR);
+      if (found.length > 0) {
+        els.push(...Array.from(found));
+        break;
+      }
+    }
+  }
+  const rects: DetailRect[] = [];
+  for (const el of els) {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
+    rects.push({ x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height });
+  }
+  return { width: c.width, height: c.height, rects, host };
 }
 function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
@@ -486,10 +545,20 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     /** Cinematic drift (settled shot) is running until the viewer grabs the camera. */
     drift: boolean;
     driftMs: number;
-    /** Last eased flight progress (drives the telephoto fov). */
+    /** Last eased flight progress (drives the fov and the lens shift). */
     e: number;
-    /** Hero field of view for this atom (aspect/atom-aware framing). */
+    /** Hero field of view and lens shift (safe-area composition). */
     goalFov: number;
+    goalShift: [number, number];
+    /** Shift / fov currently applied (eased toward the goal after a re-composition). */
+    shift: [number, number];
+    fov: number;
+    /** Yaw sweep that ends with a clear line of sight to the atom. */
+    sweep: number;
+    /** The overlays or the canvas changed size: recompose on the next frame. */
+    dirty: boolean;
+    composed: boolean;
+    host: HTMLElement | null;
   }>({
     active: false,
     elapsedMs: 0,
@@ -499,6 +568,13 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     driftMs: 0,
     e: 0,
     goalFov: DETAIL_FOV_DEG,
+    goalShift: [0, 0],
+    shift: [0, 0],
+    fov: SCENE_FOV_DEG,
+    sweep: DETAIL_SWEEP_RAD,
+    dirty: false,
+    composed: false,
+    host: null,
   });
 
   useEffect(() => {
@@ -516,16 +592,13 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
       radius: c.fitRadius,
     });
     const fitDistance = Math.hypot(fit.position[0], fit.position[1], fit.position[2]);
-    const radius = detailAtomRadii.get(detailId);
-    if (radius != null) {
-      // Atom- and aspect-aware: the rim spans ~63% of the frame height wherever it is opened.
-      const framing = detailFraming(radius, c.cameraAspect);
-      f.goal = Math.min(framing.distance, Math.max(DETAIL_MIN_DISTANCE, fitDistance));
-      f.goalFov = framing.fovDeg;
-    } else {
-      f.goal = detailGoalDistance(fitDistance);
-      f.goalFov = DETAIL_FOV_DEG;
-    }
+    f.goal = detailGoalDistance(fitDistance);
+    f.goalFov = DETAIL_FOV_DEG;
+    f.goalShift = [0, 0];
+    f.shift = [0, 0];
+    f.fov = SCENE_FOV_DEG;
+    f.composed = false;
+    f.dirty = true; // composed on the first frame (the detail panel has mounted by then)
     f.elapsedMs = 0;
     f.o0 = null; // captured on the first frame, from the live camera
     f.active = true;
@@ -540,22 +613,121 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     };
     dom?.addEventListener("pointerdown", stop);
     dom?.addEventListener("wheel", stop, { passive: true });
+    // Recompose when the canvas or an overlay changes size (card resize, fullscreen,
+    // the detail panel expanding). Debounced; never per frame.
+    const host = dom?.closest<HTMLElement>("[data-atomic-host]") ?? null;
+    f.host = host;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const markDirty = (): void => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        f.dirty = true;
+      }, 120);
+    };
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(markDirty) : null;
+    const observeAll = (): void => {
+      if (!ro || !dom) return;
+      ro.disconnect();
+      ro.observe(dom);
+      host?.querySelectorAll(DETAIL_OVERLAY_SELECTOR).forEach((el) => ro.observe(el));
+    };
+    observeAll();
+    const mo =
+      host && typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => {
+            observeAll();
+            markDirty();
+          })
+        : null;
+    mo?.observe(host as HTMLElement, { childList: true });
+    document.addEventListener("fullscreenchange", markDirty);
     return () => {
       dom?.removeEventListener("pointerdown", stop);
       dom?.removeEventListener("wheel", stop);
+      document.removeEventListener("fullscreenchange", markDirty);
+      if (timer) clearTimeout(timer);
+      ro?.disconnect();
+      mo?.disconnect();
       f.active = false;
       f.drift = false;
+      f.composed = false;
       clampRelax.detail = false;
+      // Exact restore: no lens shift; CameraRig re-applies the scene fov on exit.
+      camera.clearViewOffset();
+      host?.style.removeProperty("--atomic-lens-x");
+      host?.style.removeProperty("--atomic-lens-y");
     };
-  }, [detailId, gl]);
+  }, [detailId, gl, camera]);
 
   useFrame((_s, delta) => {
     const f = flight.current;
     const c = live.current;
     const target = c.focusTarget;
-    if (!target) return;
-    if (f.e > 0 && Math.abs(camera.fov - detailFov(SCENE_FOV_DEG, f.e, f.goalFov)) > 1e-3) {
-      applyCameraFov(camera, detailFov(SCENE_FOV_DEG, f.e, f.goalFov));
+    if (!target || !detailId) return;
+    if (f.dirty && gl.domElement) {
+      const geo = detailAtomGeometries.get(detailId);
+      if (geo) {
+        f.dirty = false;
+        const m = measureDetailOverlays(gl.domElement);
+        const safe = detailSafeArea(m.width, m.height, m.rects);
+        const tgt: [number, number, number] = [target.x, target.y, target.z];
+        let comp: DetailComposition;
+        if (!f.composed) {
+          comp = detailComposition(geo, tgt, { width: m.width, height: m.height }, safe);
+          f.goal = comp.distance;
+          f.composed = true;
+        } else {
+          // Re-composition (resize / panel change): keep the flight's goal distance
+          // while flying, the viewer's distance once settled.
+          const d = f.active
+            ? f.goal
+            : Math.hypot(
+                camera.position.x - target.x,
+                camera.position.y - target.y,
+                camera.position.z - target.z
+              );
+          comp = detailComposition(
+            geo,
+            tgt,
+            { width: m.width, height: m.height },
+            safe,
+            undefined,
+            d
+          );
+        }
+        f.goalFov = comp.fovDeg;
+        f.goalShift = comp.shift;
+        if (typeof window !== "undefined") {
+          (window as unknown as { __atomicDetailComposition?: unknown }).__atomicDetailComposition =
+            { safe, comp, canvas: { width: m.width, height: m.height }, overlays: m.rects };
+        }
+      }
+    }
+    // Lens: during the flight it follows the eased progress; afterwards it eases to
+    // the latest composition (frame-rate independent, instant in reduced motion).
+    const k = c.reducedMotion ? 1 : 1 - Math.exp(-8 * Math.min(delta, 0.1));
+    const goalFovNow = f.active ? detailFov(SCENE_FOV_DEG, f.e, f.goalFov) : f.goalFov;
+    const goalShiftNow: [number, number] = f.active
+      ? [f.goalShift[0] * f.e, f.goalShift[1] * f.e]
+      : f.goalShift;
+    if (f.e > 0) {
+      const nf = f.active ? goalFovNow : f.fov + (goalFovNow - f.fov) * k;
+      const ns: [number, number] = f.active
+        ? goalShiftNow
+        : [
+            f.shift[0] + (goalShiftNow[0] - f.shift[0]) * k,
+            f.shift[1] + (goalShiftNow[1] - f.shift[1]) * k,
+          ];
+      if (
+        Math.abs(nf - camera.fov) > 1e-4 ||
+        Math.abs(ns[0] - f.shift[0]) > 1e-5 ||
+        Math.abs(ns[1] - f.shift[1]) > 1e-5 ||
+        !camera.view?.enabled
+      ) {
+        f.fov = nf;
+        f.shift = ns;
+        applyDetailLens(camera, gl.domElement, f.host, nf, ns);
+      }
     }
     if (!f.active) {
       // Settled hero shot: slow bounded yaw sway about the atom (off in reduced motion).
@@ -574,17 +746,32 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
       }
       return;
     }
+    if (!f.composed) return; // wait one frame for the geometry + overlays
     if (!f.o0) {
       f.o0 = [
         camera.position.x - target.x,
         camera.position.y - target.y,
         camera.position.z - target.z,
       ];
+      // Never park the hero camera behind (or inside) a neighbouring atom.
+      const geo = detailAtomGeometries.get(detailId);
+      const others = [...detailAtomGeometries.entries()]
+        .filter(([id]) => id !== detailId)
+        .map(([, g]) => ({ center: g.center, radius: g.envelope }));
+      f.sweep = geo
+        ? clearDetailSweep(
+            [target.x, target.y, target.z],
+            geo.center,
+            Math.atan2(f.o0[0], f.o0[2]),
+            f.goal,
+            others
+          )
+        : DETAIL_SWEEP_RAD;
     }
     f.elapsedMs += Math.min(delta, 0.1) * 1000;
     const e = flightProgress(f.elapsedMs, c.reducedMotion);
     f.e = Math.max(e, 1e-6);
-    const o = flightOffset(f.o0, f.goal, e);
+    const o = flightOffset(f.o0, f.goal, e, f.sweep);
     camera.position.set(target.x + o[0], target.y + o[1], target.z + o[2]);
     if (f.elapsedMs >= DETAIL_FLIGHT_MS || c.reducedMotion) {
       f.active = false;

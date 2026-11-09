@@ -10,8 +10,13 @@ import {
   DETAIL_HERO_DISTANCE,
   DETAIL_DRIFT_AMPLITUDE_RAD,
   detailFov,
-  detailFraming,
-  detailAtomRadius,
+  detailAtomGeometry,
+  detailComposition,
+  detailSafeArea,
+  viewOffsetPx,
+  clearDetailSweep,
+  DETAIL_SWEEP_RAD,
+  DETAIL_WIRE_REACH,
   driftYawRate,
   DETAIL_FLIGHT_MS,
   DETAIL_MIN_DISTANCE,
@@ -99,31 +104,163 @@ test("degenerate starts fall back to a finite pose at the goal distance", () => 
   }
 });
 
-test("hero framing keeps the rim at 55-70% of the frame height for every cloud size and aspect", () => {
-  const bound = 52.1;
-  for (const mul of [0.5, 0.6, 0.8, 1]) {
-    for (const scale of [1, 1.12, 1.6]) {
-      for (const aspect of [1.6, 1.67, 2.1]) {
-        const r = detailAtomRadius(bound, mul, scale);
-        const { distance, fovDeg } = detailFraming(r, aspect);
-        assert.ok(distance >= DETAIL_MIN_DISTANCE - 1e-9, "outside OrbitControls minimum");
-        const frac = r / (distance * Math.tan((fovDeg * Math.PI) / 360));
-        assert.ok(
-          frac >= 0.6 && frac <= 0.72,
-          `mul ${mul} scale ${scale} aspect ${aspect}: ${frac}`
-        );
+/** Project a world point for a camera at `cam` looking at `tgt`, with an NDC lens shift. */
+function projectNdc(
+  cam: readonly number[],
+  tgt: readonly number[],
+  fovDeg: number,
+  aspect: number,
+  shift: readonly number[],
+  p: readonly number[]
+): [number, number] {
+  const zx = cam[0] - tgt[0];
+  const zy = cam[1] - tgt[1];
+  const zz = cam[2] - tgt[2];
+  const zl = Math.hypot(zx, zy, zz);
+  const z = [zx / zl, zy / zl, zz / zl];
+  const xl = Math.hypot(z[2], 0, -z[0]);
+  const x = [z[2] / xl, 0, -z[0] / xl];
+  const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
+  const v = [p[0] - cam[0], p[1] - cam[1], p[2] - cam[2]];
+  const cx = v[0] * x[0] + v[1] * x[1] + v[2] * x[2];
+  const cy = v[0] * y[0] + v[1] * y[1] + v[2] * y[2];
+  const cz = -(v[0] * z[0] + v[1] * z[1] + v[2] * z[2]);
+  const f = 1 / Math.tan((fovDeg * Math.PI) / 360);
+  return [(f * cx) / cz / aspect + shift[0], (f * cy) / cz + shift[1]];
+}
+const CARD = { width: 780, height: 470 };
+// Real /home card overlays (CSS px): view toggle, controls, live badge, compact panel, legend.
+const CARD_OVERLAYS = [
+  { x: 6, y: 6, w: 96, h: 24 },
+  { x: 270, y: 8, w: 240, h: 30 },
+  { x: 700, y: 8, w: 70, h: 22 },
+  { x: 530, y: 40, w: 240, h: 116 },
+  { x: 8, y: 386, w: 330, h: 76 },
+];
+test("safe area removes every overlay and keeps the largest free rectangle", () => {
+  const safe = detailSafeArea(CARD.width, CARD.height, CARD_OVERLAYS);
+  for (const o of CARD_OVERLAYS) {
+    const ix = Math.min(safe.x + safe.w, o.x + o.w) - Math.max(safe.x, o.x);
+    const iy = Math.min(safe.y + safe.h, o.y + o.h) - Math.max(safe.y, o.y);
+    assert.ok(ix <= 0 || iy <= 0, `overlaps ${JSON.stringify(o)}`);
+  }
+  assert.ok(safe.w >= CARD.width * 0.3 && safe.h >= CARD.height * 0.3);
+  const full = detailSafeArea(800, 500, []);
+  assert.deepEqual(full, { x: 0, y: 0, w: 800, h: 500 });
+});
+test("the composed hero shot keeps the atom, its pad and the horizon inside the safe area", () => {
+  const cases = [
+    { canvas: CARD, overlays: CARD_OVERLAYS },
+    { canvas: { width: 1600, height: 1000 }, overlays: [{ x: 1180, y: 60, w: 400, h: 520 }] },
+    { canvas: { width: 1728, height: 1117 }, overlays: [{ x: 8, y: 1020, w: 400, h: 90 }] },
+  ];
+  for (const { canvas, overlays } of cases) {
+    const safe = detailSafeArea(canvas.width, canvas.height, overlays);
+    for (const [mul, scale, padR] of [
+      [0.6, 1.18, 62],
+      [1, 1.18, 62],
+      [0.7, 1.6 * 1.18, 99],
+    ]) {
+      const pos: [number, number, number] = [120, 0, -300];
+      const drop = (1 - mul) * 40;
+      const geo = detailAtomGeometry(pos, 52.1, mul, scale, drop, -66, padR);
+      const comp = detailComposition(geo, pos, canvas, safe);
+      assert.ok(comp.distance >= DETAIL_MIN_DISTANCE - 1e-9);
+      const aspect = canvas.width / canvas.height;
+      const el = DETAIL_ELEVATION_RAD;
+      for (const yaw of [0, 1.1, -2.4]) {
+        const cam = [
+          pos[0] + Math.sin(yaw) * Math.cos(el) * comp.distance,
+          pos[1] + Math.sin(el) * comp.distance,
+          pos[2] + Math.cos(yaw) * Math.cos(el) * comp.distance,
+        ];
+        const toPx = (n: [number, number]) => [
+          ((n[0] + 1) / 2) * canvas.width,
+          ((1 - n[1]) / 2) * canvas.height,
+        ];
+        const E = geo.envelope;
+        const pts = [
+          [geo.center[0], geo.center[1] + E, geo.center[2]],
+          [geo.center[0], geo.center[1] - E, geo.center[2]],
+          [pos[0] + Math.sin(yaw) * padR, geo.padY, pos[2] + Math.cos(yaw) * padR],
+          [pos[0] - Math.sin(yaw) * padR, geo.padY, pos[2] - Math.cos(yaw) * padR],
+        ];
+        for (const p of pts) {
+          const [px, py] = toPx(projectNdc(cam, pos, comp.fovDeg, aspect, comp.shift, p));
+          assert.ok(
+            py >= safe.y - 1 && py <= safe.y + safe.h + 1,
+            `y ${py.toFixed(1)} outside safe ${safe.y}..${safe.y + safe.h}`
+          );
+          assert.ok(px >= safe.x - 1 && px <= safe.x + safe.w + 1);
+        }
+        // Left/right of the envelope at the atom centre stay inside the safe width.
+        const right = [Math.cos(yaw), 0, -Math.sin(yaw)];
+        for (const sgn of [1, -1]) {
+          const p = [
+            geo.center[0] + right[0] * E * sgn,
+            geo.center[1],
+            geo.center[2] + right[2] * E * sgn,
+          ];
+          const [px] = toPx(projectNdc(cam, pos, comp.fovDeg, aspect, comp.shift, p));
+          assert.ok(px >= safe.x - 2 && px <= safe.x + safe.w + 2, `x ${px} outside safe`);
+        }
+        // The board horizon (zero-elevation direction) is inside the frame.
+        const far = [cam[0] - Math.sin(yaw) * 1e6, cam[1], cam[2] - Math.cos(yaw) * 1e6];
+        const [, hy] = toPx(projectNdc(cam, pos, comp.fovDeg, aspect, comp.shift, far));
+        assert.ok(hy >= 0 && hy <= canvas.height, `horizon at ${hy}`);
       }
+      // The atom is centred in the safe area horizontally.
+      const cx = ((comp.shift[0] + 1) / 2) * canvas.width;
+      assert.ok(Math.abs(cx - (safe.x + safe.w / 2)) < 1);
     }
   }
 });
-test("narrow hosts keep the rim inside the width", () => {
-  const r = detailAtomRadius(52.1, 1, 1);
-  const { distance, fovDeg } = detailFraming(r, 0.8);
-  const heightFrac = r / (distance * Math.tan((fovDeg * Math.PI) / 360));
-  assert.ok(heightFrac <= 0.8 * 0.7 + 1e-9);
+test("composition falls back for degenerate input and the lens shift maps to pixels", () => {
+  const geo = detailAtomGeometry([0, 0, 0], 52, NaN, NaN, NaN, -66, NaN);
+  assert.equal(geo.envelope, 52 * 0.8 * DETAIL_WIRE_REACH);
+  const c = detailComposition(
+    geo,
+    [0, 0, 0],
+    { width: NaN, height: 0 },
+    { x: 0, y: 0, w: 0, h: 0 }
+  );
+  assert.ok(Number.isFinite(c.distance) && Number.isFinite(c.fovDeg));
+  assert.ok(c.shift.every(Number.isFinite));
+  assert.deepEqual(viewOffsetPx([0.5, -0.25], 800, 400), { x: -200, y: -50 });
 });
-test("framing falls back for degenerate input", () => {
-  const f = detailFraming(NaN, NaN);
-  assert.ok(Number.isFinite(f.distance) && Number.isFinite(f.fovDeg));
-  assert.equal(detailAtomRadius(52, NaN, NaN), 52 * 0.8);
+
+test("the hero camera never ends behind or inside a neighbouring atom", () => {
+  const target: [number, number, number] = [0, 0, 0];
+  const D = 320;
+  const el = DETAIL_ELEVATION_RAD;
+  const az0 = 0.3;
+  // Clear field: keep the default sweep.
+  assert.equal(clearDetailSweep(target, target, az0, D, []), DETAIL_SWEEP_RAD);
+  // A neighbour exactly on the default end ray (half way to the camera).
+  const a = az0 + DETAIL_SWEEP_RAD;
+  const blocker = {
+    center: [
+      Math.sin(a) * Math.cos(el) * 160,
+      Math.sin(el) * 160,
+      Math.cos(a) * Math.cos(el) * 160,
+    ] as const,
+    radius: 60,
+  };
+  const sweep = clearDetailSweep(target, target, az0, D, [blocker]);
+  assert.notEqual(sweep, DETAIL_SWEEP_RAD);
+  // Over the whole drift sway the segment camera->atom clears the blocker.
+  for (const sway of [-0.2, 0, 0.2]) {
+    const b = az0 + sweep + sway;
+    const cam = [Math.sin(b) * Math.cos(el) * D, Math.sin(el) * D, Math.cos(b) * Math.cos(el) * D];
+    let min = Infinity;
+    for (let i = 0; i <= 100; i += 1) {
+      const t = i / 100;
+      const p = [cam[0] * (1 - t), cam[1] * (1 - t), cam[2] * (1 - t)];
+      min = Math.min(
+        min,
+        Math.hypot(p[0] - blocker.center[0], p[1] - blocker.center[1], p[2] - blocker.center[2])
+      );
+    }
+    assert.ok(min >= blocker.radius, `sway ${sway}: passes ${min.toFixed(1)} from the blocker`);
+  }
 });

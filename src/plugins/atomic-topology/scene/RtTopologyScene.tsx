@@ -43,17 +43,23 @@ import { createRotationSmoothing, tpsToRadiansPerSecond } from "./nucleusMotion"
 import { hexToLinear } from "./nucleonPack";
 import { bookTransition, oneShotIntensity, type OneShotEvent, type OneShotState } from "./oneShot";
 import { STRIKE_CODE, strikeLife, strokeEnvelope, type StrikeKind } from "./strikeTimeline";
-import { detailAtomRadii, detailAtomRadius } from "./detailFlight";
+import { detailAtomGeometries, detailAtomGeometry } from "./detailFlight";
 import { CLOUD_BOUND_RADIUS } from "./shaderParams";
 import { sceneClock, sceneState } from "./sceneState";
 import { useAtomicSceneContext } from "./sceneContext";
 import { fnv1a } from "./cloudShells";
-import { createAtomBatchSet, type BatchAtomConfig, type BatchAtomFrame } from "./rt/atomBatch";
+import {
+  createAtomBatchSet,
+  idleSeatDrop,
+  type BatchAtomConfig,
+  type BatchAtomFrame,
+} from "./rt/atomBatch";
 import { batchCapacityFor } from "./rt/atomData";
 import { createRtPost, type RtPost } from "./rt/rendererFactory";
 import { createRtRegistry } from "./rt/rtRegistry";
 import { envTime, floorY, pxScale } from "./rt/sharedUniforms";
 import {
+  FLOOR_OFFSET,
   FOCUS_SCALE,
   HUB_SCALE,
   atomEnergyInput,
@@ -76,6 +82,9 @@ import {
   type LinkLayer,
 } from "./shaders/linkStrand";
 import { createMotes, type MoteLayer } from "./shaders/motes";
+
+/** Pedestal / emitter pad radius per unit scale (the environment draws `62 * scale`). */
+const PAD_RADIUS = 62;
 
 /** Breathing amplitude: +/-2 % (same as the legacy atom). */
 const BREATH_AMPLITUDE = 0.02;
@@ -306,6 +315,8 @@ export function RtTopologyContent({
     // Runtime state survives snapshot updates; drop atoms/links that left.
     const ids = new Set(descriptors.map((d) => d.id));
     for (const id of [...atomRt.current.keys()]) if (!ids.has(id)) atomRt.current.delete(id);
+    for (const id of [...detailAtomGeometries.keys()])
+      if (!ids.has(id)) detailAtomGeometries.delete(id);
     const lids = new Set(linkDescriptors.map((l) => l.id));
     for (const id of [...linkRt.current.keys()]) if (!lids.has(id)) linkRt.current.delete(id);
     framesRef.current = descriptors.map(
@@ -515,12 +526,18 @@ export function RtTopologyContent({
       f.marchSteps = MARCH_STEPS;
       f.scale =
         (d.kind === "hub" ? HUB_SCALE : 1) * (focusNodeId === d.id ? FOCUS_SCALE : 1) * breath;
-      detailAtomRadii.set(
+      // Detail-view composition input, as drawn (focus scale: the detail atom is focused).
+      const detailScale = (d.kind === "hub" ? HUB_SCALE : 1) * FOCUS_SCALE;
+      detailAtomGeometries.set(
         d.id,
-        detailAtomRadius(
+        detailAtomGeometry(
+          [d.position.x, d.position.y, d.position.z],
           CLOUD_BOUND_RADIUS,
           energy.cloudRadiusMul,
-          (d.kind === "hub" ? HUB_SCALE : 1) * FOCUS_SCALE
+          detailScale,
+          idleSeatDrop(energy.cloudRadiusMul, detailScale),
+          FLOOR_OFFSET,
+          PAD_RADIUS * (d.kind === "hub" ? HUB_SCALE : 1)
         )
       );
       f.alert = alertById.current.get(d.id) ?? 0;
