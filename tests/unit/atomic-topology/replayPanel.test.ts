@@ -106,3 +106,29 @@ test("error: generic message plus a Retry, marker still says REPLAY", async () =
   assert.match(out, /Could not load recorded requests/);
   assert.match(out, />Retry</);
 });
+
+// ---- Step 12 fix round (directive 42.4): neutral loading state, never the live scene
+import {
+  AtomicReplayCover,
+  replayCoverVisible,
+} from "../../../src/plugins/atomic-topology/overlays/AtomicReplayCover.tsx";
+const cover = (c: ReplayController) =>
+  renderToStaticMarkup(createElement(AtomicReplayCover, { controller: c }));
+test("loading: an opaque neutral cover hides the live scene until the history arrives", async () => {
+  const c = controller([]);
+  assert.equal(cover(c), "", "closed: no cover");
+  const p = c.open(WINDOW);
+  const out = cover(c);
+  assert.match(out, /data-atomic-replay-cover="loading"/);
+  assert.match(out, /Loading recorded requests/);
+  assert.match(out, /background:#05070f/);
+  await p;
+  assert.equal(cover(c), "", "ready: cover removed");
+});
+test("error: the cover stays (no live scene under the banner) and points at Retry / Exit", async () => {
+  const c = controller([], true);
+  await c.open(WINDOW);
+  assert.match(cover(c), /data-atomic-replay-cover="error"/);
+  assert.equal(replayCoverVisible("ready"), false);
+  assert.equal(replayCoverVisible("closed"), false);
+});

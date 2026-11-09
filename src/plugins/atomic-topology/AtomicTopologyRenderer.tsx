@@ -88,6 +88,7 @@ import { AtomicLabels } from "./overlays/AtomicLabels";
 import { AtomicTooltip } from "./overlays/AtomicTooltip";
 import { AtomicDetailPanel } from "./overlays/AtomicDetailPanel";
 import { AtomicReplayPanel } from "./overlays/AtomicReplayPanel";
+import { AtomicReplayCover } from "./overlays/AtomicReplayCover";
 import {
   createReplayController,
   timelineCounts,
@@ -1148,6 +1149,7 @@ export function AtomicTopologyRenderer({
             onOpenDetail={onDetailRequest}
           />
         )}
+        {replay ? <AtomicReplayCover controller={replay} /> : null}
         {replay ? (
           <AtomicReplayPanel
             controller={replay}
