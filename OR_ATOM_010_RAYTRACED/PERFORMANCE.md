@@ -1,4 +1,80 @@
-# PERFORMANCE (Gate B, round 2)
+# PERFORMANCE (Gate B, round 4)
+
+Only measured numbers. Unmet targets are stated as unmet. Code SHA `a4e5713ee361d61887c3041358cdadd5e185d4ba`. Apple M5 Max, macOS 26.6.2, headed Chrome 157 (WebGPU adapter
+`apple/metal-3`), Playwright, 1600x1000 CSS px at DPR 2 (3200x2000), MSAA + bloom + post on, no quality tier, uncapped
+(`--disable-frame-rate-limit --disable-gpu-vsync`), 5 s `requestAnimationFrame` deltas. Background GPU load was not controlled (other apps running).
+
+## 8 / 16 / 20 / 32 atoms, uncapped (`pw-atomic-gateB.mjs ladder`, golden DEMO topology; "atoms rendered" = param + hub + merged devices)
+
+| Param (rendered)                                                                                                                                                                       | WebGPU fps | p50 ms | p95 ms | p99 ms | WebGL2 fps | p50 | p95 |  p99 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------: | -----: | -----: | -----: | ---------: | --: | --: | ---: |
+| 8 (10)                                                                                                                                                                                 |      324.6 |    2.5 |   14.4 |   15.1 |      250.8 | 4.1 | 6.6 |  9.2 |
+| 16 (18)                                                                                                                                                                                |      272.0 |    2.9 |   16.6 |   19.9 |      225.4 | 4.4 | 7.4 | 10.0 |
+| 20 (22)                                                                                                                                                                                |      227.0 |    1.3 |   21.2 |   22.2 |      198.0 | 4.8 | 8.7 | 11.4 |
+| 32 (34)                                                                                                                                                                                |      190.6 |    2.0 |   21.9 |   23.1 |      178.2 | 5.7 | 9.8 | 11.6 |
+| Targets: about 120 fps at about 20 atoms **met** (227 fps), >= 60 fps at 32 atoms **met** (191 fps). No errors, no spikes over 30 ms.                                                  |
+| The p95/p99 of 20-23 ms on the larger WebGPU topologies is one 17-24 ms frame in about 20 (p50 stays 1.3-2.9 ms); not a sustained slowdown. Deep profiling is deferred (directive 21). |
+
+## No regression on the real topology (previous round vs now, same machine, same session, 3 interleaved runs, uncapped, `probe`)
+
+"Before" = `9805665e6` (dev server :20198), "now" = this branch (:20199). The merge removes two device atoms, so before renders 24/36 atoms and now 22/34.
+
+| Query                                                                                                                                                                                | before fps (3 runs)               | now fps (3 runs)                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------- | ---------------------------------- |
+| atoms=20                                                                                                                                                                             | 228.4 / 220.0 / 205.0             | 229.8 / 229.0 / 213.2              |
+| atoms=32                                                                                                                                                                             | 211.0 / 203.4 / 186.6             | 200.0 / 193.2 / 187.8              |
+| atoms=32 close-up (wheel zoom x7, `pw-atomic-closecmp.mjs`)                                                                                                                          | 93.8 / 91.6 / 86.6 (p95 37-65 ms) | 102.6 / 94.0 / 96.2 (p95 45-46 ms) |
+| Verdict: no measurable regression from the PCB container, 3D parts, new links or the merge. The close-up 32-atom case runs at about 95 fps with a 45 ms p95 (stalls), which is worse |
+| than the default-view p95 and goes to the deferred profile phase.                                                                                                                    |
+
+## Directive 19: visibility savings (before = `?cull=0` savings off, on = default; same build, 3 interleaved rounds, medians, `pw-atomic-visibility.mjs ab`)
+
+| Scenario                                                                                                                                                                           | off fps (p50/p95 ms)         | on fps (p50/p95 ms) |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------- |
+| default, 20 atoms                                                                                                                                                                  | 221.6 (2.3 / 21.0)           | 218.6 (2.2 / 21.1)  |
+| default, 32 atoms                                                                                                                                                                  | 197.2 (3.3 / 21.5)           | 193.2 (2.2 / 21.6)  |
+| close-up (zoom 7), 32 atoms, most off-screen                                                                                                                                       | 84.0 (9.9 / 63.1)            | 84.4 (8.7 / 62.9)   |
+| closer (zoom 11), 32 atoms                                                                                                                                                         | 85.6 (9.7 / 62.8)            | 88.6 (9.7 / 62.5)   |
+| **Frustum culling and projected-size march-step scaling save nothing measurable on this GPU/workload** (differences are within run-to-run noise): frame time is dominated by fixed |
+| full-screen work and the few big on-screen atoms, not by culled atoms. I am reporting that rather than claiming a saving. The idle-link draws that used to run every frame (bolt   |
+| mesh, now flare/spark/floor draws) are hidden unless a strike is live; that is not separately measurable either.                                                                   |
+| **Render-loop stop (measured, 3 s windows of `window.__atomicRtFrames`, headed Chrome):**                                                                                          |
+| State                                                                                                                                                                              | scene frames rendered in 3 s |
+| ---                                                                                                                                                                                | ---:                         |
+| visible                                                                                                                                                                            | 757                          |
+| canvas scrolled out of view (IntersectionObserver)                                                                                                                                 | **0**                        |
+| back in view                                                                                                                                                                       | 736                          |
+| tab hidden (`visibilitychange`; driven by overriding `document.hidden` because Playwright tabs are separate windows)                                                               | **0**                        |
+| tab visible again                                                                                                                                                                  | 722                          |
+| So the GPU frame time spent on a hidden or out-of-view canvas goes from a full frame loop to zero.                                                                                 |
+
+## Forced context / device loss (`loss`, 16-atom default, x3 per backend)
+
+WebGPU `device.destroy()` x3: canvas replaced each time (`replaced: true`, 1 canvas, 3196x1996), p50 after 3.3 / 3.3 / 2.7 ms (before 2.5), 451-458 frames in the window. WebGL2
+`WEBGL_lose_context` x3: replaced each time, p50 4.0 / 4.4 / 4.0 ms (before 4.6). 0 console errors.
+**Two-failed-restores fallback** (`fallback`, dev `?restore-fail=1`, real `/home`): returned to the 2D renderer in 1681 ms, 0 atomic canvases, `2D` pressed.
+
+## 2D <-> Atomic x50 (`toggle 50`, real `/home` host)
+
+50/50 Atomic mounts, 50/50 2D mounts, peak 1 canvas, 0 at the end, switch p50 17 ms (max 200 ms), JS heap 80.4 MB at the end (curve 75.9, 107.7, 80.2, 110.4, 86.7 MB at 0/10/20/30/40: sawtooth, no growth).
+Console: `[LiveWS] FORBIDDEN_ORIGIN` (dev server origin) and a React "synchronously unmount a root" warning that I reproduced on `9805665e6` too (host code, pre-existing).
+
+## 20-minute soak (`soak 1200000`, real `/home`, Atomic renderer, 40 samples of 30 s)
+
+Capped by the browser at 60 Hz: avg 60.3 fps, p50 16.6-16.7 ms, p95 18.1-18.6, p99 18.5-18.7, 0 spikes, 1 canvas throughout, **0 context losses**. Heap 122.8 MB at start, 86.3 MB at end (max 122.8): no growth.
+**Not exercised:** the 3.5 s live telemetry cadence. The dev server's websocket rejects this origin (`FORBIDDEN_ORIGIN`), so `telemetry` stayed `null` for the whole run; the soak is a rendering/stability soak, not a live-data soak.
+
+## Reduced motion (`reduced`)
+
+`staticWhileIdle: true` (no frames rendered while idle), `orbitRendersNewFrame: true` (a camera change renders one new frame), 0 errors. Reduced motion also freezes embers, LED blinking, haze and link flicker (steady soft tint on events).
+
+## GPU timestamps / 32-atom grid tail
+
+Not done: deferred to the dedicated profile-and-optimize phase after Step 12 (operator directive 21). The Gate A grid stress result below is unchanged and still **unmet** uncapped.
+
+---
+
+# Gate B round 2 (historical; superseded by the round 4 section above)
 
 Only measured numbers. Unmet targets are stated as unmet. **This section is the canonical run;** the older tables below
 (first round, taken at 21-24 % and 100 % GPU load) are kept for history and are superseded where they disagree.

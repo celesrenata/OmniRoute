@@ -1,13 +1,47 @@
-# TESTS (Gate B)
+# TESTS (Gate B, round 4)
 
-Source SHA of the code under test: `9368b50a1d67b35919da82d1be4cf1c49051f854` (branch `feat/atomic-raytraced-renderer`).
-The 20-minute soak, loss, toggle, reduced-motion, fallback and perf runs in this round were all taken on this SHA.
+Source SHA of the code under test: `a4e5713ee361d61887c3041358cdadd5e185d4ba` (branch `feat/atomic-raytraced-renderer`; later commits only add docs).
 Deployment status: **not deployed.** Nothing pushed, no PR opened, no production or fleet change.
+Environment: macOS 26.6.2, Apple M5 Max, Node v24.21.0, Chrome 157 (headed), Playwright, dev servers from this worktree (:20199) and `9805665e6` (:20198, comparison only).
 
-Environment: macOS 26.6.2, Apple M5 Max, Node v24.21.0, Chrome 157.0.8103.39 (headed), Playwright 1.63.0, dev server on `:20199`
-from this worktree.
+## Commands and outcomes (this round)
 
-## Commands and outcomes
+| Command                                                                                                                              | Outcome                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck:core`                                                                                                             | 45 errors, all pre-existing (src/lib/db/scripts.ts, src/lib/scripts/scriptVault.ts, src/lib/embeddings, FlowCanvas css import, open-sse). 0 in `atomic-topology` or `src/app/dev`. |
+| `npx tsc --noEmit -p tsconfig.typecheck-dashboard.json` filtered to atomic/bench                                                     | 0 errors.                                                                                                                                                                          |
+| `npm run lint`                                                                                                                       | 7 errors, all pre-existing and outside the plugin; plus the stale-suppressions notice (not checked against the base).                                                              |
+| `npx eslint src/plugins/atomic-topology src/app/dev tests/unit/atomic-topology`                                                      | 0 problems.                                                                                                                                                                        |
+| `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts`                                                                  | 457 tests, 456 pass, 0 fail, 1 skipped.                                                                                                                                            |
+| `npm run test:vitest`                                                                                                                | 54 files, 493 tests passed.                                                                                                                                                        |
+| `npm run check:cycles`                                                                                                               | OK, no cycles (462 files).                                                                                                                                                         |
+| `node scripts/ad-hoc/pw-atomic-gateB.mjs ladder / loss / reduced / fallback / toggle 50 / soak 1200000`                              | See `PERFORMANCE.md`.                                                                                                                                                              |
+| `node scripts/ad-hoc/pw-atomic-visibility.mjs ab / loop`, `pw-atomic-closecmp.mjs`, `pw-atomic-camlimit.mjs`, `pw-atomic-camdbg.mjs` | See `PERFORMANCE.md` and `GATE_B.md`.                                                                                                                                              |
+| Not run this round: `npm run build` (dev servers were occupying the worktree), `npm run check:docs-all` (docs are in a task folder). |
+
+## New or changed tests (this round)
+
+- `containerBounds.test.ts`: soft clamp (inside unchanged, never reaches the wall, monotonic, no snap); **default and every focus pose of the 8/16/20/32 golden topologies unchanged** at aspect 1/1.6/2.2; container is snug.
+- `leaderBolt.test.ts`: stepped-leader determinism, connected main channel pinned to (0,0,0)-(0,0,1), birth monotonic, multi-generation branches that thin out, bounded; strike timeline (strokes after the leader, decay, afterglow, failure re-strikes more).
+- `visibility.test.ts`: frustum planes + conservative sphere test (centre, sides, behind, far, straddling, bad data never culls); march-step scale (full at default size, monotonic, floor).
+- `boardComponents.test.ts`: deterministic seeded placement, floor densest, nothing under atom pads, inside the container, large parts do not overlap, haze field only from magnetic/HV parts.
+- `telemetryBinding.test.ts` (updated + 3 new): GPU+runtime merge (membership, aggregate of hosted runtimes, stale contributes nothing, runtime on two GPUs / unknown GPU / no proof stays its own atom, nothing else moves).
+- `rtTopologyScene.test.ts`: hub-only dome flag on pedestals.
+
+## Frozen-area guard
+
+`git diff 689178516 HEAD` is empty for `layout.ts`, `cameraFit.ts`, `labelCollision.ts`, `projection.ts`, `scene/SceneOrbitControls.tsx`, `overlays/AtomicLabels.tsx`,
+`overlays/AtomicControls.tsx`, `ProviderTopology2D.tsx`. Changed outside the scene: `overlays/AtomicTooltip.tsx` (hosted runtimes row), `AtomicTopologyRenderer.tsx` (merge), dev bench only for toggles.
+
+## Known gaps
+
+- No automated visual-regression diff; visual evidence is the captured images and videos. Shaders (PCB, links, parts) are exercised only on a real GPU run, not in unit tests.
+- Tab-hidden loop stop was driven by overriding `document.hidden` (see `PERFORMANCE.md`), not by an OS-level hidden tab.
+- Live telemetry was not available to the dev server (`FORBIDDEN_ORIGIN`).
+
+# Earlier rounds (historical)
+
+## Commands and outcomes (round 2, historical)
 
 | Command                                                                                                | Outcome                                                                                                                                                                                                    |
 | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

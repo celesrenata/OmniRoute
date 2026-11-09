@@ -41,3 +41,12 @@ per-frame React state" rule. No separate output was produced from them.
 
 No new skills were applied. Review findings were handled with the measurement approach already used (headed Chrome on the M5 Max, uncapped probes,
 side-by-side against `idea5.jpeg`), plus a viewport/atom-count/bloom sweep to narrow the stress-case stall.
+
+## Round 3-4 (no new skills fetched)
+
+Same `webgpu-threejs-tsl` skill. Additional TSL patterns used, all from `three/tsl` / `three/webgpu` as installed (three 0.186.1): `fwidth` for analytic anti-aliasing of the PCB artwork;
+`texture()` of an R8 `DataTexture` for the haze field; `normalGeometry` / `normalWorld` / `positionGeometry` in `MeshBasicNodeMaterial.colorNode` for the instanced 3D parts;
+`InstancedMesh` + `InstancedBufferAttribute` for per-instance variants; `mergeGeometries` from `three/addons/utils/BufferGeometryUtils.js`; `If`/`select` for branch-free strike gating.
+Decisions found by measurement: dynamic branching by distance in the board shader was not added (fixed per-pixel cost; culling saved nothing measurable, see `PERFORMANCE.md`);
+the haze texture is `UnsignedByteType` R8 (filterable without a float32-filterable feature).
+No HDRI asset was added (procedural environment kept).
