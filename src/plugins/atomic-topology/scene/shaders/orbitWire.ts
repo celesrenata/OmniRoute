@@ -34,6 +34,7 @@ import {
   select,
   sin,
   smoothstep,
+  step,
   varying,
   vec3,
   vec4,
@@ -126,14 +127,16 @@ export function createWireMaterial(data: AtomData): MeshBasicNodeMaterial {
   const h1 = headD(e.x);
   const h2 = headD(e.y);
   const headV = exp(h1.mul(h1).mul(-1800)).add(exp(h2.mul(h2).mul(-1800)));
-  const widthPx = d2.w;
+  const widthPx = d2.w.mul(float(1).sub(U.lod.mul(0.45)));
   const wd = mix(widthPx.mul(0.7), widthPx, nearK).add(headV.mul(2.2));
   const drawPx = max(wd, 1.0);
   const material = new MeshBasicNodeMaterial();
   material.positionNode = center.add(
     pL.add(perp.mul(aw.y.mul(0.5).mul(drawPx).mul(dist).mul(U.pxScale)))
   );
-  const coverV = varying(wd.div(drawPx));
+  // Small-atom LOD: the analytic impostor arcs carry the read; only 4 real wires remain.
+  const wireOn = mix(float(1), step(float(w), float(3.5)).mul(0.8), U.lod);
+  const coverV = varying(wd.div(drawPx).mul(wireOn));
   const sideV = varying(aw.y);
   const thetaV = varying(theta);
   const nearV = varying(nearK);
@@ -160,7 +163,7 @@ export function createWireMaterial(data: AtomData): MeshBasicNodeMaterial {
       .add(pulse.mul(1.2))
       .mul(mix(float(0.55), float(1.0), nearV))
       .mul(U.wireEnergy)
-      .mul(3.2);
+      .mul(4.6);
     // Electron heads: small sharp HDR points with short fading trails.
     const tb1 = behind(e.x);
     const tb2 = behind(e.y);

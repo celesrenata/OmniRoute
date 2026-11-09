@@ -25,7 +25,9 @@ import {
   fwidth,
   length,
   max,
+  min,
   mix,
+  pow,
   sin,
   smoothstep,
   step,
@@ -56,7 +58,7 @@ export const pcbBoard = Fn(
   ([u, v, dist, tm, seed, life, detail]: [any, any, any, any, any, any, any]) => {
     const p = vec2(u, v);
     const pw = max(fwidth(u), fwidth(v)).mul(1.0).add(1e-4);
-    const col = vec3(0.012, 0.024, 0.052).toVar();
+    const col = vec3(0.014, 0.03, 0.07).toVar();
 
     // --- soldermask sheen: very low frequency, gives the surface a satin gradient ----
     const sheen = h21(floor(p.div(96)).add(seed))
@@ -80,7 +82,7 @@ export const pcbBoard = Fn(
     const r45 = vec2(cf.x.add(cf.y), cf.y.sub(cf.x)).mul(0.70710678);
     const across = isH.mul(cf.y).add(isV.mul(cf.x)).add(isD1.mul(r45.y)).add(isD2.mul(r45.x));
     const along = isH.mul(cf.x).add(isV.mul(cf.y)).add(isD1.mul(r45.x)).add(isD2.mul(r45.y));
-    // Four parallel lanes, 3.4 pitch, 1.4 wide, centred (with a seeded offset) in the cell.
+    // Four parallel lanes, 3.4 pitch, centred (with a seeded offset) in the cell.
     const off = h21(cell.add(9.1)).sub(0.5).mul(40);
     const centre = isH
       .add(isV)
@@ -89,30 +91,55 @@ export const pcbBoard = Fn(
       .add(off);
     const laneF = across.sub(centre).add(float(2 * 3.4));
     const lane = floor(laneF.div(3.4));
-    const laneD = abs(fract(laneF.div(3.4)).sub(0.5)).mul(3.4);
+    const laneC = fract(laneF.div(3.4)).sub(0.5).mul(3.4); // signed across-lane distance
+    const laneD = abs(laneC);
     const inBand = step(0.0, lane).mul(step(lane, float(3)));
     const laneH = h21(vec2(lane, cell.x.mul(7.3).add(cell.y.mul(3.7)).add(seed)));
-    const laneOn = inBand.mul(step(0.18, laneH)).mul(isBus);
-    const accent = step(0.86, h21(vec2(lane.add(cell.x.mul(5.1)), cell.y.add(seed))));
-    const traceCov = aaLine(laneD, float(0.7), pw).mul(laneOn).mul(detail);
-    const traceCol = mix(vec3(0.05, 0.42, 0.62), vec3(0.95, 0.5, 0.14), accent);
-    // Mask over trace shows a faint raised edge: thin brighter rim, darker core.
-    const rim = aaLine(laneD.sub(0.55).abs(), float(0.16), pw).mul(laneOn).mul(0.5).mul(detail);
-    col.addAssign(traceCol.mul(traceCov.mul(0.8)).add(vec3(0.1, 0.5, 0.7).mul(rim).mul(0.5)));
+    const laneOn = inBand.mul(step(0.12, laneH)).mul(isBus);
+    // Lane kinds: metallic copper (PBR-ish bevel + specular), glowing neon cyan, glowing neon orange.
+    const kindH = h21(vec2(lane.add(cell.x.mul(5.1)), cell.y.add(seed)));
+    const isNeonO = step(0.86, kindH);
+    const isNeonC = step(0.55, kindH).mul(float(1).sub(isNeonO));
+    const isCu = float(1).sub(isNeonO).sub(isNeonC);
+    const hw = float(0.95);
+    const traceCov = aaLine(laneD, hw, pw).mul(laneOn).mul(detail);
+    // Copper: raised bevelled trace, light from the upper-left -> bright lit edge,
+    // dark far edge, narrow specular streak, warm copper albedo.
+    const bevel = clamp(laneC.div(hw), -1, 1);
+    const lit = smoothstep(0.1, 0.95, bevel.negate()).mul(0.9).add(0.25);
+    const spec = exp(pow(bevel.add(0.55).mul(5.2), 2).negate()).mul(1.3);
+    const copper = vec3(0.95, 0.5, 0.22)
+      .mul(lit.mul(0.62).add(0.12))
+      .add(vec3(1.0, 0.82, 0.6).mul(spec).mul(0.65));
+    // Neon channels: bright core + soft halo (HDR, feeds bloom).
+    const neonCore = aaLine(laneD, float(0.42), pw);
+    const neonHalo = aaLine(laneD, float(1.9), pw).mul(0.28);
+    const neonC = vec3(0.1, 0.85, 1.0).mul(neonCore.mul(0.9).add(neonHalo));
+    const neonO = vec3(1.0, 0.5, 0.12).mul(neonCore.mul(0.9).add(neonHalo));
+    const traceRgb = copper.mul(isCu).add(neonC.mul(isNeonC)).add(neonO.mul(isNeonO));
+    col.assign(mix(col, traceRgb, traceCov.mul(isCu).mul(0.95)));
+    col.addAssign(neonC.mul(isNeonC).add(neonO.mul(isNeonO)).mul(laneOn).mul(detail));
+    // Faint raised-edge sheen on the mask beside every trace.
+    const rim = aaLine(laneD.sub(1.25).abs(), float(0.16), pw).mul(laneOn).mul(0.4).mul(detail);
+    col.addAssign(vec3(0.15, 0.55, 0.75).mul(rim).mul(0.4));
+    const accent = isNeonO;
 
-    // Embers: light packets flowing along each lane (seeded speed / direction / spacing).
-    const period = float(34).add(laneH.mul(46));
+    // Pulses: bright HDR packets with trails racing along the traces at varied speeds,
+    // fastest on the neon channels (decorative; static when life = 0).
+    const period = float(30).add(laneH.mul(52));
     const dirS = step(0.5, h21(vec2(lane.add(2.2), cell.x.add(cell.y))))
       .mul(2)
       .sub(1);
-    const spd = float(7).add(laneH.mul(20)).mul(dirS);
+    const spd = float(26).add(laneH.mul(70)).mul(dirS);
     const q = fract(along.div(period).sub(tm.mul(spd).div(period).mul(life)).add(laneH.mul(9)));
-    const ember = exp(q.mul(-20)).mul(smoothstep(0.0, 0.01, q));
-    const emberOn = step(0.45, h21(vec2(lane.add(3.3), cell.x.add(cell.y.mul(1.7)))));
+    const head = exp(q.mul(-9.0)).mul(smoothstep(0.0, 0.012, q));
+    const emberOn = step(0.18, h21(vec2(lane.add(3.3), cell.x.add(cell.y.mul(1.7)))));
+    const pulseCol = mix(vec3(0.35, 1.0, 1.0), vec3(1.0, 0.68, 0.25), accent).mul(
+      isCu.mul(0.0).add(1.0)
+    );
+    const pulseCov = aaLine(laneD, float(1.15), pw).mul(laneOn).mul(detail);
     col.addAssign(
-      mix(vec3(0.3, 0.95, 1.0), vec3(1.0, 0.62, 0.22), accent)
-        .mul(ember.mul(traceCov).mul(emberOn).mul(2.2))
-        .mul(float(0.3).add(life.mul(0.7)))
+      pulseCol.mul(head.mul(pulseCov).mul(emberOn).mul(3.4)).mul(float(0.3).add(life.mul(0.7)))
     );
 
     // --- ground pour hatch (45 degrees, 2.6 pitch) in pour cells ----------------------
@@ -162,6 +189,89 @@ export const pcbBoard = Fn(
 
     // Crisp detail fades to its mean colour with distance (and sub-pixel size) via aaLine's
     // area term; the extra gentle atmospheric falloff keeps the far wall calm.
+    return col.mul(exp(dist.mul(-0.00012)).mul(0.5).add(0.5));
+  }
+);
+
+/**
+ * Lit server / board panel for the walls and ceiling (operator directive 27):
+ * a grid of rack-unit panels with glowing orange and cyan bezels, lit "screens"
+ * with scanlines, blinking LED rows and (when `inner` > 0) a calmer PCB layer
+ * inside every panel. The ceiling (`strips` = 1) adds long emissive light bars
+ * whose floor reflection streaks to the horizon (idea5).
+ *
+ * @param blur  extra edge softness in pattern units (floor reflections use it to
+ *              roughen the mirrored panels with distance)
+ */
+export const pcbPanel = Fn(
+  ([u, v, dist, tm, seed, life, strips, blur]: [any, any, any, any, any, any, any, any]) => {
+    const p = vec2(u, v);
+    const pw = max(fwidth(u), fwidth(v)).add(1e-4).add(blur);
+    const PW = 150;
+    const PH = 96;
+    const cell = floor(vec2(p.x.div(PW), p.y.div(PH)));
+    const f = vec2(fract(p.x.div(PW)).mul(PW), fract(p.y.div(PH)).mul(PH));
+    const ch = h21(cell.add(seed.mul(1.7)));
+    const ch2 = h21(cell.add(seed.mul(3.1)).add(7.7));
+    const edge = min(min(f.x, float(PW).sub(f.x)), min(f.y, float(PH).sub(f.y)));
+    const warm = step(0.5, ch2);
+    const bezelCol = mix(vec3(0.1, 0.78, 1.0), vec3(1.0, 0.5, 0.14), warm);
+    const col = vec3(0.012, 0.024, 0.055).toVar();
+    // Panel body: deep navy gradient lighter toward the bezel.
+    col.addAssign(vec3(0.015, 0.035, 0.08).mul(smoothstep(8.0, 0.0, edge)));
+    // Bezel: bright thin neon frame + soft halo.
+    const frame = aaLine(edge.sub(2.4), float(0.3), pw);
+    const halo = aaLine(edge.sub(2.4), float(3.0), pw).mul(0.05);
+    col.addAssign(bezelCol.mul(frame.mul(0.55).add(halo)));
+    // Lit "screen" panels: scanlines + gradient glow.
+    const screenOn = step(0.58, ch);
+    const inside = smoothstep(6.0, 7.5, edge);
+    const scan = fract(f.y.mul(0.9)).mul(2).sub(1).abs();
+    const scanL = smoothstep(0.2, 0.9, scan).mul(0.5).add(0.5);
+    const grad = f.y.div(PH).mul(0.7).add(0.3);
+    col.addAssign(
+      mix(vec3(0.05, 0.4, 0.62), vec3(0.62, 0.2, 0.7), ch2).mul(
+        screenOn.mul(inside).mul(scanL).mul(grad).mul(0.42)
+      )
+    );
+    const pcbOn = float(1).sub(screenOn);
+    // LED rows: 3 rows of tiny blinking lamps.
+    const ledPitch = 5.0;
+    const lc = vec2(fract(f.x.div(ledPitch)).sub(0.5).mul(ledPitch), f.y.sub(PH - 9.0));
+    const ledCell = floor(f.x.div(ledPitch));
+    const ledH = h21(vec2(ledCell, ch.mul(31).add(seed)));
+    const blink = sin(tm.mul(ledH.mul(2.5).add(0.6)).add(ledH.mul(40)))
+      .mul(0.5)
+      .add(0.5)
+      .mul(life)
+      .add(float(1).sub(life).mul(0.7));
+    const ledOn = step(0.45, ledH)
+      .mul(step(10.0, f.x))
+      .mul(step(f.x, float(PW - 10)));
+    const led = aaLine(length(lc), float(0.9), pw).mul(ledOn).mul(blink);
+    const ledCol = mix(
+      vec3(0.2, 1.0, 0.5),
+      mix(vec3(1.0, 0.55, 0.15), vec3(0.2, 0.8, 1.0), step(0.5, fract(ledH.mul(7)))),
+      step(0.3, fract(ledH.mul(3)))
+    );
+    col.addAssign(ledCol.mul(led).mul(1.0).mul(pcbOn.mul(0.6).add(0.4)));
+    // Ceiling light bars: long emissive strips (orange / cyan), dashed along their length.
+    const barPitch = 54.0;
+    const barC = fract(p.x.div(barPitch)).sub(0.5).mul(barPitch);
+    const barIdx = floor(p.x.div(barPitch));
+    const barCol = mix(
+      vec3(1.0, 0.48, 0.1),
+      vec3(0.1, 0.8, 1.0),
+      step(0.5, h21(vec2(barIdx, seed)))
+    );
+    const dash = smoothstep(
+      0.0,
+      0.08,
+      fract(p.y.div(210).add(h21(vec2(barIdx, 3.0)))).sub(0.12)
+    ).mul(smoothstep(0.0, 0.08, float(0.9).sub(fract(p.y.div(210).add(h21(vec2(barIdx, 3.0)))))));
+    const bar = aaLine(barC.abs(), float(2.0), pw).mul(dash);
+    col.addAssign(barCol.mul(bar.mul(2.6)).mul(strips));
+    col.addAssign(barCol.mul(aaLine(barC.abs(), float(9.0), pw).mul(dash).mul(0.18)).mul(strips));
     return col.mul(exp(dist.mul(-0.00012)).mul(0.5).add(0.5));
   }
 );

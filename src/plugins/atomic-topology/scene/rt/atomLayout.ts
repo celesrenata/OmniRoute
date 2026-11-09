@@ -48,7 +48,7 @@ export const FIELD = {
   AXIS2_FLAGS: 20, // orbital axis 2 xyz, flags (hub = 1)
   WIRE_TINT: 21, // reserved
   SPARE0: 22, // strand inner colour xyz
-  SPARE1: 23, // x sparkle gain (crowd^2.8), y sparkle lit fraction (no LOD), z failure alert
+  SPARE1: 23, // x sparkle gain (crowd^2.8), y sparkle lit fraction (no LOD), z failure alert, w small-atom LOD weight
 } as const;
 
 export const FIELD_COUNT = 24;

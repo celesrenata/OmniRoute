@@ -305,7 +305,7 @@ export function createStrandMaterial(data: AtomData, mirror = false): MeshBasicN
       .mul(prof)
       .mul(vis)
       .mul(mirror ? 0.28 : 1);
-    return vec4(grade(col, sat).mul(k).mul(0.8), 1);
+    return vec4(grade(col, sat).mul(k).mul(1.45), 1);
   })();
   return finish(material);
 }
@@ -355,7 +355,7 @@ export function createSparkleMaterial(data: AtomData): MeshBasicNodeMaterial {
       .mul(float(0.6).add(exc.mul(1.4)))
       .mul(bri)
       .mul(vis)
-      .mul(mix(float(5.5), float(16), kindV))
+      .mul(mix(float(3.4), float(15), kindV))
       .mul(U.far.mul(mix(float(1.1), float(0.5), kindV)).add(0.8))
       .mul(U.sparkleGain);
     return vec4(grade(col, sat).mul(k), 1);

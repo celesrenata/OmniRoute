@@ -48,12 +48,14 @@ import {
   createFrustumPlanes,
   extractFrustumPlanes,
   marchStepsFor,
+  smallAtomLod,
   sphereVisible,
 } from "./visibility";
 import { floorY } from "./sharedUniforms";
 
 /** World units an idle (tightest) atom sinks into its dome. */
 const IDLE_SEAT_DROP = 28;
+
 /** Extinction of the absorbing cloud body at full (excited) brightness. */
 const MEDIUM_K = 0.3;
 /**
@@ -377,7 +379,7 @@ export function createAtomBatch(
       const lane = st.palette[i % st.palette.length];
       set4(stat, STATIC_COLS, row, c, w.u[0], w.u[1], w.u[2], w.a);
       set4(stat, STATIC_COLS, row, c + 1, w.v[0], w.v[1], w.v[2], w.b);
-      set4(stat, STATIC_COLS, row, c + 2, lane[0], lane[1], lane[2], i % 4 === 0 ? 2.2 : 1.7);
+      set4(stat, STATIC_COLS, row, c + 2, lane[0], lane[1], lane[2], i % 4 === 0 ? 3.6 : 2.9);
       set4(
         stat,
         STATIC_COLS,
@@ -498,6 +500,17 @@ export function createAtomBatch(
       const f = frames[offset + row];
       // Projected radius of the cloud in device px (for the march-step scale).
       const projRadiusPx = projBuf[row * 3 + 2] / pxScale;
+      // Small-atom LOD weight: 1 below ~340 device px of cloud diameter (bold flower
+      // silhouette), cross-fading to the full ray-traced atom by ~620 px.
+      const lodMul = Number.isFinite(f.energy.cloudRadiusMul) ? f.energy.cloudRadiusMul : 0.8;
+      const lodScale = f.scale != null && Number.isFinite(f.scale) && f.scale > 0 ? f.scale : 1;
+      const lodDist = Math.max(
+        1e-3,
+        Math.hypot(f.position[0] - camPos.x, f.position[1] - camPos.y, f.position[2] - camPos.z)
+      );
+      const lodRadiusPx =
+        (Math.min(1, Math.max(0.5, lodMul)) * CLOUD_BOUND_RADIUS * lodScale) / lodDist / pxScale;
+      const smallLod = smallAtomLod(lodRadiusPx * 2);
       const params = clampShaderParams({
         marchSteps: cullOn ? marchStepsFor(f.marchSteps, projRadiusPx) : f.marchSteps,
         exposure: 1,
@@ -617,7 +630,14 @@ export function createAtomBatch(
       slots[row].mesh.visible = rowVisible;
       slots[row].mirror.visible = rowVisible;
       setF(row, FIELD.ORIENT1_ACTIVE, m[1], m[4], m[7], litFrac);
-      setF(row, FIELD.SPARE1, Math.pow(crowdG, 2.8), activeFrac, alert, 0);
+      setF(
+        row,
+        FIELD.SPARE1,
+        Math.pow(crowdG, 2.8) * (1 - 0.9 * smallLod),
+        activeFrac,
+        alert,
+        smallLod
+      );
       setF(row, FIELD.ORIENT2_PX, m[2], m[5], m[8], pxScale);
       setF(
         row,
@@ -643,7 +663,11 @@ export function createAtomBatch(
         st.rim[0],
         st.rim[1],
         st.rim[2],
-        (0.35 + 0.9 * bri) * 0.8 * (1 - 0.7 * farK) * Math.pow(Math.max(crowdG, readS * 0.9), 1.0)
+        (0.35 + 0.9 * bri) *
+          0.8 *
+          (1 - 0.7 * farK) *
+          Math.pow(Math.max(crowdG, readS * 0.9), 1.0) *
+          (1 - 0.2 * smallLod)
       );
       setF(
         row,
@@ -651,7 +675,7 @@ export function createAtomBatch(
         st.coreColor[0],
         st.coreColor[1],
         st.coreColor[2],
-        Math.pow(Math.max(crowdG, readS * 0.8), 1.2) / Math.pow(lod, 0.75)
+        (Math.pow(Math.max(crowdG, readS * 0.8), 1.2) / Math.pow(lod, 0.75)) * (1 - 0.93 * smallLod)
       );
       setF(
         row,
@@ -707,6 +731,7 @@ export function createAtomBatch(
         floorY: floorY.value as number,
         nucleons: nucScratch,
         glassRadius: ne * 1.14,
+        lod: smallLod,
       });
 
       // Electron angles per wire (heads ride the wire shader).

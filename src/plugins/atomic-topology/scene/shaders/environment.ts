@@ -32,6 +32,7 @@ import {
   select,
   sin,
   smoothstep,
+  step,
   texture,
   uniform,
   vec2,
@@ -53,7 +54,8 @@ import {
   type Object3D,
 } from "three/webgpu";
 import { floorY as sharedFloorY } from "../rt/sharedUniforms";
-import { pcbBoard } from "./pcbBoard";
+import { pcbBoard, pcbPanel } from "./pcbBoard";
+import { createHeroPlatform } from "./heroPlatform";
 import { createBoardParts } from "./boardParts";
 
 /** Bench floor height (world units); the topology host derives its own from layout bounds. */
@@ -106,6 +108,8 @@ export function createEnvironment(
   const dims2 = uniform(new Vector4(NEAR_Z, 1, 0, 0));
   const floorU = sharedFloorY;
   const disposables: { dispose: () => void }[] = [];
+  const hero = createHeroPlatform(time, (dims2 as any).y, sharedFloorY);
+  disposables.push(hero);
   const boardParts = createBoardParts();
   disposables.push(boardParts);
   // Floor haze field (magnetic / high-voltage parts): world rect + R8 texture.
@@ -142,6 +146,42 @@ export function createEnvironment(
     const hitY = ty.lessThanEqual(tx).and(ty.lessThanEqual(tz));
     const hitX = tx.lessThan(ty).and(tx.lessThanEqual(tz));
     const dd = tHit.div(sc);
+
+    // --- glossy floor: mirrored view of the lit walls / ceiling light bars --------------
+    // (derivatives are taken outside divergent control flow). The reflected ray leaves
+    // the floor point and hits the ceiling or a wall; its panel is roughened with distance.
+    const rdR = vec3(rd.x, rd.y.negate(), rd.z);
+    const pF = ro.add(rd.mul(ty.max(0)));
+    const ryR = rdR.y.max(1e-4);
+    const txR = select(
+      rdR.x.abs().greaterThan(1e-5),
+      select(rdR.x.greaterThan(0), D.x.sub(pF.x), D.x.negate().sub(pF.x)).div(rdR.x),
+      big
+    );
+    const tyR = D.y.sub(pF.y).div(ryR);
+    const tzR = select(
+      rdR.z.abs().greaterThan(1e-5),
+      select(rdR.z.greaterThan(0), E.x.sub(pF.z), D.z.sub(pF.z)).div(rdR.z),
+      big
+    );
+    const tR = min(min(txR, tyR), tzR).max(0);
+    const hR = pF.add(rdR.mul(tR));
+    const ceilFace = tyR.lessThanEqual(min(txR, tzR));
+    const xFace = txR.lessThan(tzR);
+    const uR = select(ceilFace, hR.x, select(xFace, hR.z, hR.x)).div(sc);
+    const vR = select(ceilFace, hR.z, hR.y).div(sc);
+    const reflPanel = pcbPanel(
+      uR,
+      vR,
+      tR.div(sc),
+      time,
+      select(ceilFace, float(6), float(3)),
+      life,
+      select(ceilFace, float(1), float(0)),
+      tR.div(sc).mul(0.006)
+    );
+    const fresR = float(0.06).add(float(0.94).mul(pow(float(1).sub(abs(rd.y)), 4.0)));
+
     If(hitY, () => {
       const isFloor = rd.y.lessThan(0);
       // Magnetic / high-voltage haze (floor only): a barely-visible refraction of the
@@ -162,45 +202,79 @@ export function createEnvironment(
         time,
         select(isFloor, float(1), float(2)),
         life,
-        select(isFloor, float(1), float(0.12))
+        select(isFloor, float(1), float(0.3))
       );
-      // Floor: glossy solder-mask sheen at grazing angles; ceiling: dimmer.
+      // Floor: solder-mask clearcoat reflecting the lit room (fresnel + roughness);
+      // ceiling: panel grid with emissive light bars.
       const gl = pow(float(1).sub(abs(rd.y)), 3);
       const floorC = b
         .add(vec3(0.05, 0.2, 0.35).mul(gl).mul(0.28))
-        .add(vec3(0.05, 0.16, 0.3).mul(hz.mul(hz)).mul(0.1));
-      col.assign(select(isFloor, floorC, b.mul(0.9)));
+        .add(vec3(0.05, 0.16, 0.3).mul(hz.mul(hz)).mul(0.1))
+        .add(reflPanel.mul(fresR).mul(1.7));
+      const ceilC = pcbPanel(
+        p.x.div(sc),
+        p.z.div(sc),
+        dd,
+        time,
+        float(6),
+        life,
+        float(1),
+        float(0)
+      ).add(b.mul(0.5));
+      col.assign(select(isFloor, floorC, ceilC));
     });
     If(hitX, () => {
       col.assign(
-        pcbBoard(
+        pcbPanel(
           p.z.div(sc),
           p.y.div(sc),
           dd,
           time,
           float(3).add(rd.x.greaterThan(0).select(1, 0)),
           life,
-          float(0.16)
-        ).mul(1.5)
+          float(0),
+          float(0)
+        ).add(
+          pcbBoard(
+            p.z.div(sc),
+            p.y.div(sc),
+            dd,
+            time,
+            float(3).add(rd.x.greaterThan(0).select(1, 0)),
+            life,
+            float(0.45)
+          ).mul(0.7)
+        )
       );
     });
     If(tz.lessThan(min(tx, ty)), () => {
       col.assign(
-        pcbBoard(
+        pcbPanel(
           p.x.div(sc),
           p.y.div(sc),
           dd,
           time,
           float(5).add(rd.z.greaterThan(0).select(1, 0)),
           life,
-          float(0.16)
-        ).mul(1.5)
+          float(0),
+          float(0)
+        ).add(
+          pcbBoard(
+            p.x.div(sc),
+            p.y.div(sc),
+            dd,
+            time,
+            float(5).add(rd.z.greaterThan(0).select(1, 0)),
+            life,
+            float(0.45)
+          ).mul(0.7)
+        )
       );
     });
     // Aerial perspective: cool navy toward distance, so the box reads as a space.
     const fogK = exp(dd.mul(-0.0002));
     col.assign(mix(vec3(0.01, 0.022, 0.06), col, fogK));
-    return vec4(col.mul(0.5), 1);
+    return vec4(col.mul(0.42), 1);
   });
 
   const roomMat = new MeshBasicNodeMaterial();
@@ -315,10 +389,20 @@ export function createEnvironment(
   const padMat = new MeshBasicNodeMaterial();
   padMat.fragmentNode = Fn(() => {
     const r = length(vec2(positionGeometry.x, positionGeometry.z)).div(50);
-    const glow = exp(r.mul(r).mul(-3.2)).mul(0.32);
-    const ring = exp(abs(r.sub(0.94)).mul(-48)).mul(0.9);
-    const ring2 = exp(abs(r.sub(0.62)).mul(-60)).mul(0.28);
-    return vec4(vec3(0.1, 0.7, 1.0).mul(glow.add(ring).add(ring2)), 1);
+    const glow = exp(r.mul(r).mul(-3.2)).mul(0.4);
+    const ring = exp(abs(r.sub(0.94)).mul(-48)).mul(1.5);
+    const ring2 = exp(abs(r.sub(0.62)).mul(-60)).mul(0.45);
+    const ang = atan(positionGeometry.z, positionGeometry.x);
+    const dash = step(0.45, fract(ang.mul(7 / 6.2831853).add(time.mul(0.05)))).mul(
+      exp(abs(r.sub(0.78)).mul(-70))
+    );
+    const warmTick = step(0.9, fract(ang.mul(24 / 6.2831853))).mul(exp(abs(r.sub(1.0)).mul(-40)));
+    return vec4(
+      vec3(0.1, 0.75, 1.0)
+        .mul(glow.add(ring).add(ring2).add(dash.mul(0.9)))
+        .add(vec3(1.0, 0.5, 0.12).mul(warmTick.mul(1.1))),
+      1
+    );
   })();
   padMat.transparent = true;
   padMat.blending = AdditiveBlending;
@@ -362,6 +446,15 @@ export function createEnvironment(
       peds.map((q) => ({ x: q.x, z: q.z, r: 62 * (q.scale ?? 1) }))
     );
     (hazeRect.value as Vector4).set(...boardParts.haze.rect.value);
+    const hubPed = peds.find((q) => q.hub ?? false);
+    if (hubPed) {
+      hero.place(hubPed.x, hubPed.y ?? fy, hubPed.z, hubPed.scale ?? 1);
+      hero.group.visible =
+        typeof window === "undefined" ||
+        new URLSearchParams(window.location.search).get("platform") !== "0";
+    } else {
+      hero.group.visible = false;
+    }
     for (const part of parts) {
       let n = 0;
       for (const ped of peds) {
@@ -381,7 +474,7 @@ export function createEnvironment(
     Array.isArray(layoutIn) ? { pedestals: layoutIn.map(([x, z]) => ({ x, z })) } : layoutIn
   );
   return {
-    objects: [roomMesh, ...boardParts.objects, ...parts.map((p) => p.mesh)],
+    objects: [roomMesh, hero.group, ...boardParts.objects, ...parts.map((p) => p.mesh)],
     time,
     setLife: (life: number) => {
       (dims2.value as Vector4).y = life;

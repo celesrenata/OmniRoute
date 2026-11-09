@@ -117,6 +117,8 @@ export interface AtomFields {
   sparkleActive: any;
   /** 0..1 red failure flash. */
   alert: any;
+  /** Small-atom LOD weight (0 = full ray-traced atom, 1 = bold small-size LOD). */
+  lod: any;
   rootColor: any;
   strandInner: any;
   streakK: any;
@@ -213,6 +215,7 @@ export function atomFields(data: AtomData, row: any, eager = false): AtomFields 
     sparkleGain: sp1.x,
     sparkleActive: sp1.y,
     alert: sp1.z,
+    lod: sp1.w,
     rootColor: c17.xyz,
     strandInner: sp0.xyz,
     streakK: c17.w,

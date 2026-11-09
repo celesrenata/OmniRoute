@@ -97,3 +97,14 @@ export function marchStepsFor(maxSteps: number, radiusPx: number): number {
   const f = MIN_STEP_FRACTION + (1 - MIN_STEP_FRACTION) * k;
   return Math.max(16, Math.min(maxSteps, Math.round(maxSteps * f)));
 }
+
+/** Cloud diameter (device px) below which the small-atom LOD is fully on. */
+export const SMALL_LOD_NEAR = 340;
+/** Cross-fade span (device px) from the small LOD to the full ray-traced atom. */
+export const SMALL_LOD_SPAN = 300;
+
+/** Small-atom LOD weight: 1 for small clouds, smooth cross-fade to 0 (full atom) as they grow. */
+export function smallAtomLod(diameterPx: number): number {
+  const t = Math.min(1, Math.max(0, (diameterPx - SMALL_LOD_NEAR) / SMALL_LOD_SPAN));
+  return 1 - t * t * (3 - 2 * t);
+}

@@ -51,6 +51,8 @@ export interface ImpostorDynamic {
   /** World-space nucleon centres (xyz, radius) packed as vec4. */
   nucleons: Float32Array;
   glassRadius: number;
+  /** Small-atom LOD weight (0 full atom .. 1 bold small LOD). */
+  lod: number;
 }
 
 export interface ImpostorSlot {
@@ -123,6 +125,7 @@ export function createImpostorSlot(registry: RtRegistry): ImpostorSlot {
         (x.cloudRadius as any).value = d.cloudRadius;
         (x.glassRadius as any).value = d.glassRadius;
         (x.far as any).value = d.far;
+        (x.lod as any).value = d.lod;
         (x.crowd as any).value = d.crowd;
         (x.energy.value as Vector3).set(d.excitation, d.saturation, d.brightness);
         (x.phase as any).value = d.phase;

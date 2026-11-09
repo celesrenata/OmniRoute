@@ -20,6 +20,9 @@ import {
   Loop,
   atan,
   cameraPosition,
+  cos,
+  fract,
+  sqrt,
   cross,
   dot,
   exp,
@@ -33,6 +36,7 @@ import {
   mx_noise_float,
   normalize,
   positionLocal,
+  positionGeometry,
   positionWorld,
   pow,
   reflect,
@@ -191,6 +195,8 @@ export interface AtomUniforms {
   inner: ReturnType<typeof uniform>;
   rim: ReturnType<typeof uniform>;
   floorY: ReturnType<typeof uniform>;
+  /** Small-atom LOD weight: 0 = full ray-traced atom, 1 = bold small-size LOD. */
+  lod: ReturnType<typeof uniform>;
 }
 
 /** Create the per-atom uniform set (all typed arrays preallocated, no per-frame allocation). */
@@ -234,6 +240,7 @@ export function createAtomUniforms(): AtomUniforms {
     inner: uniform(new Vector3(0.62, 0.22, 1)),
     rim: uniform(new Vector3(0.1, 0.85, 1)),
     floorY: uniform(-62),
+    lod: uniform(0),
   };
 }
 
@@ -458,7 +465,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       m: medium,
     };
   };
-  const fragment = Fn(() => {
+  const fullFragment = Fn(() => {
     const mirrorOn = u.mirror as any;
     const fy = u.floorY as any;
     const camM = vec3(cameraPosition.x, fy.mul(2).sub(cameraPosition.y), cameraPosition.z);
@@ -572,6 +579,173 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       .sub(trans.mul(transBg).mul(float(1).sub(surfAlpha)))
       .mul(refl);
     return vec4(color, alpha);
+  });
+
+  /**
+   * Small-projected-size LOD (operator directive 26): a bold, cheap rendering of the
+   * same atom for clouds below ~150 css px. Crisp petal/flower plasma silhouette with
+   * dark voids and a defined cyan rim, a saturated self-glowing model-coloured
+   * nucleus, 5 thick non-coplanar-looking orbital arcs and a deep violet body; no
+   * glass shell. Pure analytic function of the view-ray's closest approach to the
+   * atom centre (no loops, no texture reads), so it is far cheaper than the full atom.
+   */
+  const smallFragment = Fn(() => {
+    const mirrorOn = u.mirror as any;
+    const fy = u.floorY as any;
+    const camM = vec3(cameraPosition.x, fy.mul(2).sub(cameraPosition.y), cameraPosition.z);
+    const posM = vec3(positionWorld.x, fy.mul(2).sub(positionWorld.y), positionWorld.z);
+    const ro = select(mirrorOn.greaterThan(0.5), camM, cameraPosition);
+    const rd = normalize(select(mirrorOn.greaterThan(0.5), posM, positionWorld).sub(ro));
+    const cloudR = u.cloudRadius as any;
+    // Quad-local coordinates (identical for the main and the mirrored floor pass).
+    const x = positionGeometry.x.mul(u.quadHalf as any).div(cloudR);
+    const y = positionGeometry.y.mul(u.quadHalf as any).div(cloudR);
+    void ro;
+    void rd;
+    const r = length(vec3(x, y, 0)).max(0.0005);
+    const phase = u.phase as any;
+    const reach = u.reach as any;
+    const sat = saturation;
+    const seed = dot(u.axes[0] as any, vec3(12.9898, 78.233, 37.719));
+    const seedF = seed.sub(seed.floor());
+    const nPet = seedF.mul(4).floor().add(7);
+    const swirl = phase.mul(0.05).add(r.mul(0.9));
+    const ang = atan(y, x).add(swirl);
+    const petal = cos(ang.mul(nPet).add(seedF.mul(6.28)))
+      .mul(0.5)
+      .add(0.5);
+    const petal2 = cos(ang.mul(nPet.add(3)).add(phase.mul(0.15)).add(seedF.mul(3)))
+      .mul(0.5)
+      .add(0.5);
+    const bundle = smoothstep(0.12, 0.8, petal.mul(petal2.mul(0.35).add(0.65)));
+    const edgeR = reach.mul(0.92).mul(float(0.74).add(bundle.mul(0.26)));
+    const rr = r.div(edgeR);
+    const inside = float(1).sub(smoothstep(0.9, 1.0, rr));
+    // Deep violet body with radial plasma streaks and dark petal voids.
+    const streak = pow(
+      cos(ang.mul(nPet.mul(5)).add(r.mul(14)).add(seedF.mul(9)))
+        .mul(0.5)
+        .add(0.5),
+      2
+    );
+    const bodyHue = mix(u.inner as any, (u.hues as any)[0], 0.35).mul(vec3(0.85, 0.5, 1.15));
+    const bodyDeep = mix(bodyHue, vec3(0.42, 0.1, 1.0), 0.55);
+    const radial = smoothstep(0.0, 1.0, rr);
+    const bodyK = mix(float(0.18), float(1.1), bundle)
+      .mul(streak.mul(0.55).add(0.55))
+      .mul(radial.mul(0.9).add(0.35));
+    const bodyCol = bodyDeep.mul(bodyK);
+    // Defined cyan rim, sparkly (angular hash twinkle).
+    const cell = ang.mul(70).floor();
+    const tw = fract(sin(cell.mul(12.9898).add(seedF.mul(78.233))).mul(43758.5453));
+    const twk = sin(phase.mul(1.7).add(tw.mul(30)))
+      .mul(0.5)
+      .add(0.5);
+    const rimBand = exp(pow(rr.sub(0.965).div(0.05), 2).negate());
+    const rimCol = (u.rim as any)
+      .mul(rimBand)
+      .mul(tw.mul(0.5).add(0.5).add(twk.mul(0.6)))
+      .mul(2.0);
+    const halo = exp(pow(rr.sub(1.02).div(0.22), 2).negate())
+      .mul(0.25)
+      .mul(u.rim as any);
+    // Nucleus: saturated, self-glowing model-coloured ball (sectored by up to 3 tints).
+    const rho = (u.glassRadius as any).div(cloudR).mul(0.95).max(0.2);
+    const nr = r.div(rho);
+    const nz = sqrt(max(float(1).sub(nr.mul(nr)), 0));
+    const t0 = (u.nucleonTints as any).element(0).xyz;
+    const t1 = (u.nucleonTints as any).element(1).xyz;
+    const t2 = (u.nucleonTints as any).element(2).xyz;
+    const sec = atan(y, x).add(3.14159).div(6.28318).mul(3);
+    const s0 = smoothstep(1.0, 0.7, sec.sub(0.0).abs()).add(smoothstep(2.3, 2.7, sec));
+    const s1 = smoothstep(0.7, 1.0, sec)
+      .mul(smoothstep(2.0, 1.7, sec))
+      .add(0.0001);
+    const s2 = smoothstep(1.7, 2.0, sec)
+      .mul(smoothstep(3.1, 2.7, sec))
+      .add(0.0001);
+    const tint = t0.mul(s0).add(t1.mul(s1)).add(t2.mul(s2)).div(s0.add(s1).add(s2));
+    const tl = dot(tint, vec3(0.2126, 0.7152, 0.0722));
+    const tintSat = max(mix(vec3(tl), tint, 3.4), 0);
+    const nucK = excitation.mul(0.9).add(0.55);
+    const ballCol = tintSat
+      .mul(nz.mul(0.8).add(0.55))
+      .mul(nucK)
+      .mul(1.5)
+      .add(vec3(1.0, 0.8, 0.95).mul(pow(nz, 8)).mul(0.5));
+    const ballIn = float(1).sub(smoothstep(0.92, 1.0, nr));
+    const ballGlow = tintSat
+      .mul(exp(nr.mul(nr).mul(-0.9)))
+      .mul(nucK)
+      .mul(0.9)
+      .add((u.coreColor as any).mul(exp(r.mul(r).mul(-60))).mul(1.4));
+    // Five thick bright orbital arcs (non-coplanar look: differing axis ratios and tilts).
+    const arcs = vec3(0).toVar();
+    const lanes = [
+      vec3(0.15, 0.9, 1.0),
+      vec3(1.0, 0.35, 0.8),
+      vec3(0.4, 0.55, 1.0),
+      vec3(0.2, 1.0, 0.8),
+      vec3(1.0, 0.6, 0.3),
+    ];
+    for (let k = 0; k < 5; k += 1) {
+      const rot = seedF.mul(6.28).add(k * 1.2566);
+      const cr = cos(rot);
+      const sr = sin(rot);
+      const ex = x.mul(cr).add(y.mul(sr));
+      const ey = y.mul(cr).sub(x.mul(sr));
+      const A = float(0.8 + 0.045 * k);
+      const B = A.mul(0.28 + 0.13 * k);
+      const q = length(vec3(ex.div(A), ey.div(B), 0));
+      const dd = q.sub(1).abs().mul(B.min(A)).mul(1.0);
+      const th = atan(ey.div(B), ex.div(A));
+      const sweep = pow(
+        sin(
+          th
+            .mul(2)
+            .sub(phase.mul(1.2))
+            .add(k * 1.7)
+        )
+          .mul(0.5)
+          .add(0.5),
+        3
+      )
+        .mul(1.2)
+        .add(0.55);
+      const line = exp(pow(dd.div(0.017), 2).negate()).mul(sweep);
+      arcs.addAssign(lanes[k].mul(line));
+    }
+    const arcMask = float(1).sub(ballIn.mul(0.9));
+    const energyK = excitation.mul(0.7).add(0.55).mul(brightness.mul(0.6).add(0.5));
+    const crowdK = (u.crowd as any).max(0.55);
+    let col: any = bodyCol
+      .mul(inside)
+      .mul(energyK.max(0.7))
+      .mul(1.9)
+      .add(rimCol.mul(inside.mul(0.6).add(0.4)))
+      .add(halo);
+    col = col.mul(float(1).sub(ballIn)).add(ballCol.mul(ballIn)).add(ballGlow.mul(inside));
+    col = col.add(arcs.mul(arcMask).mul(0.62).mul(energyK));
+    // Idle fades toward grey (saturation uniform), never washed to white.
+    const l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = max(mix(vec3(l), col, sat.mul(0.5).add(0.5)), 0).mul(crowdK.mul(0.35).add(0.65));
+    const edgeFade = float(1).sub(smoothstep(0.93, 1.04, r));
+    col = col.mul(edgeFade);
+    const refl = select(mirrorOn.greaterThan(0.5), float(0.3), float(1));
+    const alpha = saturate(inside.mul(0.9).add(halo.x.mul(0.3)).add(ballIn)).mul(refl);
+    return vec4(col.mul(refl), alpha.mul(edgeFade));
+  });
+
+  const fragment = Fn(() => {
+    const lodW = u.lod as any;
+    const out = vec4(0).toVar();
+    If(lodW.lessThan(0.999), () => {
+      out.addAssign(fullFragment().mul(float(1).sub(lodW)));
+    });
+    If(lodW.greaterThan(0.001), () => {
+      out.addAssign(smallFragment().mul(lodW));
+    });
+    return out;
   });
 
   const material = new MeshBasicNodeMaterial();
