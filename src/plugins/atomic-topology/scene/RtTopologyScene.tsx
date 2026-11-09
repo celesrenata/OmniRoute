@@ -234,6 +234,16 @@ export function RtTopologyContent({
       }, 250);
     }
     scene.add(root);
+    // Dev-only handle for the fullscreen frame breakdown (`pw-atomic-fs-profile.mjs`).
+    if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+      (window as unknown as { __atomicGpuDbg?: unknown }).__atomicGpuDbg = {
+        gl,
+        post,
+        atoms,
+        env,
+        motes,
+      };
+    }
     gpuRef.current = {
       root,
       atoms,

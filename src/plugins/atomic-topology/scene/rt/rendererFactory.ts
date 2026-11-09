@@ -281,7 +281,12 @@ export async function createRtCanvasRenderer(
     alpha: true,
     forceWebGL: !!opts.forceWebGL,
     powerPreference: "high-performance",
-  });
+    // Dev-only GPU timestamp queries (`?gputime=1`, frame breakdown, directive 39.3).
+    trackTimestamp:
+      process.env.NODE_ENV !== "production" &&
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("gputime") === "1",
+  } as ConstructorParameters<typeof WebGPURenderer>[0]);
   renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   // A loss is handled (freeze + rebuild on a fresh canvas, see AtomicScene), so

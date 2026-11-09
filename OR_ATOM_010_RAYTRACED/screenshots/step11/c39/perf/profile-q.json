@@ -1,0 +1,26 @@
+{
+  "label": "q",
+  "card": {
+    "fps": 257.5,
+    "p50": 1.4,
+    "p95": 20.5,
+    "gpuMsPerFrame": 2.16,
+    "gpuSamples": 41,
+    "canvasPx": [1400, 836],
+    "cssPx": [700, 418],
+    "dpr": 2,
+    "resizes": 0
+  },
+  "fullscreenActive": true,
+  "fullscreen": {
+    "fps": 101.5,
+    "p50": 6.5,
+    "p95": 44,
+    "gpuMsPerFrame": 6.42,
+    "gpuSamples": 16,
+    "canvasPx": [2876, 1796],
+    "cssPx": [1438, 898],
+    "dpr": 2,
+    "resizes": 0
+  }
+}
