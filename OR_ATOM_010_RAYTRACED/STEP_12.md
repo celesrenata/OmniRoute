@@ -43,3 +43,32 @@ The replay view is the existing Step 11 scene, so the idea5 gaps in STEP_11.md s
 | `npm run typecheck:core`                                                    | 45 errors, identical to base; 0 in changed files        |
 | `npm run lint`                                                              | 7 errors, the same pre-existing ones outside the plugin |
 | `node scripts/ad-hoc/pw-atomic-step12.mjs` (also `REDUCED=1`, `UNCAPPED=1`) | flows above                                             |
+
+## Checkpoint 4 sign-off package (absolute paths)
+
+Reference: /Users/celes/sources/celesrenata/OmniRoute/.agents/tasks/atomic-raytraced/references/idea5.jpeg
+Side-by-side, idea5 (left) vs real-GPU replay on the real /home (right): /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/sidebyside-idea5-vs-replay.jpg
+Real M5 Max captures (JPG previews; PNG originals alongside):
+
+- /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/01-live-default.jpg
+- /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/03-replay-opened.jpg
+- /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/05-moment-quiet-before-first-event.jpg
+- /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/05-moment-in-flight.jpg
+- /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/05-moment-failure.jpg
+- /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/07-after-exit-live.jpg
+  Reports: /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/step12-report.json, /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/reduced/step12-report.json, /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step12/uncapped/step12-report.json
+
+### Scores (self, 0-5; replay reuses the Step 11 scene, so scene scores carry over from STEP_11.md; reviewer scores independently)
+
+| Criterion                                                                                                                        | Score |
+| -------------------------------------------------------------------------------------------------------------------------------- | ----: |
+| Resemblance to idea5                                                                                                             |   3.5 |
+| Immersion                                                                                                                        |     4 |
+| Nucleus                                                                                                                          |     4 |
+| Lighting                                                                                                                         |     4 |
+| Operational truth (replay counts == call logs, nothing invented, live telemetry neutralised)                                     |  pass |
+| Not claiming the visual bar is fully met: idea5 gaps from STEP_11.md remain, and the replay panel covers part of the small card. |
+
+### Perf (replay playing 1x, real /home)
+
+vsync 54.6 fps p95 18.7 ms; uncapped 148.5 fps p95 23.7 ms p99 28.6 ms (6 frames > 30 ms in 5 s). Reduced-motion run clean.
