@@ -643,7 +643,7 @@ export function createAtomBatch(
         st.rim[0],
         st.rim[1],
         st.rim[2],
-        (0.35 + 0.9 * bri) * 0.8 * Math.pow(Math.max(crowdG, readS * 0.9), 1.0)
+        (0.35 + 0.9 * bri) * 0.8 * (1 - 0.7 * farK) * Math.pow(Math.max(crowdG, readS * 0.9), 1.0)
       );
       setF(
         row,

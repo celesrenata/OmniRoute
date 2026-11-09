@@ -55,6 +55,7 @@ import {
   FOCUS_SCALE,
   HUB_SCALE,
   atomEnergyInput,
+  closeHeroWeight,
   environmentLayoutFor,
   isNeutralAtom,
   linkBaseIntensity,
@@ -79,7 +80,9 @@ const BREATH_AMPLITUDE = 0.02;
 /** Packet hop period (s), same as the legacy EnergyLink. */
 const PULSE_PERIOD_S = 2.5;
 /** Gain of non-focused atoms while an atom is focused (isolates the focus, as in idea5). */
-const FOCUS_NEIGHBOUR_DIM = 0.42;
+const FOCUS_NEIGHBOUR_DIM = 0.24;
+/** Gain of neighbours around the close-up hero atom at full isolation weight. */
+const CLOSE_NEIGHBOUR_DIM = 0.55;
 /** Ray-march steps (bounded by shaderParams). */
 const MARCH_STEPS = 48;
 const FAILURE_RGB: [number, number, number] = [1.0, 0.16, 0.12];
@@ -150,6 +153,9 @@ export function RtTopologyContent({
   const gpuRef = useRef<Gpu | null>(null);
   const alertById = useRef(new Map<string, number>());
   const focusTmp = useRef(new Vector3());
+  const projTmp = useRef(new Vector3());
+  /** Close-up hero (no explicit focus): previous frame's index + isolation weight. */
+  const heroRef = useRef({ index: -1, w: 0 });
   const atomRt = useRef(new Map<string, AtomRuntime>());
   const linkRt = useRef(new Map<string, LinkRuntime>());
   const framesRef = useRef<BatchAtomFrame[]>([]);
@@ -472,7 +478,13 @@ export function RtTopologyContent({
         (d.kind === "hub" ? HUB_SCALE : 1) * (focusNodeId === d.id ? FOCUS_SCALE : 1) * breath;
       f.alert = alertById.current.get(d.id) ?? 0;
       // Focus view: de-emphasise every non-focused atom so the focused one is isolated.
-      f.dim = focusNodeId && focusNodeId !== d.id ? FOCUS_NEIGHBOUR_DIM : 1;
+      const hero = heroRef.current;
+      f.dim =
+        focusNodeId && focusNodeId !== d.id
+          ? FOCUS_NEIGHBOUR_DIM
+          : !focusNodeId && hero.index >= 0 && hero.index !== i
+            ? 1 - (1 - CLOSE_NEIGHBOUR_DIM) * hero.w
+            : 1;
     });
     gpu.atoms.update(frames, {
       dt,
@@ -483,7 +495,42 @@ export function RtTopologyContent({
     });
     gpu.env.follow(camera);
     const tg = cameraState.target;
-    gpu.motes.update(camera, focusTmp.current.set(tg[0], tg[1], tg[2]));
+    const focusPt = focusTmp.current.set(tg[0], tg[1], tg[2]);
+    gpu.motes.update(camera, focusPt);
+    // Depth of field: focus plane at the orbit target; in the focus view the
+    // focused atom's projected disc stays sharp and its neighbours defocus.
+    const fd = camera.position.distanceTo(focusPt);
+    const cam = camera as PerspectiveCamera;
+    const tanHalf = Math.tan(((cam.fov ?? 50) * Math.PI) / 360);
+    const discOf = (fr: BatchAtomFrame) => {
+      const p = projTmp.current.set(fr.position[0], fr.position[1], fr.position[2]);
+      const dist = camera.position.distanceTo(p);
+      p.project(camera);
+      if (p.z >= 1) return null;
+      const r = (CLOUD_BOUND_RADIUS * (fr.scale ?? 1)) / Math.max(1e-3, 2 * dist * tanHalf);
+      return { u: (p.x + 1) / 2, v: (1 - p.y) / 2, r, x: p.x, y: p.y };
+    };
+    let focusDisc: { u: number; v: number; r: number; w: number } | null = null;
+    const fi = focusNodeId ? atomIndex.get(focusNodeId) : undefined;
+    if (fi != null && frames[fi]) {
+      heroRef.current.index = -1;
+      const d0 = discOf(frames[fi]);
+      if (d0) focusDisc = { u: d0.u, v: d0.v, r: d0.r, w: 1 };
+    } else {
+      // Close-up without an explicit focus: the atom nearest the screen centre
+      // becomes the hero once it fills a large part of the view (smooth ramp).
+      let best: (NonNullable<ReturnType<typeof discOf>> & { i: number }) | null = null;
+      for (let i = 0; i < frames.length; i += 1) {
+        const d0 = discOf(frames[i]);
+        if (!d0 || Math.hypot(d0.x, d0.y) > 0.45) continue;
+        if (!best || Math.hypot(d0.x, d0.y) < Math.hypot(best.x, best.y)) best = { ...d0, i };
+      }
+      const w = best ? closeHeroWeight(best.r) : 0;
+      if (best && w > 0) focusDisc = { u: best.u, v: best.v, r: best.r, w };
+      heroRef.current.index = best && w > 0 ? best.i : -1;
+      heroRef.current.w = w;
+    }
+    gpu.post.setFocus(fd, focusDisc);
     gpu.post.pipeline.render();
     if (process.env.NODE_ENV !== "production") {
       const w = window as unknown as { __atomicRtFrames?: number };

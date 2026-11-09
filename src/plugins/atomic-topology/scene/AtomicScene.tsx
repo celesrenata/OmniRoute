@@ -31,10 +31,8 @@
  * pauses the scene (the animation primitives key off `paused`; R3F also
  * throttles hidden tabs), and it resumes on `visible`.
  *
- * **M6 — quality fallback.** The host-resolved quality tier (see
- * `quality.ts`) scales the `gl` antialias + `dpr` budgets via
- * {@link QUALITY_BUDGETS}; the 2D fallback decision itself is unchanged
- * (owned by the host, gated on the WebGL2 capability).
+ * **Fallback.** There are no quality tiers: full retina DPR and AA always. The
+ * 2D fallback decision is owned by the host, gated on the WebGL2 capability.
  *
  * Every position/color/state rendered comes from the pure
  * {@link AtomVisualDescriptor} / {@link LinkVisualDescriptor} computed by the
@@ -103,6 +101,9 @@ function readDevFx(): {
     failRestore: q.get("restore-fail") === "1" && process.env.NODE_ENV !== "production",
   };
 }
+
+/** Fraction of the fit distance the camera keeps from a focused atom (close hero framing). */
+const FOCUS_DISTANCE_FACTOR = 0.38;
 
 /** Full retina: the device pixel ratio, uncapped (no quality tiers). */
 function deviceDpr(): number {
@@ -361,10 +362,25 @@ function CameraRig({ context }: { context: AtomicSceneContextValue }) {
     const focused = focusPosition
       ? computeCameraFocus(focusPosition, { fovDeg: SCENE_FOV_DEG, aspect, radius: fitRadius })
       : null;
-    const fit =
+    let fit =
       focused && isUsableCameraFit(focused)
         ? focused
         : computeCameraFit({ fovDeg: SCENE_FOV_DEG, aspect, radius: fitRadius });
+    if (focused && fit === focused) {
+      // Focus view: fly in along the same viewing direction so the focused atom
+      // fills the frame (idea5 hero framing). Rotation is untouched; the orbit
+      // controls still own zoom (min distance 200) and the container clamp is soft.
+      const k = FOCUS_DISTANCE_FACTOR;
+      const [lx, ly, lz] = fit.lookAt;
+      fit = {
+        ...fit,
+        position: [
+          lx + (fit.position[0] - lx) * k,
+          ly + (fit.position[1] - ly) * k,
+          lz + (fit.position[2] - lz) * k,
+        ],
+      };
+    }
     camera.position.set(fit.position[0], fit.position[1], fit.position[2]);
     camera.lookAt(fit.lookAt[0], fit.lookAt[1], fit.lookAt[2]);
     // eslint-disable-next-line react-hooks/immutability -- the three.js PerspectiveCamera is imperative state: mutation is the R3F contract (React does not render it; frustum planes must track the fit — R3F's default far=1000 would clip the scene blank)

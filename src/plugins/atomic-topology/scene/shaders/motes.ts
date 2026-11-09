@@ -115,16 +115,17 @@ export function createMotes(count = MOTE_COUNT, seed = 0x0b0c3): MoteLayer {
       const dust = exp(rr.mul(rr).mul(-6));
       const shape = mix(dust, disc.mul(rim), smoothstep(0.05, 0.3, cocV));
       // Energy-conserving: big defocused orbs are dimmer per pixel.
+      // (Gate B r5: lifted so floating orbs read at several depths at default zoom.)
       const k = float(1)
-        .div(cocV.mul(9).add(1))
-        .mul(mix(float(1.8), float(1.1), cocV));
+        .div(cocV.mul(4.5).add(1))
+        .mul(mix(float(1.8), float(1.2), cocV));
       const col = select(
         kindV.lessThan(0.45),
         vec3(1.0, 0.52, 0.16),
         select(kindV.lessThan(0.85), vec3(0.15, 0.78, 1.0), vec3(0.95, 0.3, 0.75))
       );
       const sideMask = nearSide ? step(sideV, 0) : step(0, sideV);
-      return vec4(col.mul(shape).mul(k).mul(0.2).mul(sideMask), 1);
+      return vec4(col.mul(shape).mul(k).mul(0.3).mul(sideMask), 1);
     })();
     material.transparent = true;
     material.blending = AdditiveBlending;

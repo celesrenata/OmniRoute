@@ -261,7 +261,7 @@ export function createStrandMaterial(data: AtomData, mirror = false): MeshBasicN
   material.fragmentNode = Fn(() => {
     const prof = exp(sideV.mul(sideV).mul(-1.8));
     const tip = smoothstep(0.3, 0.85, tV);
-    const col0 = mix(U.strandInner, U.rim, tip);
+    const col0 = mix(U.strandInner, U.rim, tip.mul(float(1).sub(U.far.mul(0.4))));
     const col = mix(U.rootColor, col0, smoothstep(0.0, 0.22, tV));
     // Slow per-strand flicker + travelling discharge pulses (brighter when excited).
     const flick = sin(time.mul(flV.mul(0.4).add(2.2)).add(flV.mul(7)))
@@ -294,7 +294,9 @@ export function createStrandMaterial(data: AtomData, mirror = false): MeshBasicN
       .mul(gmV.mul(0.8).add(0.2))
       .mul(tipCap)
       .mul(bri)
-      .mul(U.far.mul(1.2).add(1))
+      // Small on screen: hairlines overlap per pixel and sum to white, so they
+      // thin out with distance and let the violet body carry the read.
+      .mul(float(1).sub(U.far.mul(0.55)))
       .mul(U.strandCrowd)
       .mul(flick.mul(0.55).add(0.45).add(pulse))
       .mul(fade)
@@ -354,7 +356,7 @@ export function createSparkleMaterial(data: AtomData): MeshBasicNodeMaterial {
       .mul(bri)
       .mul(vis)
       .mul(mix(float(5.5), float(16), kindV))
-      .mul(U.far.mul(0.5).add(0.8))
+      .mul(U.far.mul(mix(float(1.1), float(0.5), kindV)).add(0.8))
       .mul(U.sparkleGain);
     return vec4(grade(col, sat).mul(k), 1);
   })();

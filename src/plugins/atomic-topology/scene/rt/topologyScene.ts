@@ -26,6 +26,15 @@ export interface SceneAtomInput {
 export const HUB_SCALE = 1.6;
 /** Focus emphasis (same factor as the legacy renderer's FOCUS_SCALE). */
 export const FOCUS_SCALE = 1.18;
+/**
+ * Close-up isolation weight (no explicit focus): 0 until the atom nearest the
+ * screen centre spans 0.09 of the view height (radius), easing linearly to 1 at
+ * 0.17. Drives the hero DOF and the neighbour dim; the default view stays 0.
+ */
+export function closeHeroWeight(projectedRadius: number): number {
+  if (!Number.isFinite(projectedRadius)) return 0;
+  return Math.min(1, Math.max(0, (projectedRadius - 0.09) / 0.08));
+}
 /** Floor sits this far below the lowest atom centre (the bench's approved seat). */
 export const FLOOR_OFFSET = -66;
 /** Same bow as the legacy EnergyLink (`ARC_FACTOR`). */

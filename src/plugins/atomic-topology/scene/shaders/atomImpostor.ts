@@ -422,7 +422,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       // Inner plume: dense and bright near the nucleus, thinning outward.
       .mul(mix(float(1.9), float(0.55), smoothstep(0.08, 0.7, r)))
       .mul(float(0.5).add(excitation.mul(0.5)))
-      .mul((u.far as any).mul(1.9).mul(crowdK.mul(crowdK)).add(1))
+      .mul((u.far as any).mul(3.2).mul(crowdK.mul(crowdK)).add(1))
       .mul(crowdK.mul(0.5).add(0.5))
       .mul(0.45);
     // Hot core plasma near the nucleus.
@@ -484,8 +484,14 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
         .mul(float(0.12).add(excitation.mul(0.4)));
       const rdIn = refract(rd, ng, float(1 / 1.32));
       const res = traceNucleus(pg, rdIn);
-      surface.assign(reflG.add(rim.mul(0.6)));
-      surfAlpha.assign(saturate(fg.mul(0.8).add(rim.x.mul(0.2))).min(0.5));
+      // Distance-faded glass: at default zoom the plasma reads first, not a glassy orb.
+      const shellK = float(1).sub((u.far as any).mul(0.7));
+      surface.assign(reflG.add(rim.mul(0.6)).mul(shellK));
+      surfAlpha.assign(
+        saturate(fg.mul(0.8).add(rim.x.mul(0.2)))
+          .min(0.5)
+          .mul(shellK)
+      );
       If(res.w.greaterThan(0), () => {
         surface.addAssign(res.xyz.mul(float(1).sub(fg)).mul(brightness.mul(0.5).add(0.2)));
         surfAlpha.assign(1);
@@ -509,7 +515,13 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
         const stepsF = max(ceil(t1.sub(t0).div(cloudR.mul(2)).mul(maxSteps)), 12);
         const dt = t1.sub(t0).div(stepsF);
         const t = t0.add(dt.mul(interleavedGradientNoise(screenCoordinate.xy))).toVar();
-        const emission = brightness.mul(1.5).add(0.22).mul(0.011);
+        // Distance-aware gain: at default zoom the saturated violet body carries
+        // the atom read (filled plasma flower, not a hollow glassy orb).
+        const emission = brightness
+          .mul(1.5)
+          .add(0.22)
+          .mul(0.011)
+          .mul((u.far as any).mul(1.5).add(1));
         Loop(u.steps as any, () => {
           If(t.greaterThan(t1).or(trans.lessThan(0.02)), () => {
             Break();

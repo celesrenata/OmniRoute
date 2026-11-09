@@ -6,6 +6,7 @@ import {
   HUB_SCALE,
   LINK_ARC_FACTOR,
   atomEnergyInput,
+  closeHeroWeight,
   environmentLayoutFor,
   isNeutralAtom,
   linkBaseIntensity,
@@ -102,4 +103,19 @@ test("linkBaseIntensity: active > idle > 0, bounded, error stays visible", () =>
   assert.ok(active > idle && idle > 0);
   assert.ok(linkBaseIntensity("error", 0) > 0);
   assert.ok(Number.isFinite(linkBaseIntensity("idle", Number.NaN)));
+});
+
+test("closeHeroWeight: 0 at default-size atoms, smooth ramp to 1 in close-up", () => {
+  assert.equal(closeHeroWeight(0.05), 0); // default view (40-90 px atoms)
+  assert.equal(closeHeroWeight(0.09), 0);
+  assert.ok(Math.abs(closeHeroWeight(0.13) - 0.5) < 1e-9);
+  assert.equal(closeHeroWeight(0.17), 1);
+  assert.equal(closeHeroWeight(0.5), 1);
+  assert.equal(closeHeroWeight(Number.NaN), 0);
+  let prev = 0;
+  for (let r = 0; r <= 0.3; r += 0.005) {
+    const w = closeHeroWeight(r);
+    assert.ok(w >= prev);
+    prev = w;
+  }
 });
