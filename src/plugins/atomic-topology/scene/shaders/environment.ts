@@ -35,6 +35,10 @@ import {
   step,
   texture,
   uniform,
+  cameraViewMatrix,
+  cameraNear,
+  cameraFar,
+  viewZToPerspectiveDepth,
   vec2,
   vec3,
   vec4,
@@ -317,10 +321,40 @@ export function createEnvironment(
     return vec4(col.mul(0.42), 1);
   });
 
+  const roomDepth = Fn(() => {
+    const ro = cameraPosition;
+    const rd = normalize(positionWorld.sub(cameraPosition));
+    const D = dims as any;
+    const E = dims2 as any;
+    const fy = floorU as any;
+    const big = float(1e9);
+    const tx = select(
+      rd.x.abs().greaterThan(1e-5),
+      select(rd.x.greaterThan(0), D.x.sub(ro.x), D.x.negate().sub(ro.x)).div(rd.x),
+      big
+    );
+    const ty = select(
+      rd.y.abs().greaterThan(1e-5),
+      select(rd.y.greaterThan(0), D.y.sub(ro.y), fy.sub(ro.y)).div(rd.y),
+      big
+    );
+    const tz = select(
+      rd.z.abs().greaterThan(1e-5),
+      select(rd.z.greaterThan(0), E.x.sub(ro.z), D.z.sub(ro.z)).div(rd.z),
+      big
+    );
+    const p = ro.add(rd.mul(min(min(tx, ty), tz).max(0)));
+    const vz = cameraViewMatrix.mul(vec4(p, 1)).z;
+    return viewZToPerspectiveDepth(vz, cameraNear, cameraFar).min(0.999999);
+  });
   const roomMat = new MeshBasicNodeMaterial();
   roomMat.fragmentNode = room();
   roomMat.side = BackSide;
-  roomMat.depthWrite = false;
+  // Viewer-based depth of field (directive 32): the room writes the depth of its
+  // analytic ray-box hit (the sphere it is drawn on is only a carrier), so the
+  // post CoC reads the true camera depth of the floor, walls and ceiling.
+  roomMat.depthNode = roomDepth();
+  roomMat.depthWrite = true;
   roomMat.depthTest = false;
   roomMat.fog = false;
   const roomGeo = new SphereGeometry(ROOM_RADIUS, 32, 16);

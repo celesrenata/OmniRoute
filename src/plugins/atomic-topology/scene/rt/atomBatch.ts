@@ -8,7 +8,17 @@
  * Imports `three` only via `three/webgpu`. No React state; no per-frame
  * allocation (scratch vectors are preallocated, bolt lists are reused arrays).
  */
-import { Group, Matrix3, Matrix4, Quaternion, Vector3, type Camera } from "three/webgpu";
+import {
+  Group,
+  InstancedMesh,
+  Matrix3,
+  Matrix4,
+  MeshBasicNodeMaterial,
+  Quaternion,
+  SphereGeometry,
+  Vector3,
+  type Camera,
+} from "three/webgpu";
 import { fnv1a } from "../cloudShells";
 import { CLOUD_RADIUS_MIN, type EnergyState } from "../energyState";
 import { hexToLinear, packNucleus, type PackedNucleus } from "../nucleonPack";
@@ -325,6 +335,9 @@ export interface AtomBatch {
   dispose: () => void;
 }
 
+/** Depth-only sphere radius vs the cloud radius (the visible plasma body). */
+const DEPTH_SPHERE_K = 0.8;
+
 /** Per-unit-overlap gain divisor: atoms whose discs interpenetrate are subdued (no pink-white stack). */
 const OVERLAP_SUBDUE = 0.7;
 
@@ -366,6 +379,24 @@ export function createAtomBatch(
   flareBack.mesh.name = "flareBack";
   flareFront.mesh.name = "flareFront";
   group.add(...strandField.meshes, wireLayer.mesh, boltLayer.mesh, flareBack.mesh, flareFront.mesh);
+  // Viewer-based depth of field (directive 32): one depth-only sphere per atom (no
+  // colour writes), drawn after every colour layer, so the post CoC reads each
+  // atom's true camera depth instead of the board/wall depth behind it.
+  const depthGeo = new SphereGeometry(1, 20, 14);
+  const depthMat = new MeshBasicNodeMaterial();
+  depthMat.colorWrite = false;
+  depthMat.depthWrite = true;
+  depthMat.depthTest = true;
+  depthMat.transparent = true;
+  const depthMesh = new InstancedMesh(depthGeo, depthMat, cap);
+  depthMesh.name = "atomDepth";
+  depthMesh.frustumCulled = false;
+  depthMesh.renderOrder = 20;
+  depthMesh.count = 0;
+  registry.add(depthGeo);
+  registry.add(depthMat);
+  group.add(depthMesh);
+  const depthMtx = new Matrix4();
 
   // --- CPU state --------------------------------------------------------------
   let states: AtomState[] = [];
@@ -644,6 +675,10 @@ export function createAtomBatch(
       // dense violet flower at default distance (finding: glassy orbs); the
       // overlap divisor is NOT floored, so crowds still never wash out.
       const readS = (dim * Math.max(crowdS, 0.5)) / (1 + OVERLAP_SUBDUE * overlapBuf[row]);
+      const dS = rowVisible ? cr * DEPTH_SPHERE_K : 0;
+      depthMtx.makeScale(dS, dS, dS);
+      depthMtx.setPosition(worldCenter.x, worldCenter.y, worldCenter.z);
+      depthMesh.setMatrixAt(row, depthMtx);
 
       // Decorative differential swirl: rate rises with energy, never encodes
       // throughput; frozen (still-rich frame) under reduced motion.
@@ -852,6 +887,8 @@ export function createAtomBatch(
     if (lodStats) (window as unknown as { __atomicLodStats?: unknown }).__atomicLodStats = lodStats;
     bucketOfRow.length = n;
     strandField.setBuckets(bucketOfRow);
+    depthMesh.count = n;
+    depthMesh.instanceMatrix.needsUpdate = true;
     // Upload only the rows in use (one writeBuffer each), not the whole capacity.
     if (n > 0) {
       data.fieldsNode.clearUpdateRanges();

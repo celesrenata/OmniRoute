@@ -14,7 +14,6 @@ import {
   PerspectiveCamera,
   RenderPipeline,
   Scene,
-  Vector3,
   WebGPURenderer,
 } from "three/webgpu";
 import {
@@ -113,14 +112,13 @@ export interface RtPost {
   pipeline: RenderPipeline;
   setBloom: (on: boolean) => void;
   /**
-   * Depth of field. `focusDist` = camera to orbit-target distance (world units);
-   * `atom` = the focused atom's projected disc (screen UV centre + radius in
-   * viewport-height units, `w` = isolation weight 0..1) or null when nothing is focused.
+   * Depth of field (operator directive 32: viewer-based). `focusDist` is a CAMERA
+   * view-space depth (world units): everything from the camera out to it is sharp;
+   * blur ramps up only beyond it (`dofCoc`). The host eases it on fly-in.
    */
-  setFocus: (
-    focusDist: number,
-    atom: { u: number; v: number; r: number; w?: number } | null
-  ) => void;
+  setFocus: (focusDist: number) => void;
+  /** Dev-only: render the circle of confusion instead of the scene (`?dofdbg=1`). */
+  setDofDebug: (on: boolean) => void;
   dispose: () => void;
 }
 
@@ -133,6 +131,22 @@ const DOF_KERNEL: Array<[number, number]> = Array.from({ length: DOF_TAPS }, (_,
 });
 /** Largest circle of confusion, in viewport-height units. */
 const DOF_MAX_COC = 0.0065;
+/** Blur starts this far beyond the focus depth (x focus) ... */
+export const DOF_SHARP_K = 1.08;
+/** ... and is full at this multiple of the focus depth. */
+export const DOF_FULL_K = 2.4;
+
+/**
+ * Circle of confusion (viewport-height units) for a camera view-space depth: 0 from
+ * the camera out to the focus range (sharp near field), smooth ramp beyond it.
+ * Pure function of camera depth (no world distance to an object, no screen radius).
+ */
+export function dofCoc(depth: number, focusDist: number): number {
+  const a = focusDist * DOF_SHARP_K;
+  const b = focusDist * DOF_FULL_K;
+  const t = Math.min(1, Math.max(0, (depth - a) / (b - a)));
+  return t * t * (3 - 2 * t) * DOF_MAX_COC;
+}
 
 /**
  * HDR post chain shared by the bench and the topology scene: scene pass ->
@@ -157,24 +171,16 @@ export function createRtPost(
   const shifted = rgbShift(sceneColor, caAmount, 0.0);
   const viewZ = scenePass.getViewZNode();
   const focusDist = uniform(1e7); // no DOF until a host calls setFocus (bench look unchanged)
-  const focusAtom = uniform(new Vector3(0.5, 0.5, 0));
-  const focusOn = uniform(0);
+  const dofDebug = uniform(0);
   const aspect = uniform(1);
-  // Cinematic depth of field (idea5): the room behind the topology falls into a
-  // soft bokeh; in the focus view everything outside the focused atom's disc is
-  // defocused so the hero atom is isolated. Atoms do not write depth, so the
-  // neighbour isolation is screen-space around the focused atom's projection.
+  // Cinematic depth of field (idea5), viewer-based (directive 32): the circle of
+  // confusion comes ONLY from the camera view-space depth in the depth buffer (the
+  // room writes its analytic hit depth, every atom a depth-only sphere). Sharp from
+  // the camera out to the focus range, smooth ramp beyond it (same curve as dofCoc).
+  const cocOf = (d: any) =>
+    smoothstep(focusDist.mul(DOF_SHARP_K), focusDist.mul(DOF_FULL_K), d).mul(DOF_MAX_COC);
   const dof = Fn(() => {
-    const d = viewZ.negate();
-    // Background: only the far room (walls/ceiling) beyond the topology, so
-    // atoms drawn over the floor (they write no depth) stay sharp.
-    const bg = smoothstep(focusDist.mul(2.3), focusDist.mul(3.6), d).mul(0.7);
-    const toAtom = screenUV.sub(focusAtom.xy).mul(vec2(aspect, 1));
-    const ring = smoothstep(focusAtom.z.mul(1.25), focusAtom.z.mul(2.3), length(toAtom));
-    // Focus view: the hero atom's disc is fully sharp, everything around it defocuses.
-    const coc = mix(bg, max(bg, ring).mul(ring.mul(0.9).add(0.1)).max(ring), focusOn)
-      .mul(mix(float(1), ring, focusOn))
-      .mul(DOF_MAX_COC);
+    const coc = cocOf(viewZ.negate());
     // Most pixels are in focus: skip the 16-tap gather there (one branch).
     const out = vec3(shifted.rgb).toVar();
     If(coc.greaterThan(DOF_MAX_COC * 0.02), () => {
@@ -208,6 +214,15 @@ export function createRtPost(
     const over = mxc.sub(1).max(0);
     const mapped = select(mxc.greaterThan(1), over.div(over.mul(0.45).add(1)).add(1), mxc);
     const hdr = hdrRaw.mul(mapped.div(mxc));
+    // Dev CoC view: black = sharp, warm = blurred (scaled 0..max), faint scene underlay.
+    const cocV = cocOf(viewZ.negate()).div(DOF_MAX_COC);
+    const dbgCol = mix(vec3(0.0, 0.35, 0.12), vec3(1.0, 0.45, 0.05), cocV).add(
+      vec3(
+        dot(hdrRaw, vec3(0.2126, 0.7152, 0.0722))
+          .min(1)
+          .mul(0.25)
+      )
+    );
     // Filmic split-tone: cool teal in shadows, warm magenta/orange in highlights.
     const luma = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
     const shadowTint = vec3(0.86, 1.0, 1.13);
@@ -220,7 +235,8 @@ export function createRtPost(
     const vig = float(1).sub(smoothstep(0.3, 0.9, v).mul(0.72));
     // Grain (static pattern phase; reduced-motion safe because it is subtle and non-flashing).
     const g = fract(sin(dot(screenCoordinate.xy, vec2(12.9898, 78.233))).mul(43758.5453)).sub(0.5);
-    return vec4(graded.mul(vig).add(g.mul(0.012)), 1);
+    const outCol = graded.mul(vig).add(g.mul(0.012));
+    return vec4(mix(outCol, dbgCol, dofDebug), 1);
   });
   pipeline.outputNode = grade();
 
@@ -230,13 +246,14 @@ export function createRtPost(
     setBloom(on) {
       (bloomOn as unknown as { value: number }).value = on ? 1 : 0;
     },
-    setFocus(dist, atom) {
+    setFocus(dist) {
       (focusDist as unknown as { value: number }).value = Math.max(50, dist);
-      (focusOn as unknown as { value: number }).value = atom ? (atom.w ?? 1) : 0;
-      if (atom) (focusAtom.value as Vector3).set(atom.u, atom.v, atom.r);
       const el = renderer.domElement;
       const a = el && el.clientHeight > 0 ? el.clientWidth / el.clientHeight : 1;
       (aspect as unknown as { value: number }).value = a;
+    },
+    setDofDebug(on) {
+      (dofDebug as unknown as { value: number }).value = on ? 1 : 0;
     },
     dispose() {
       try {

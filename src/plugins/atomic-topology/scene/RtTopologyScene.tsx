@@ -155,6 +155,9 @@ export function RtTopologyContent({
   const alertById = useRef(new Map<string, number>());
   const focusTmp = useRef(new Vector3());
   const projTmp = useRef(new Vector3());
+  const fwdTmp = useRef(new Vector3());
+  /** Eased depth-of-field focus depth (camera view space, world units); 0 = unset. */
+  const focusEase = useRef(0);
   /** Close-up hero (no explicit focus): previous frame's index + isolation weight. */
   const heroRef = useRef({ index: -1, w: 0 });
   const atomRt = useRef(new Map<string, AtomRuntime>());
@@ -192,6 +195,13 @@ export function RtTopologyContent({
     root.traverse((o) => {
       (o as { raycast?: unknown }).raycast = () => {};
     });
+    // Dev-only CoC visualisation (`?dofdbg=1`): proves the blur follows camera depth.
+    if (
+      process.env.NODE_ENV !== "production" &&
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("dofdbg") === "1"
+    )
+      post.setDofDebug(true);
     // Dev-only layer A/B (`?hideLayers=strands,wires,...` by mesh name); never in production.
     const hideLayers =
       process.env.NODE_ENV !== "production" && typeof window !== "undefined"
@@ -559,7 +569,33 @@ export function RtTopologyContent({
       heroRef.current.index = best && w > 0 ? best.i : -1;
       heroRef.current.w = w;
     }
-    gpu.post.setFocus(fd, focusDisc);
+    // Viewer-based depth of field (directive 32): the focus is a CAMERA depth. Default
+    // view: just past the orbit target, so the near half through the middle of the
+    // topology is sharp and only the far side, board and walls soften. Focus view /
+    // close hero: the focused atom's far edge depth. Eased on fly-in.
+    const fwd = camera.getWorldDirection(fwdTmp.current);
+    const depthAt = (x: number, y: number, z: number) =>
+      (x - camera.position.x) * fwd.x +
+      (y - camera.position.y) * fwd.y +
+      (z - camera.position.z) * fwd.z;
+    let focusDepth = depthAt(focusPt.x, focusPt.y, focusPt.z);
+    const heroI = fi != null && frames[fi] ? fi : heroRef.current.index;
+    const heroW = fi != null && frames[fi] ? 1 : heroRef.current.w;
+    if (heroI >= 0 && frames[heroI] && heroW > 0) {
+      const hf = frames[heroI];
+      const hd =
+        depthAt(hf.position[0], hf.position[1], hf.position[2]) +
+        CLOUD_BOUND_RADIUS * (hf.scale ?? 1);
+      focusDepth += (hd - focusDepth) * Math.min(1, heroW);
+    }
+    void fd;
+    void focusDisc;
+    const ease =
+      reduced || !(focusEase.current > 0)
+        ? 1
+        : 1 - Math.exp(-Math.min(Math.max(delta, 0), 0.25) * 5);
+    focusEase.current += (Math.max(50, focusDepth) - focusEase.current) * ease;
+    gpu.post.setFocus(focusEase.current);
     gpu.post.pipeline.render();
     if (process.env.NODE_ENV !== "production") {
       const w = window as unknown as { __atomicRtFrames?: number };
