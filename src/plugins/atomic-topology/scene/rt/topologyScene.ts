@@ -102,7 +102,8 @@ export function environmentLayoutFor(
         hub: a.kind === "hub",
       };
     });
-  const scale = Math.max(1, maxR / 420);
+  // Board artwork is drawn at true size (scaled to the atoms), never stretched with the layout.
+  const scale = 1;
   // Snug container (directive 24): walls frame the topology. Every pose the
   // unchanged camera can take WITHOUT user input must lie in the free zone of
   // the soft containment (directive 25: it never fights focus): the default fit

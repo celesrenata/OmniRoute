@@ -1,23 +1,28 @@
 /**
- * Solid circuit-board surface (TSL) for the enclosed topology container
- * (operator directive 14): dense copper trace busses with flowing light
- * embers, vias and pads, ICs with pin rows, capacitors, inductors/coils,
- * transformers and connectors, in idea5's dark navy palette with cyan and warm
- * orange accents.
+ * Circuit-board surface (TSL) for the enclosed topology container (operator
+ * directives 14 + 23): FINE, CRISP, analytically anti-aliased PCB artwork whose
+ * feature sizes are scaled to the atoms (a trace is ~1.4 units wide next to a
+ * ~100 unit atom): 0/45/90/135 degree routed trace buses on a navy soldermask,
+ * exposed copper pads and vias with drill holes, a ground-pour hatch, silkscreen
+ * outlines and reference ticks. The 3D components (chokes, resistors, cans,
+ * ICs, ...) are real instanced geometry in `boardParts.ts`; this shader only
+ * paints the board beneath them.
  *
- * Pure function of the surface coordinate (u, v in world units), the view
- * distance and a time uniform: no CPU work per frame. Embers are DECORATIVE
- * ambience (seeded, deterministic) and never encode telemetry. Magnetic /
- * high-voltage parts (inductors, transformers, large caps) get an extremely
- * faint static shimmer (a hint only; far below any link discharge).
+ * Every line is a signed-distance edge widened by the screen-space pixel
+ * footprint (`fwidth`) so it stays crisp at any zoom and fades smoothly to its
+ * average colour once it is sub-pixel (no moire, no streaks). Light "embers"
+ * flow along the traces (decorative, seeded, static when `life` is 0). Nothing
+ * here encodes telemetry.
  */
 import {
   Fn,
   abs,
+  clamp,
   exp,
   float,
   floor,
   fract,
+  fwidth,
   length,
   max,
   mix,
@@ -30,180 +35,128 @@ import {
 
 const h21 = (p: any) => fract(sin(p.dot(vec2(127.1, 311.7))).mul(43758.5453));
 
-/** Distance (signed) to an axis-aligned box of half size `hs` centred at the origin. */
-const sdBox = (q: any, hs: any) => {
-  const d = abs(q).sub(hs);
-  return max(d.x, d.y)
-    .min(0)
-    .add(length(max(d, vec2(0, 0))));
+/** Coverage of a line of half-width `hw` at signed distance `d`, widened by pixel footprint `pw`. */
+const aaLine = (d: any, hw: any, pw: any) => {
+  // Full coverage inside the line, linear edge across one pixel; a sub-pixel
+  // line keeps only its area (hw*2/pw) so it dims instead of aliasing.
+  const edge = smoothstep(hw.add(pw.mul(0.75)), hw.sub(pw.mul(0.75)).max(0), d);
+  const area = clamp(hw.mul(2).div(pw.max(1e-5)), 0, 1);
+  return edge.mul(mix(area, float(1), smoothstep(0.0, 1.0, hw.div(pw.max(1e-5)).sub(0.5))));
 };
 
 /**
  * @param u,v     surface coordinates (world units / pattern scale)
- * @param dist    view distance (blur / LOD)
- * @param tm      time (seconds; 0 under reduced motion -> embers and static off)
+ * @param dist    view distance (only used for the coarse fog; detail is AA'd by fwidth)
+ * @param tm      time (seconds; ignored when `life` is 0)
  * @param seed    per-face seed so faces do not tile identically
- * @param life    1 = animated embers/static, 0 = static board (reduced motion)
+ * @param life    1 = animated embers, 0 = static board (reduced motion)
  */
 export const pcbBoard = Fn(([u, v, dist, tm, seed, life]: [any, any, any, any, any, any]) => {
-  const blur = float(1).add(dist.mul(0.0035));
   const p = vec2(u, v);
-  const col = vec3(0.012, 0.026, 0.062).toVar();
+  const pw = max(fwidth(u), fwidth(v)).mul(1.0).add(1e-4);
+  const col = vec3(0.012, 0.024, 0.052).toVar();
 
-  // --- substrate: soldermask sheen + faint copper hatch -------------------------
-  const sheen = h21(floor(p.div(7)).add(seed)).mul(0.012);
-  col.addAssign(vec3(0.01, 0.025, 0.05).mul(sheen.mul(20)));
+  // --- soldermask sheen: very low frequency, gives the surface a satin gradient ----
+  const sheen = h21(floor(p.div(96)).add(seed))
+    .mul(0.5)
+    .add(h21(floor(p.div(23)).add(seed.mul(1.9))).mul(0.5));
+  col.addAssign(vec3(0.006, 0.014, 0.03).mul(sheen));
 
-  // --- trace busses ---------------------------------------------------------------
-  // Orientation per 256-block, lanes per 64-cell: parallel busses of 4 lanes.
-  const blk = floor(p.div(256));
-  const orient = step(0.5, h21(blk.add(seed.mul(3.1))));
-  const cell = floor(p.div(64));
-  const cf = fract(p.div(64)).mul(64);
-  const across = mix(cf.x, cf.y, orient);
-  const alongAbs = mix(p.y, p.x, orient);
-  const lane = floor(across.div(10));
-  const laneH = h21(vec2(lane, cell.x.mul(7.3).add(cell.y).add(seed)));
-  const dLane = abs(fract(across.div(10)).sub(0.5)).mul(10);
-  const on = step(0.3, laneH);
-  const trace = on.mul(exp(dLane.negate().div(blur.mul(1.1))));
-  const glowT = on.mul(exp(dLane.negate().div(blur.mul(4.5)))).mul(0.05);
-  const accent = step(0.9, h21(vec2(lane.add(blk.x.mul(5.1)), blk.y.add(seed))));
-  const traceCol = mix(vec3(0.05, 0.5, 0.78), vec3(1.0, 0.46, 0.12), accent);
-  col.addAssign(traceCol.mul(trace.mul(0.42).add(glowT)));
+  // --- 96-unit routing cells: one bus orientation per cell ----------------------
+  const CELL = 96;
+  const cell = floor(p.div(CELL));
+  const cf = fract(p.div(CELL)).mul(CELL);
+  const ch = h21(cell.add(seed.mul(3.1)));
+  const mode = floor(ch.mul(6)); // 0 horiz, 1 vert, 2 diag45, 3 diag135, 4 ground pour, 5 via field
+  const isMode = (k: number) => step(0.5, float(1).sub(abs(mode.sub(k)).min(1)));
+  const isH = isMode(0);
+  const isV = isMode(1);
+  const isD1 = isMode(2);
+  const isD2 = isMode(3);
+  const isBus = isH.add(isV).add(isD1).add(isD2);
+  // Across / along coordinates in the bus frame (45 degree buses rotate the frame).
+  const r45 = vec2(cf.x.add(cf.y), cf.y.sub(cf.x)).mul(0.70710678);
+  const across = isH.mul(cf.y).add(isV.mul(cf.x)).add(isD1.mul(r45.y)).add(isD2.mul(r45.x));
+  const along = isH.mul(cf.x).add(isV.mul(cf.y)).add(isD1.mul(r45.x)).add(isD2.mul(r45.y));
+  // Four parallel lanes, 3.4 pitch, 1.4 wide, centred (with a seeded offset) in the cell.
+  const off = h21(cell.add(9.1)).sub(0.5).mul(40);
+  const centre = isH
+    .add(isV)
+    .mul(CELL / 2)
+    .add(isD2.mul(CELL * 0.70710678))
+    .add(off);
+  const laneF = across.sub(centre).add(float(2 * 3.4));
+  const lane = floor(laneF.div(3.4));
+  const laneD = abs(fract(laneF.div(3.4)).sub(0.5)).mul(3.4);
+  const inBand = step(0.0, lane).mul(step(lane, float(3)));
+  const laneH = h21(vec2(lane, cell.x.mul(7.3).add(cell.y.mul(3.7)).add(seed)));
+  const laneOn = inBand.mul(step(0.18, laneH)).mul(isBus);
+  const accent = step(0.86, h21(vec2(lane.add(cell.x.mul(5.1)), cell.y.add(seed))));
+  const traceCov = aaLine(laneD, float(0.7), pw).mul(laneOn);
+  const traceCol = mix(vec3(0.05, 0.42, 0.62), vec3(0.95, 0.5, 0.14), accent);
+  // Mask over trace shows a faint raised edge: thin brighter rim, darker core.
+  const rim = aaLine(laneD.sub(0.55).abs(), float(0.16), pw).mul(laneOn).mul(0.5);
+  col.addAssign(traceCol.mul(traceCov.mul(0.8)).add(vec3(0.1, 0.5, 0.7).mul(rim).mul(0.5)));
 
-  // Embers: light packets flowing along each lane (varied speed / direction / density).
-  const period = float(70).add(laneH.mul(90));
-  const spd = float(0.25)
-    .add(laneH.mul(0.9))
-    .mul(
-      step(0.5, h21(vec2(lane, blk.x.add(blk.y))))
-        .mul(2)
-        .sub(1)
-    );
-  const q = fract(alongAbs.div(period).sub(tm.mul(spd).mul(life)).add(laneH.mul(9)));
-  const ember = exp(q.mul(-26)).mul(smoothstep(0.0, 0.012, q));
-  const emberOn = step(0.5, h21(vec2(lane.add(3.3), cell.x.add(cell.y.mul(1.7)))));
+  // Embers: light packets flowing along each lane (seeded speed / direction / spacing).
+  const period = float(34).add(laneH.mul(46));
+  const dirS = step(0.5, h21(vec2(lane.add(2.2), cell.x.add(cell.y))))
+    .mul(2)
+    .sub(1);
+  const spd = float(7).add(laneH.mul(20)).mul(dirS);
+  const q = fract(along.div(period).sub(tm.mul(spd).div(period).mul(life)).add(laneH.mul(9)));
+  const ember = exp(q.mul(-20)).mul(smoothstep(0.0, 0.01, q));
+  const emberOn = step(0.45, h21(vec2(lane.add(3.3), cell.x.add(cell.y.mul(1.7)))));
   col.addAssign(
-    mix(vec3(0.35, 0.95, 1.0), vec3(1.0, 0.6, 0.22), accent)
-      .mul(ember.mul(trace).mul(emberOn).mul(3.0))
-      .mul(float(0.35).add(life.mul(0.65)))
-  );
-
-  // --- vias / pads at cell centres ------------------------------------------------
-  const pc = cf.sub(32);
-  const padH = h21(cell.add(seed.mul(1.7)));
-  const pr = length(pc);
-  const pad = step(0.72, padH).mul(smoothstep(6.5, 5.0, pr.div(blur.mul(0.7).add(0.3))));
-  const hole = smoothstep(2.4, 1.6, pr);
-  col.addAssign(vec3(0.5, 0.38, 0.18).mul(pad.mul(0.55)).mul(float(1).sub(hole)));
-  col.addAssign(vec3(0.0, 0.0, 0.0).mul(hole));
-
-  // --- components on a 192 grid ---------------------------------------------------
-  const cc = floor(p.div(192));
-  const cq = fract(p.div(192)).mul(192).sub(96);
-  const ch = h21(cc.add(seed.mul(2.3)));
-  const ct = h21(cc.add(19.7).add(seed));
-  const present = step(0.42, ch);
-  // 0 IC, 1 capacitor, 2 inductor, 3 transformer, 4 connector
-  const isIC = step(ct, 0.38);
-  const isCap = step(0.38, ct).mul(step(ct, 0.55));
-  const isInd = step(0.55, ct).mul(step(ct, 0.72));
-  const isTr = step(0.72, ct).mul(step(ct, 0.84));
-  const isCon = step(0.84, ct);
-  // Bodies
-  const dIC = sdBox(cq, vec2(46, 34));
-  const dCon = sdBox(cq, vec2(80, 12));
-  const dTr = sdBox(cq, vec2(44, 32));
-  const dCap = length(cq).sub(22);
-  const dInd = length(cq).sub(34);
-  const body = float(0).toVar();
-  body.addAssign(isIC.mul(smoothstep(1.2, -1.2, dIC)));
-  body.addAssign(isCon.mul(smoothstep(1.2, -1.2, dCon)));
-  body.addAssign(isTr.mul(smoothstep(1.2, -1.2, dTr)));
-  body.addAssign(isCap.mul(smoothstep(1.2, -1.2, dCap)));
-  body.addAssign(isInd.mul(smoothstep(1.2, -1.2, dInd)));
-  const bodyM = body.mul(present).clamp(0, 1);
-  const bodyCol = mix(vec3(0.016, 0.022, 0.045), vec3(0.035, 0.045, 0.08), h21(cc.add(4.4)));
-  col.assign(mix(col, bodyCol, bodyM));
-  // Edge bevel highlight.
-  const dAny = isIC
-    .mul(dIC)
-    .add(isCon.mul(dCon))
-    .add(isTr.mul(dTr))
-    .add(isCap.mul(dCap))
-    .add(isInd.mul(dInd));
-  const edge = exp(abs(dAny).negate().div(blur.mul(1.3))).mul(present);
-  col.addAssign(vec3(0.08, 0.45, 0.7).mul(edge.mul(0.55)));
-  // IC pins: light dashes along the long sides + pin-1 notch + marking glow.
-  const pinPitch = float(10);
-  const pinF = abs(fract(cq.x.div(pinPitch)).sub(0.5)).mul(pinPitch);
-  const pinBand = step(abs(abs(cq.y).sub(38)), 4.5).mul(step(abs(cq.x), 44));
-  const pin = isIC
-    .mul(pinBand)
-    .mul(smoothstep(2.6, 1.6, pinF))
-    .mul(present);
-  col.addAssign(vec3(0.55, 0.42, 0.2).mul(pin).mul(0.7));
-  const mark = isIC
-    .mul(step(abs(cq.y.add(6)), 1.4))
-    .mul(step(abs(cq.x), 24))
-    .mul(step(0.5, fract(cq.x.mul(0.11).add(ch.mul(8)))))
-    .mul(present);
-  col.addAssign(vec3(0.2, 0.7, 0.95).mul(mark).mul(0.35));
-  // Connector pins.
-  const conPin = isCon
-    .mul(step(abs(cq.y), 6))
-    .mul(smoothstep(2.4, 1.4, abs(fract(cq.x.div(8)).sub(0.5)).mul(8)))
-    .mul(step(abs(cq.x), 74))
-    .mul(present);
-  col.addAssign(vec3(0.9, 0.7, 0.3).mul(conPin).mul(0.5));
-  // Capacitor: concentric ring + polarity stripe.
-  const capRing = isCap.mul(exp(abs(dCap.add(8)).negate().div(blur.mul(1.2)))).mul(present);
-  col.addAssign(vec3(0.7, 0.55, 0.25).mul(capRing).mul(0.35));
-  // Inductor: spiral coil rings.
-  const coil = isInd
-    .mul(smoothstep(1.0, -1.0, dInd.add(3)))
-    .mul(exp(abs(fract(length(cq).div(5.5)).sub(0.5)).mul(-14)))
-    .mul(present);
-  col.addAssign(vec3(0.9, 0.5, 0.18).mul(coil).mul(0.45));
-  // Transformer: two winding discs.
-  const w1 = length(cq.sub(vec2(-18, 0))).sub(16);
-  const w2 = length(cq.sub(vec2(18, 0))).sub(16);
-  const wind = isTr
-    .mul(
-      exp(abs(fract(length(cq.sub(vec2(-18, 0))).div(4.5)).sub(0.5)).mul(-12))
-        .mul(smoothstep(1.0, -1.0, w1))
-        .add(
-          exp(abs(fract(length(cq.sub(vec2(18, 0))).div(4.5)).sub(0.5)).mul(-12)).mul(
-            smoothstep(1.0, -1.0, w2)
-          )
-        )
-    )
-    .mul(present);
-  col.addAssign(vec3(0.2, 0.65, 0.95).mul(wind).mul(0.4));
-
-  // --- magnetic / high-voltage static: a faint hint (never an event effect) -------
-  const hv = present.mul(
-    isInd
-      .add(isTr)
-      .add(isCap.mul(step(0.5, ch.mul(2).fract())))
-      .clamp(0, 1)
-  );
-  const halo = exp(max(dAny, float(0)).negate().div(blur.mul(14)));
-  const stat = h21(
-    floor(p.mul(0.45))
-      .add(floor(tm.mul(11)).mul(life))
-      .add(seed)
-  );
-  const flick = step(0.82, stat).mul(float(0.5).add(sin(tm.mul(37).add(ch.mul(40))).mul(0.5)));
-  col.addAssign(
-    vec3(0.45, 0.7, 1.0)
-      .mul(hv)
-      .mul(halo)
-      .mul(flick)
-      .mul(0.045)
+    mix(vec3(0.3, 0.95, 1.0), vec3(1.0, 0.62, 0.22), accent)
+      .mul(ember.mul(traceCov).mul(emberOn).mul(2.2))
       .mul(float(0.3).add(life.mul(0.7)))
   );
-  // Soft, distance-faded fine detail so the far field stays solid, not noisy.
-  return col.mul(float(0.55).add(float(0.45).div(blur)));
+
+  // --- ground pour hatch (45 degrees, 2.6 pitch) in pour cells ----------------------
+  const isPour = isMode(4);
+  const hatch = aaLine(abs(fract(r45.x.div(2.6)).sub(0.5)).mul(2.6), float(0.22), pw).mul(isPour);
+  col.addAssign(vec3(0.03, 0.12, 0.2).mul(hatch).mul(0.55));
+
+  // --- vias + pads on a 12-unit lattice (gold ring, drilled hole) -------------------
+  const VG = 12;
+  const vcell = floor(p.div(VG));
+  const vc = fract(p.div(VG))
+    .mul(VG)
+    .sub(VG / 2);
+  const vh = h21(vcell.add(seed.mul(2.7)));
+  const viaOn = step(0.9, vh).add(
+    step(0.5, vh)
+      .mul(step(vh, 0.58))
+      .mul(isPour.add(isMode(5)))
+  );
+  const vr = length(vc);
+  const padCov = aaLine(vr.sub(1.9), float(1.0), pw).mul(viaOn.min(1));
+  const holeCov = aaLine(vr, float(0.55), pw).mul(viaOn.min(1));
+  col.assign(mix(col, vec3(0.5, 0.36, 0.14).mul(0.9), padCov.mul(0.85)));
+  col.assign(mix(col, vec3(0.004, 0.006, 0.012), holeCov));
+
+  // --- silkscreen: component outline boxes + dashed rules + ticks -------------------
+  const sc = floor(p.div(96));
+  const sf = fract(p.div(96)).mul(96);
+  const sh = h21(sc.add(seed.mul(5.3)));
+  const boxOn = step(0.7, sh);
+  const bc = vec2(h21(sc.add(1.1)).mul(40).add(14), h21(sc.add(2.2)).mul(40).add(14));
+  const bs = vec2(h21(sc.add(3.3)).mul(18).add(8), h21(sc.add(4.4)).mul(14).add(6));
+  const bd = abs(sf.sub(bc)).sub(bs);
+  const sdBox = max(bd.x, bd.y);
+  const outline = aaLine(abs(sdBox), float(0.28), pw).mul(boxOn);
+  const tick = aaLine(abs(fract(sf.x.div(3.2)).sub(0.5)).mul(3.2), float(0.25), pw)
+    .mul(step(abs(sf.y.sub(bc.y.sub(bs.y).sub(3))), 1.0))
+    .mul(boxOn)
+    .mul(step(abs(sf.x.sub(bc.x)), bs.x));
+  col.addAssign(
+    vec3(0.5, 0.62, 0.75)
+      .mul(outline.add(tick.mul(0.8)))
+      .mul(0.16)
+  );
+
+  // Crisp detail fades to its mean colour with distance (and sub-pixel size) via aaLine's
+  // area term; the extra gentle atmospheric falloff keeps the far wall calm.
+  return col.mul(exp(dist.mul(-0.00012)).mul(0.5).add(0.5));
 });

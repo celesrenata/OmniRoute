@@ -30,7 +30,9 @@ import {
   pow,
   saturate,
   select,
+  sin,
   smoothstep,
+  texture,
   uniform,
   vec2,
   vec3,
@@ -52,6 +54,7 @@ import {
 } from "three/webgpu";
 import { floorY as sharedFloorY } from "../rt/sharedUniforms";
 import { pcbBoard } from "./pcbBoard";
+import { createBoardParts } from "./boardParts";
 
 /** Bench floor height (world units); the topology host derives its own from layout bounds. */
 export const FLOOR_Y = -66;
@@ -103,6 +106,10 @@ export function createEnvironment(
   const dims2 = uniform(new Vector4(NEAR_Z, 1, 0, 0));
   const floorU = sharedFloorY;
   const disposables: { dispose: () => void }[] = [];
+  const boardParts = createBoardParts();
+  disposables.push(boardParts);
+  // Floor haze field (magnetic / high-voltage parts): world rect + R8 texture.
+  const hazeRect = uniform(new Vector4(...boardParts.haze.rect.value));
 
   // --- solid circuit-board container (ray-box from the camera) ------------------
   const room = Fn(() => {
@@ -137,9 +144,20 @@ export function createEnvironment(
     const dd = tHit.div(sc);
     If(hitY, () => {
       const isFloor = rd.y.lessThan(0);
+      // Magnetic / high-voltage haze (floor only): a barely-visible refraction of the
+      // board behind those parts plus the faintest cool glow. Off when life is 0.
+      const HR = hazeRect as any;
+      const huv = vec2(p.x.sub(HR.x).div(HR.z), p.z.sub(HR.y).div(HR.w));
+      const hz = texture(boardParts.haze.texture, huv)
+        .r.mul(select(isFloor, float(1), float(0)))
+        .mul(life);
+      const warp = vec2(
+        sin(p.z.mul(0.31).add(time.mul(1.7))).add(sin(p.x.mul(0.57).sub(time.mul(1.1)))),
+        cos(p.x.mul(0.27).sub(time.mul(1.3))).add(sin(p.z.mul(0.49).add(time.mul(0.9))))
+      ).mul(hz.mul(1.6));
       const b = pcbBoard(
-        p.x.div(sc),
-        p.z.div(sc),
+        p.x.add(warp.x).div(sc),
+        p.z.add(warp.y).div(sc),
         dd,
         time,
         select(isFloor, float(1), float(2)),
@@ -147,7 +165,10 @@ export function createEnvironment(
       );
       // Floor: glossy solder-mask sheen at grazing angles; ceiling: dimmer.
       const gl = pow(float(1).sub(abs(rd.y)), 3);
-      col.assign(select(isFloor, b.add(vec3(0.05, 0.2, 0.35).mul(gl).mul(0.28)), b.mul(0.55)));
+      const floorC = b
+        .add(vec3(0.05, 0.2, 0.35).mul(gl).mul(0.28))
+        .add(vec3(0.05, 0.16, 0.3).mul(hz.mul(hz)).mul(0.1));
+      col.assign(select(isFloor, floorC, b.mul(0.9)));
     });
     If(hitX, () => {
       col.assign(
@@ -158,7 +179,7 @@ export function createEnvironment(
           time,
           float(3).add(rd.x.greaterThan(0).select(1, 0)),
           life
-        ).mul(0.8)
+        ).mul(1.5)
       );
     });
     If(tz.lessThan(min(tx, ty)), () => {
@@ -170,13 +191,13 @@ export function createEnvironment(
           time,
           float(5).add(rd.z.greaterThan(0).select(1, 0)),
           life
-        ).mul(0.85)
+        ).mul(1.5)
       );
     });
     // Aerial perspective: cool navy toward distance, so the box reads as a space.
     const fogK = exp(dd.mul(-0.0002));
     col.assign(mix(vec3(0.01, 0.022, 0.06), col, fogK));
-    return vec4(col.mul(0.36), 1);
+    return vec4(col.mul(0.5), 1);
   });
 
   const roomMat = new MeshBasicNodeMaterial();
@@ -326,6 +347,18 @@ export function createEnvironment(
     const fy = l.floorY ?? FLOOR_Y;
     (floorU as { value: number }).value = fy;
     const peds = l.pedestals.slice(0, MAX_PEDESTALS);
+    // Real 3D board components: deterministic placement around the atom pads.
+    boardParts.setLayout(
+      {
+        wallX: l.wallX ?? WALL_X,
+        ceilY: l.ceilY ?? CEIL_Y,
+        nearZ: l.nearZ ?? NEAR_Z,
+        farZ: l.farZ ?? FAR_Z,
+        floorY: fy,
+      },
+      peds.map((q) => ({ x: q.x, z: q.z, r: 62 * (q.scale ?? 1) }))
+    );
+    (hazeRect.value as Vector4).set(...boardParts.haze.rect.value);
     for (const part of parts) {
       let n = 0;
       for (const ped of peds) {
@@ -345,10 +378,11 @@ export function createEnvironment(
     Array.isArray(layoutIn) ? { pedestals: layoutIn.map(([x, z]) => ({ x, z })) } : layoutIn
   );
   return {
-    objects: [roomMesh, ...parts.map((p) => p.mesh)],
+    objects: [roomMesh, ...boardParts.objects, ...parts.map((p) => p.mesh)],
     time,
     setLife: (life: number) => {
       (dims2.value as Vector4).y = life;
+      boardParts.setLife(life);
     },
     setLayout,
     follow(camera) {
