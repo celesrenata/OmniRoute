@@ -101,7 +101,7 @@ export const pcbBoard = Fn(
     const isNeonO = step(0.86, kindH);
     const isNeonC = step(0.55, kindH).mul(float(1).sub(isNeonO));
     const isCu = float(1).sub(isNeonO).sub(isNeonC);
-    const hw = float(0.95);
+    const hw = float(1.15);
     const traceCov = aaLine(laneD, hw, pw).mul(laneOn).mul(detail);
     // Copper: raised bevelled trace, light from the upper-left -> bright lit edge,
     // dark far edge, narrow specular streak, warm copper albedo.
@@ -113,9 +113,9 @@ export const pcbBoard = Fn(
       .add(vec3(1.0, 0.82, 0.6).mul(spec).mul(0.65));
     // Neon channels: bright core + soft halo (HDR, feeds bloom).
     const neonCore = aaLine(laneD, float(0.42), pw);
-    const neonHalo = aaLine(laneD, float(1.9), pw).mul(0.28);
-    const neonC = vec3(0.1, 0.85, 1.0).mul(neonCore.mul(0.9).add(neonHalo));
-    const neonO = vec3(1.0, 0.5, 0.12).mul(neonCore.mul(0.9).add(neonHalo));
+    const neonHalo = aaLine(laneD, float(2.2), pw).mul(0.5);
+    const neonC = vec3(0.1, 0.85, 1.0).mul(neonCore.mul(1.7).add(neonHalo));
+    const neonO = vec3(1.0, 0.5, 0.12).mul(neonCore.mul(1.7).add(neonHalo));
     const traceRgb = copper.mul(isCu).add(neonC.mul(isNeonC)).add(neonO.mul(isNeonO));
     col.assign(mix(col, traceRgb, traceCov.mul(isCu).mul(0.95)));
     col.addAssign(neonC.mul(isNeonC).add(neonO.mul(isNeonO)).mul(laneOn).mul(detail));
