@@ -56,6 +56,7 @@ import type { PerspectiveCamera } from "three";
 import type { AtomicSceneProps } from "../AtomicTopologyRenderer";
 import { computeCameraFit, computeCameraFocus, isUsableCameraFit } from "../cameraFit";
 import { resolveRenderDpr } from "../quality";
+import { detailGoalDistance, flightOffset, flightProgress, DETAIL_FLIGHT_MS } from "./detailFlight";
 
 import { SceneOrbitControls } from "./SceneOrbitControls";
 import { ContextGuard } from "./ContextGuard";
@@ -213,6 +214,7 @@ function RtAtomicScene({
           <VisibilityGate />
           <CameraRig context={context} />
           <CameraStateWriter context={context} />
+          <DetailFlight context={context} />
           <SceneOrbitControls />
           <RtTopologyContent
             descriptors={descriptors}
@@ -357,6 +359,9 @@ function CameraRig({ context }: { context: AtomicSceneContextValue }) {
   const aspect = context.cameraAspect;
   const fitRadius = context.fitRadius;
   const resetToken = context.resetToken;
+  // Opt-in detail view (Step 11): `DetailFlight` owns the camera position while
+  // the viewer is inspecting an atom, so this rig must not snap it.
+  const detailActive = Boolean(context.detailAtomId) && focusPosition != null;
 
   useEffect(() => {
     const focused = focusPosition
@@ -381,14 +386,16 @@ function CameraRig({ context }: { context: AtomicSceneContextValue }) {
         ],
       };
     }
-    camera.position.set(fit.position[0], fit.position[1], fit.position[2]);
-    camera.lookAt(fit.lookAt[0], fit.lookAt[1], fit.lookAt[2]);
+    if (!detailActive) {
+      camera.position.set(fit.position[0], fit.position[1], fit.position[2]);
+      camera.lookAt(fit.lookAt[0], fit.lookAt[1], fit.lookAt[2]);
+    }
     // eslint-disable-next-line react-hooks/immutability -- the three.js PerspectiveCamera is imperative state: mutation is the R3F contract (React does not render it; frustum planes must track the fit — R3F's default far=1000 would clip the scene blank)
     camera.fov = SCENE_FOV_DEG;
     camera.near = fit.near;
     camera.far = fit.far;
     camera.updateProjectionMatrix();
-  }, [camera, focusPosition, aspect, fitRadius, resetToken]);
+  }, [camera, focusPosition, aspect, fitRadius, resetToken, detailActive]);
 
   return null;
 }
@@ -429,6 +436,85 @@ function CameraStateWriter({ context }: { context: AtomicSceneContextValue }) {
     s.viewportWidth = gl.domElement ? gl.domElement.clientWidth : size.width;
     s.viewportHeight = gl.domElement ? gl.domElement.clientHeight : size.height;
     s.valid = true;
+  });
+
+  return null;
+}
+
+/**
+ * Opt-in detail view camera fly-in (Step 11). Active only while
+ * `context.detailAtomId` is set and the atom has a focus target. It eases the
+ * camera toward the inspected atom (pure pose math in `detailFlight.ts`) and
+ * releases control to the unchanged orbit controls when the flight ends or the
+ * viewer grabs the canvas (pointer / wheel). Mounted before
+ * `<SceneOrbitControls />` so its pose is what the controls' `update()` keeps.
+ * The default view never mounts any of this work: with no detail atom the
+ * component is inert.
+ */
+function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
+  const camera = useThree((state) => state.camera) as PerspectiveCamera;
+  const gl = useThree((state) => state.gl);
+  const detailId = context.detailAtomId ?? null;
+  // The descriptors (and so `focusTarget`) are rebuilt on every snapshot; keep
+  // the latest values in a ref so a telemetry refresh never restarts the flight.
+  const live = useRef(context);
+  useEffect(() => {
+    live.current = context;
+  });
+  const flight = useRef<{
+    active: boolean;
+    elapsedMs: number;
+    o0: [number, number, number] | null;
+    goal: number;
+  }>({ active: false, elapsedMs: 0, o0: null, goal: 0 });
+
+  useEffect(() => {
+    const f = flight.current;
+    if (!detailId) {
+      f.active = false;
+      f.o0 = null;
+      return;
+    }
+    const c = live.current;
+    const fit = computeCameraFit({
+      fovDeg: SCENE_FOV_DEG,
+      aspect: c.cameraAspect,
+      radius: c.fitRadius,
+    });
+    f.goal = detailGoalDistance(Math.hypot(fit.position[0], fit.position[1], fit.position[2]));
+    f.elapsedMs = 0;
+    f.o0 = null; // captured on the first frame, from the live camera
+    f.active = true;
+    const dom = gl.domElement;
+    const stop = (): void => {
+      f.active = false;
+    };
+    dom?.addEventListener("pointerdown", stop);
+    dom?.addEventListener("wheel", stop, { passive: true });
+    return () => {
+      dom?.removeEventListener("pointerdown", stop);
+      dom?.removeEventListener("wheel", stop);
+      f.active = false;
+    };
+  }, [detailId, gl]);
+
+  useFrame((_s, delta) => {
+    const f = flight.current;
+    const c = live.current;
+    const target = c.focusTarget;
+    if (!f.active || !target) return;
+    if (!f.o0) {
+      f.o0 = [
+        camera.position.x - target.x,
+        camera.position.y - target.y,
+        camera.position.z - target.z,
+      ];
+    }
+    f.elapsedMs += Math.min(delta, 0.1) * 1000;
+    const e = flightProgress(f.elapsedMs, c.reducedMotion);
+    const o = flightOffset(f.o0, f.goal, e);
+    camera.position.set(target.x + o[0], target.y + o[1], target.z + o[2]);
+    if (f.elapsedMs >= DETAIL_FLIGHT_MS || c.reducedMotion) f.active = false;
   });
 
   return null;

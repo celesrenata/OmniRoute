@@ -161,7 +161,15 @@ function BenchRouter() {
 }
 function BenchBody() {
   const searchParams = useSearchParams();
-  const focusNodeId = searchParams.get("node");
+  const nodeParam = searchParams.get("node");
+  // `?detail=1` opens the opt-in detail view on `?node=` at load (Step 11
+  // captures); otherwise the tooltip's "Open detail view" button drives it.
+  const [detailId, setDetailId] = useState<string | null>(
+    searchParams.get("detail") === "1" ? nodeParam : null
+  );
+  // A label click (the production focus affordance) focuses an atom on the bench too.
+  const [clickedId, setClickedId] = useState<string | null>(null);
+  const focusNodeId = detailId ?? clickedId ?? nodeParam;
   const paused = searchParams.get("paused") !== "0";
   const showBadge = searchParams.get("badge") !== "0";
   const atomCount = parseAtomCount(searchParams.get("atoms"));
@@ -214,6 +222,13 @@ function BenchBody() {
         focusNodeId={focusNodeId}
         eventPool={eventPool}
         options={{ emptyStateLabel: "Atomic bench: WebGL2 unavailable" }}
+        onFocusRequest={(id) => {
+          setClickedId(id);
+          setDetailId(null);
+        }}
+        detailAtomId={detailId}
+        onDetailRequest={setDetailId}
+        onDetailExit={() => setDetailId(null)}
       />
       {showBadge && (
         <div

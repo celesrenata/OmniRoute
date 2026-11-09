@@ -143,6 +143,12 @@ export interface AtomicSceneContextValue {
    * the focused framing). `0` until the first reset request.
    */
   resetToken: number;
+  /**
+   * Opt-in detail view (Step 11): the inspected atom id while the detail view
+   * is open, else `null`/absent. Only the camera fly-in and the DOM overlay
+   * read it; the default view never sets it.
+   */
+  detailAtomId?: string | null;
 }
 
 /**
@@ -164,6 +170,7 @@ export function useAtomicSceneContext(): AtomicSceneContextValue {
       cameraState: createAtomicCameraState(),
       fitRadius: 1010,
       resetToken: 0,
+      detailAtomId: null,
     }
   );
 }

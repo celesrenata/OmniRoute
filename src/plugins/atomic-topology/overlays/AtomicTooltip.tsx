@@ -140,9 +140,12 @@ function queueCopy(descriptor: AtomVisualDescriptor): string {
 export function AtomicTooltip({
   descriptor,
   capturedAt,
+  onOpenDetail,
 }: {
   descriptor: AtomVisualDescriptor | null;
   capturedAt?: number | null;
+  /** Opt-in detail view (Step 11): shows the "Open detail view" action when provided. */
+  onOpenDetail?: (atomId: string) => void;
 }) {
   if (!descriptor) return null;
 
@@ -254,6 +257,26 @@ export function AtomicTooltip({
         <dt>Fleet sample</dt>
         <dd>{fleetSampleLabel}</dd>
       </dl>
+      {onOpenDetail ? (
+        <button
+          type="button"
+          data-atomic-open-detail="true"
+          onClick={() => onOpenDetail(descriptor.id)}
+          style={{
+            marginTop: 8,
+            width: "100%",
+            padding: "4px 8px",
+            borderRadius: 6,
+            border: "1px solid rgba(34, 211, 238, 0.45)",
+            background: "rgba(8, 47, 73, 0.6)",
+            color: "#e0f2fe",
+            cursor: "pointer",
+            font: "600 11px system-ui, sans-serif",
+          }}
+        >
+          Open detail view
+        </button>
+      ) : null}
     </div>
   );
 }

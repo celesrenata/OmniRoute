@@ -86,6 +86,14 @@ import { AtomicControls } from "./overlays/AtomicControls";
 import { AtomicLegend } from "./overlays/AtomicLegend";
 import { AtomicLabels } from "./overlays/AtomicLabels";
 import { AtomicTooltip } from "./overlays/AtomicTooltip";
+import { AtomicDetailPanel } from "./overlays/AtomicDetailPanel";
+import {
+  DETAIL_CLOSED,
+  buildDetailModel,
+  closeDetail,
+  openDetail,
+  type DetailState,
+} from "./scene/detailState";
 import { AtomicTelemetryStatus, type AtomicTelemetryState } from "./overlays/AtomicTelemetryStatus";
 import {
   createAtomicEventPool,
@@ -846,6 +854,16 @@ export interface AtomicTopologyRendererProps {
   onFocusRequest?: (nodeId: string) => void;
   /** See {@link AtomicSceneProps.onRendererFatal}. */
   onRendererFatal?: () => void;
+  /**
+   * Opt-in detail view (Step 11): the inspected atom id, or `null`/absent for
+   * the default view. When absent AND no `onDetailRequest` is wired the
+   * renderer behaves exactly as before.
+   */
+  detailAtomId?: string | null;
+  /** The viewer chose "Open detail view" on the tooltip. */
+  onDetailRequest?: (atomId: string) => void;
+  /** The viewer left the detail view (Escape / Back button). */
+  onDetailExit?: () => void;
 }
 
 /**
@@ -869,6 +887,9 @@ export function AtomicTopologyRenderer({
   eventPool,
   size,
   onRendererFatal,
+  detailAtomId,
+  onDetailRequest,
+  onDetailExit,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
 
@@ -895,6 +916,13 @@ export function AtomicTopologyRenderer({
   // 3D picking is an explicit unknown).
   const focusedDescriptor = focusNodeId
     ? (descriptors.find((d) => d.id === focusNodeId) ?? null)
+    : null;
+
+  // Opt-in detail view (Step 11): the inspected atom (null = default view, or the
+  // atom left the snapshot). The overlay model is a pure function of the
+  // descriptor + the real lifecycle events; nothing is synthesised.
+  const detailDescriptor = detailAtomId
+    ? (descriptors.find((d) => d.id === detailAtomId) ?? null)
     : null;
 
   // Environment signals are stable for the lifetime of this host, so probe
@@ -965,6 +993,7 @@ export function AtomicTopologyRenderer({
     cameraState,
     fitRadius,
     resetToken,
+    detailAtomId: detailDescriptor ? detailDescriptor.id : null,
   };
 
   // Feed-freshness state for the telemetry badge (M6): `unavailable` when the
@@ -1053,7 +1082,21 @@ export function AtomicTopologyRenderer({
           onFocusRequest={onFocusRequest}
           cameraState={cameraState}
         />
-        <AtomicTooltip descriptor={focusedDescriptor} capturedAt={capturedAt} />
+        {detailDescriptor ? (
+          <AtomicDetailPanel
+            model={buildDetailModel(detailDescriptor, {
+              now: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
+              events: eventPool ? eventPool.events() : undefined,
+            })}
+            onClose={() => onDetailExit?.()}
+          />
+        ) : (
+          <AtomicTooltip
+            descriptor={focusedDescriptor}
+            capturedAt={capturedAt}
+            onOpenDetail={onDetailRequest}
+          />
+        )}
       </div>
     </div>
   );
@@ -1079,6 +1122,8 @@ interface AtomicInstanceState {
   resetToken: number;
   /** The GPU renderer could not be restored; the next `update` hands back to 2D. */
   fatal: boolean;
+  /** Opt-in detail view (Step 11): which atom is inspected + the focus to restore. */
+  detail: DetailState;
 }
 
 /**
@@ -1126,6 +1171,7 @@ export function createAtomicTopologyInstance(
     options,
     resetToken: 0,
     fatal: false,
+    detail: DETAIL_CLOSED,
   };
 
   let disposed = false;
@@ -1152,6 +1198,12 @@ export function createAtomicTopologyInstance(
     // Monotonic: the scene's `CameraRig` re-applies the base fit when this
     // changes, even while an atom is focused (reset frames the whole scene).
     state.resetToken += 1;
+    // Reset frames the whole scene: it also leaves the opt-in detail view.
+    if (state.detail.atomId !== null) {
+      const exit = closeDetail(state.detail);
+      state.detail = exit.state;
+      state.focusNodeId = exit.restoreFocusId;
+    }
     render();
   };
   window.addEventListener("atomic:toggle-pause", onTogglePause);
@@ -1247,6 +1299,29 @@ export function createAtomicTopologyInstance(
         onFocusRequest={(nodeId: string) => {
           if (disposed) return;
           state.focusNodeId = nodeId;
+          state.detail = DETAIL_CLOSED; // choosing another atom leaves the detail view
+          render();
+        }}
+        detailAtomId={state.detail.atomId}
+        onDetailRequest={(atomId: string) => {
+          if (disposed) return;
+          const next = openDetail(
+            state.detail,
+            atomId,
+            resolveAtomDescriptors(state.snapshot),
+            state.focusNodeId
+          );
+          if (next === state.detail) return;
+          state.detail = next;
+          state.focusNodeId = atomId;
+          render();
+        }}
+        onDetailExit={() => {
+          if (disposed) return;
+          const exit = closeDetail(state.detail);
+          state.detail = exit.state;
+          state.focusNodeId = exit.restoreFocusId;
+          if (exit.resetView) state.resetToken += 1;
           render();
         }}
         onRendererFatal={() => {
@@ -1267,6 +1342,16 @@ export function createAtomicTopologyInstance(
       // path disposes this instance and falls back to the 2D renderer.
       if (state.fatal) throw new AtomicWebGLUnsupportedError();
       state.snapshot = snapshot;
+      // The inspected atom left the snapshot: leave the detail view cleanly.
+      if (
+        state.detail.atomId !== null &&
+        !resolveAtomDescriptors(snapshot).some((d) => d.id === state.detail.atomId)
+      ) {
+        const exit = closeDetail(state.detail);
+        state.detail = exit.state;
+        state.focusNodeId = exit.restoreFocusId;
+        if (exit.resetView) state.resetToken += 1;
+      }
       ingestSnapshot(snapshot);
       render();
     },
@@ -1283,6 +1368,7 @@ export function createAtomicTopologyInstance(
     focusNode(nodeId: string): void {
       if (disposed) return;
       state.focusNodeId = nodeId;
+      state.detail = DETAIL_CLOSED;
       render();
     },
     dispose(): void {
