@@ -237,3 +237,10 @@ Cloud/orbits at default 3/5; overall resemblance 3/5 at default and close-up. Se
 `sidebyside-idea5-{default,close,focus,hub,default32,close32}.jpg`, strike stills `strike-failure-{default,close}.jpg`, `strike-completion-close.jpg`,
 videos `video/{idle,active,strike}-{default,close}.webm` (12 s each; `strike-*` alternate completion and failure every 3 s via `?failure=strike`), camera demo `camlimit.*`.
 `VISUAL_SCORECARD.md`, `PERFORMANCE.md`, `TESTS.md`, `VISUAL_AUDIT.md`, `SKILL_APPLICATION.md`.
+
+## Round 8 (reviewer round-7 findings)
+
+Changes: hub palette toned from red/magenta to violet with a rose-magenta nucleus (atomBatch.ts); orbit wires thinner (1.7/2.3 px, was 2.9/3.6) and about 30 percent dimmer, 11 wires kept; direction-noise petal sheets sharper and dark voids deeper (atomImpostor.ts); hero-platform decal and glass-top ring glow roughly halved so the atom is the focus; anamorphic streak about 43 percent weaker.
+Evidence (headed Chrome, apple/metal-3, DPR 2): screenshots/gateB/round8/{before,after}-{default,close}-20.jpg. After: dark petal voids and violet hub read clearly, white-wire clutter and cyan platform competition reduced. Remaining gap to idea5: PCB container instead of warm corridor (operator directive) and a particulate rim. Self-scored cloud about 4, resemblance 3.5-4; not claimed as meeting the bar, reviewer to score.
+Perf (ladder, WebGPU 8/16/20/32): 226/218/196/179 fps; WebGL2: 205/206/190/171 fps. Targets met.
+Suites: typecheck:core 45 pre-existing (0 plugin); eslint plugin clean; unit 472 (471 pass, 1 skipped).

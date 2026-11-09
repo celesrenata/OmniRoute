@@ -75,7 +75,7 @@ export function createFlareMaterial(data: AtomData, layer: FlareLayerKind): Mesh
       .add(vec3(0.75, 0.97, 1.0).mul(sLine))
       .mul(float(1).sub(ax).max(0))
       .mul(U.streakK)
-      .mul(1.5);
+      .mul(0.85);
     // Glow: restrained pink-white inner glow (idea5 core flare).
     const r2 = p.x.mul(p.x).add(p.y.mul(p.y));
     const g = exp(r2.mul(-5))

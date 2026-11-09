@@ -435,7 +435,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     // stays dark (petal voids). A finer direction-only octave striates each petal.
     const farK = u.far as any;
     const sheetN = noise4(dir.mul(4.6), phase.mul(0.03), 0);
-    const sheet = pow(float(1).sub(sheetN.abs()).max(0), mix(float(10), float(7), farK));
+    const sheet = pow(float(1).sub(sheetN.abs()).max(0), mix(float(15), float(9), farK));
     const striaN = noise4(dir.mul(13.0), phase.mul(0.05).add(3.7), 1);
     const stria = pow(float(1).sub(striaN.abs()).max(0), 5);
     const filEnv = smoothstep(0.07, 0.24, r).mul(
@@ -447,7 +447,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       .mul(petal.mul(0.55).add(0.45))
       .mul(float(0.55).add(excitation.mul(0.6)));
     // Dark voids: the diffuse body is carried by the petals, not uniform haze.
-    const voidK = pow(float(1).sub(sheetN.abs()).max(0), 2.5).mul(0.75).add(0.25);
+    const voidK = pow(float(1).sub(sheetN.abs()).max(0), 3.5).mul(0.85).add(0.1);
     const bodyD = lobeSum
       .mul(voidK)
       .mul(shell)

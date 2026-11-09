@@ -127,10 +127,10 @@ export function createHeroPlatform(
     const col = cyan
       .mul(
         rings
-          .mul(0.45)
-          .add(ripple.mul(0.5))
-          .add(dashA.mul(0.8))
-          .add(dashB.mul(0.6))
+          .mul(0.26)
+          .add(ripple.mul(0.28))
+          .add(dashA.mul(0.4))
+          .add(dashB.mul(0.3))
           .add(inner.mul(0.3))
       )
       .add(warm.mul(orange.mul(1.7).add(ticks.mul(1.2))))
@@ -204,9 +204,9 @@ export function createHeroPlatform(
         const grid = max(g1, g2).mul(0.16);
         const rr = r.div(rad1);
         const ringL = exp(abs(rr.sub(0.93)).mul(-70))
-          .mul(1.5)
-          .add(exp(abs(rr.sub(0.62)).mul(-60)).mul(0.6))
-          .add(exp(abs(rr.sub(0.33)).mul(-60)).mul(0.5));
+          .mul(0.7)
+          .add(exp(abs(rr.sub(0.62)).mul(-60)).mul(0.3))
+          .add(exp(abs(rr.sub(0.33)).mul(-60)).mul(0.25));
         // Rotating glowing segment arcs.
         const seg = step(0.4, fract(a.mul(16 / TAU).add(t.mul(0.08).mul(life))))
           .mul(exp(abs(rr.sub(0.8)).mul(-110)))

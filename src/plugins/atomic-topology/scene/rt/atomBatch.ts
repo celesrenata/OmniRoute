@@ -93,7 +93,7 @@ const NEUTRAL_HUES: [number, number, number][] = [
   [0.5, 0.58, 0.8],
 ];
 const HUB_HUES: [number, number, number][] = [
-  [0.95, 0.18, 0.3],
+  [0.78, 0.22, 0.85],
   [0.62, 0.16, 1.0],
   [0.1, 0.65, 1.0],
 ];
@@ -240,7 +240,7 @@ function buildAtomState(config: BatchAtomConfig): AtomState {
   if (config.hub) {
     // Hub identity: crystalline OmniRoute-red / neutral core (no model colours).
     for (let i = 0; i < packed.count; i += 1) {
-      const c = hexToLinear(tints[i * 4 + 3] > 0.5 ? "#E0102C" : "#5A2CE0");
+      const c = hexToLinear(tints[i * 4 + 3] > 0.5 ? "#B02470" : "#5A2CE0");
       tints[i * 4] = c[0];
       tints[i * 4 + 1] = c[1];
       tints[i * 4 + 2] = c[2];
@@ -291,15 +291,15 @@ function buildAtomState(config: BatchAtomConfig): AtomState {
     orient,
     known,
     hueSet,
-    inner: hub ? [0.75, 0.1, 0.55] : vivid ? [0.5, 0.14, 1.0] : [0.4, 0.5, 0.78],
-    strandInner: hub ? [0.85, 0.15, 0.6] : vivid ? [0.62, 0.16, 1.0] : [0.45, 0.55, 0.8],
+    inner: hub ? [0.52, 0.14, 1.0] : vivid ? [0.5, 0.14, 1.0] : [0.4, 0.5, 0.78],
+    strandInner: hub ? [0.62, 0.16, 1.0] : vivid ? [0.62, 0.16, 1.0] : [0.45, 0.55, 0.8],
     rim: hub || vivid ? [0.08, 0.85, 1.0] : [0.55, 0.72, 0.95],
     // Known atoms: the hot core/glow carries the MODEL colour (saturated mean of the
     // nucleon tints) so nuclei stay distinguishable at 40-80 px instead of every
     // core summing to the same pink-white.
     // Unattributed healthy atoms: a clean cyan-white core (explicitly NOT a model hue).
     coreColor: hub
-      ? [1.0, 0.62, 0.9]
+      ? [0.85, 0.72, 1.0]
       : known
         ? modelCoreColor(packed)
         : vivid
@@ -455,7 +455,7 @@ export function createAtomBatch(
       const lane = st.palette[i % st.palette.length];
       set4(stat, STATIC_COLS, row, c, w.u[0], w.u[1], w.u[2], w.a);
       set4(stat, STATIC_COLS, row, c + 1, w.v[0], w.v[1], w.v[2], w.b);
-      set4(stat, STATIC_COLS, row, c + 2, lane[0], lane[1], lane[2], i % 4 === 0 ? 3.6 : 2.9);
+      set4(stat, STATIC_COLS, row, c + 2, lane[0], lane[1], lane[2], i % 4 === 0 ? 2.3 : 1.7);
       set4(
         stat,
         STATIC_COLS,

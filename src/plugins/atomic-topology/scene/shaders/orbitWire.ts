@@ -163,7 +163,7 @@ export function createWireMaterial(data: AtomData): MeshBasicNodeMaterial {
       .add(pulse.mul(1.2))
       .mul(mix(float(0.55), float(1.0), nearV))
       .mul(U.wireEnergy)
-      .mul(4.6);
+      .mul(3.2);
     // Electron heads: small sharp HDR points with short fading trails.
     const tb1 = behind(e.x);
     const tb2 = behind(e.y);
