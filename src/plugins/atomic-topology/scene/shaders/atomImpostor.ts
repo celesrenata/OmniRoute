@@ -68,6 +68,7 @@ import {
   CustomBlending,
 } from "three/webgpu";
 import { OneFactor, OneMinusSrcAlphaFactor, AddEquation } from "three/webgpu";
+import { NUCLEUS_GLASS_IOR } from "../glassOptics";
 import { MAX_NUCLEONS } from "../shaderParams";
 import { petalAxes } from "../strandField";
 import { raySphere, sphereOcclusion, sphereSoftShadow } from "./raySphere";
@@ -530,7 +531,9 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       const rim = pow(float(1).sub(ndv), 3)
         .mul(u.coreColor as any)
         .mul(float(0.12).add(excitation.mul(0.4)));
-      const rdIn = refract(rd, ng, float(1 / 1.32));
+      // Low-index glass (directive 38.4): at 1.32 the magnified image of side/rear
+      // nucleons reached the glass silhouette and was cut there (the "notch").
+      const rdIn = refract(rd, ng, float(1 / NUCLEUS_GLASS_IOR));
       const res = traceNucleus(pg, rdIn);
       // Distance-faded glass: at default zoom the plasma reads first, not a glassy orb.
       const shellK = float(1).sub((u.far as any).mul(0.95));
