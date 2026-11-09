@@ -1,0 +1,511 @@
+{
+  "runs": [
+    {
+      "tps": 0,
+      "tag": "idle",
+      "errors": [],
+      "feeders": {
+        "hub": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-primary": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-secondary": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-unknown": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-stale": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-error": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-1": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-2": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-3": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-4": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-5": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-6": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-7": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-8": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-9": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-10": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-11": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-12": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-13": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-14": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "gpu:bench-host:bench-gpu-b": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "gpu:bench-host:bench-gpu-a": {
+          "basis": "tps",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        }
+      },
+      "traceStats": {
+        "segments": 5200,
+        "joints": 3839,
+        "terminals": 1560,
+        "nets": 869,
+        "length": 261010,
+        "pads": 22,
+        "fedPads": 22
+      },
+      "strip": [
+        {
+          "file": "idle-f0.jpg",
+          "tMs": 0
+        },
+        {
+          "file": "idle-f1.jpg",
+          "tMs": 150
+        },
+        {
+          "file": "idle-f2.jpg",
+          "tMs": 300
+        },
+        {
+          "file": "idle-f3.jpg",
+          "tMs": 450
+        }
+      ],
+      "perf": {
+        "fps": 109.7
+      }
+    },
+    {
+      "tps": 20,
+      "tag": "tps20",
+      "errors": [],
+      "feeders": {
+        "hub": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-primary": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-secondary": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-unknown": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-stale": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-error": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-1": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-2": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-3": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-4": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-5": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-6": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-7": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-8": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-9": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-10": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-11": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-12": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-13": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "provider:bench-perf-14": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "gpu:bench-host:bench-gpu-b": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        },
+        "gpu:bench-host:bench-gpu-a": {
+          "basis": "tps",
+          "value": 20,
+          "target": 0.48163122420273496,
+          "level": 0.48163122298396654
+        }
+      },
+      "traceStats": {
+        "segments": 5200,
+        "joints": 3839,
+        "terminals": 1560,
+        "nets": 869,
+        "length": 261010,
+        "pads": 22,
+        "fedPads": 22
+      },
+      "strip": [
+        {
+          "file": "tps20-f0.jpg",
+          "tMs": 0
+        },
+        {
+          "file": "tps20-f1.jpg",
+          "tMs": 150
+        },
+        {
+          "file": "tps20-f2.jpg",
+          "tMs": 308
+        },
+        {
+          "file": "tps20-f3.jpg",
+          "tMs": 458
+        }
+      ],
+      "perf": {
+        "fps": 106.3
+      }
+    },
+    {
+      "tps": 80,
+      "tag": "tps80",
+      "errors": [],
+      "feeders": {
+        "hub": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-primary": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-secondary": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-unknown": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-stale": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-error": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0
+        },
+        "provider:bench-perf-1": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-2": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-3": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-4": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-5": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-6": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-7": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-8": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-9": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-10": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-11": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-12": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-13": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "provider:bench-perf-14": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "gpu:bench-host:bench-gpu-b": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        },
+        "gpu:bench-host:bench-gpu-a": {
+          "basis": "tps",
+          "value": 80,
+          "target": 0.8745502394840071,
+          "level": 0.8745502373015913
+        }
+      },
+      "traceStats": {
+        "segments": 5200,
+        "joints": 3839,
+        "terminals": 1560,
+        "nets": 869,
+        "length": 261010,
+        "pads": 22,
+        "fedPads": 22
+      },
+      "strip": [
+        {
+          "file": "tps80-f0.jpg",
+          "tMs": 0
+        },
+        {
+          "file": "tps80-f1.jpg",
+          "tMs": 167
+        },
+        {
+          "file": "tps80-f2.jpg",
+          "tMs": 333
+        },
+        {
+          "file": "tps80-f3.jpg",
+          "tMs": 434
+        }
+      ],
+      "perf": {
+        "fps": 105.7
+      }
+    }
+  ]
+}

@@ -47,6 +47,13 @@ import { detailAtomGeometries, detailAtomGeometry } from "./detailFlight";
 import { CLOUD_BOUND_RADIUS } from "./shaderParams";
 import { sceneClock, sceneState } from "./sceneState";
 import { useAtomicSceneContext } from "./sceneContext";
+import {
+  atomFeederSignal,
+  createFeederState,
+  feederTarget,
+  stepFeeder,
+  type FeederState,
+} from "./feederUsage";
 import { fnv1a } from "./cloudShells";
 import {
   createAtomBatchSet,
@@ -160,7 +167,15 @@ export function RtTopologyContent({
   const camera = useThree((s) => s.camera) as PerspectiveCamera;
   const size = useThree((s) => s.size);
 
-  const { cameraState, cameraAspect, fitRadius } = useAtomicSceneContext();
+  const { cameraState, cameraAspect, fitRadius, pool, telemetryStale } = useAtomicSceneContext();
+  // Usage-driven feeder traces (directive 40): per-atom eased level, targets re-read at 4 Hz.
+  const feeders = useRef(new Map<string, FeederState>());
+  const feederTargets = useRef(new Map<string, number>());
+  const feederLastMs = useRef(-Infinity);
+  const feedLive = useRef({ pool, telemetryStale });
+  useEffect(() => {
+    feedLive.current = { pool, telemetryStale };
+  }, [pool, telemetryStale]);
   const gpuRef = useRef<Gpu | null>(null);
   const alertById = useRef(new Map<string, number>());
   const focusTmp = useRef(new Vector3());
@@ -353,6 +368,42 @@ export function RtTopologyContent({
     dirtyRef.current = 4;
   }, [size.width, size.height, focusNodeId, paused]);
 
+  /**
+   * Feeder usage (directive 40): real signals only, in priority order (measured tok/s,
+   * live in-flight count unless the snapshot is stale, recent real call-log rate).
+   * Targets refresh at 4 Hz; levels ease every frame (instant in reduced motion).
+   */
+  const updateFeederLevels = (gpu: Gpu, dt: number, reduced: boolean): void => {
+    const wall = Date.now();
+    if (wall - feederLastMs.current >= 250) {
+      feederLastMs.current = wall;
+      const { pool: p, telemetryStale: stale } = feedLive.current;
+      const fctx = { events: p ? p.events() : null, nowMs: wall, inFlightStale: stale ?? true };
+      const targets = feederTargets.current;
+      targets.clear();
+      const dbg: Record<string, unknown> = {};
+      for (const d of descriptors) {
+        const sig = atomFeederSignal(d, fctx);
+        targets.set(d.id, feederTarget(sig));
+        dbg[d.id] = { ...sig, target: targets.get(d.id), level: feeders.current.get(d.id)?.level };
+      }
+      if (process.env.NODE_ENV !== "production") {
+        (window as unknown as { __atomicFeeders?: unknown }).__atomicFeeders = dbg;
+      }
+    }
+    const states = feeders.current;
+    for (const [id, target] of feederTargets.current) {
+      let st = states.get(id);
+      if (!st) {
+        st = createFeederState();
+        states.set(id, st);
+      }
+      stepFeeder(st, target, dt, reduced);
+    }
+    for (const id of states.keys()) if (!feederTargets.current.has(id)) states.delete(id);
+    gpu.env.updateFeeders((id) => states.get(id)?.level ?? 0, dt, reduced ? 0 : 1);
+  };
+
   // --- Per frame: energy -> batched upload -> one render through the post chain
   useFrame((_state, delta) => {
     const gpu = gpuRef.current;
@@ -373,6 +424,7 @@ export function RtTopologyContent({
     (pxScale as { value: number }).value = (2 * Math.tan((camera.fov * Math.PI) / 360)) / pxH;
     (envTime as { value: number }).value = reduced ? 0 : t;
     gpu.env.setLife(reduced ? 0 : 1);
+    updateFeederLevels(gpu, dt, reduced);
 
     // Links first: failure discharges flash the target atom's core red.
     alertById.current.clear();

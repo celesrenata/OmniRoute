@@ -95,6 +95,8 @@ const ANCHOR_ATOMS = 6;
  * runtime observations are constant — only the provider pool scales.
  */
 function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
+  const tpsOr = (golden: number): number =>
+    options.uniformTps != null && Number.isFinite(options.uniformTps) ? options.uniformTps : golden;
   const target = options.atomCount ?? ANCHOR_ATOMS;
   const scaledCount = Math.max(0, target - ANCHOR_ATOMS);
 
@@ -112,7 +114,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
       kind: "provider",
       providerId: name,
       utilizationPercent: obs(util, "omniroute-live"),
-      outputTokensPerSecond: obs(tps, "omniroute-call-log"),
+      outputTokensPerSecond: obs(tpsOr(tps), "omniroute-call-log"),
       activeJobs: obs(jobs, "omniroute-live"),
     });
   }
@@ -132,7 +134,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         vramTotalBytes: obs(24_000_000_000, "omniroute-live"),
         temperatureC: obs(62, "omniroute-live"),
         powerWatts: obs(280, "omniroute-live"),
-        outputTokensPerSecond: obs(42, "omniroute-live"),
+        outputTokensPerSecond: obs(tpsOr(42), "omniroute-live"),
       },
       // ── GPU B (lighter load) ──
       {
@@ -145,7 +147,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         vramTotalBytes: obs(24_000_000_000, "omniroute-live"),
         temperatureC: obs(48, "omniroute-live"),
         powerWatts: obs(120, "omniroute-live"),
-        outputTokensPerSecond: obs(18, "omniroute-live"),
+        outputTokensPerSecond: obs(tpsOr(18), "omniroute-live"),
       },
       // ── Runtime A → GPU A (busy, queued) ──
       {
@@ -155,7 +157,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         runtimeId: "bench-rt-a",
         modelId: "bench/llama-70b",
         deviceUuid: "bench-gpu-a",
-        outputTokensPerSecond: obs(42, "runtime"),
+        outputTokensPerSecond: obs(tpsOr(42), "runtime"),
         queuedJobs: obs(3, "runtime"),
         activeJobs: obs(4, "runtime"),
       },
@@ -167,7 +169,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         runtimeId: "bench-rt-b",
         modelId: "bench/mixtral-8x7b",
         deviceUuid: "bench-gpu-b",
-        outputTokensPerSecond: obs(18, "runtime"),
+        outputTokensPerSecond: obs(tpsOr(18), "runtime"),
         queuedJobs: obs(0, "runtime"),
         activeJobs: obs(1, "runtime"),
       },
@@ -176,7 +178,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         resourceId: buildCanonicalResourceId("provider", "bench-primary"),
         kind: "provider",
         providerId: "bench-primary",
-        outputTokensPerSecond: obs(60, "omniroute-call-log"),
+        outputTokensPerSecond: obs(tpsOr(60), "omniroute-call-log"),
         activeJobs: obs(5, "omniroute-live"),
         queuedJobs: obs(2, "omniroute-live"),
       },
@@ -185,7 +187,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         resourceId: buildCanonicalResourceId("provider", "bench-secondary"),
         kind: "provider",
         providerId: "bench-secondary",
-        outputTokensPerSecond: obs(12, "omniroute-call-log"),
+        outputTokensPerSecond: obs(tpsOr(12), "omniroute-call-log"),
         activeJobs: obs(1, "omniroute-live"),
       },
       // ── Provider: stale (old sample → grey, no spin) ──

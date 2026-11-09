@@ -984,24 +984,6 @@ export function AtomicTopologyRenderer({
   // dimensions are 0 → fall back to the square default (aspect 1).
   const cameraAspect = size.width > 0 && size.height > 0 ? size.width / size.height : 1;
 
-  // The host-owned ambient scene state (M4/M6): the instance's stable event
-  // pool, the focused atom's world position, and the shared camera framing.
-  // Carried into the scene via the `AtomicSceneContext` provider.
-  const sceneContext: AtomicSceneContextValue = {
-    pool: eventPool ?? null,
-    focusTarget: focusedDescriptor ? focusedDescriptor.position : null,
-    reducedMotion,
-    cameraFovDeg: 50,
-    cameraAspect,
-    // Deterministic discharge clock for render-time (reduced-motion) reads:
-    // the snapshot's own capture time, so renders never touch the wall clock.
-    nowMs: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
-    cameraState,
-    fitRadius,
-    resetToken,
-    detailAtomId: detailDescriptor ? detailDescriptor.id : null,
-  };
-
   // Feed-freshness state for the telemetry badge (M6): `unavailable` when the
   // snapshot has no usable `capturedAt`, `stale` when the feed was older than
   // the freshness window *when it arrived*, `available` otherwise. The
@@ -1027,6 +1009,26 @@ export function AtomicTopologyRenderer({
     }, 0);
     return () => clearTimeout(id);
   }, [capturedAt]);
+
+  // The host-owned ambient scene state (M4/M6): the instance's stable event
+  // pool, the focused atom's world position, and the shared camera framing.
+  // Carried into the scene via the `AtomicSceneContext` provider.
+  const sceneContext: AtomicSceneContextValue = {
+    pool: eventPool ?? null,
+    focusTarget: focusedDescriptor ? focusedDescriptor.position : null,
+    reducedMotion,
+    cameraFovDeg: 50,
+    cameraAspect,
+    // Deterministic discharge clock for render-time (reduced-motion) reads:
+    // the snapshot's own capture time, so renders never touch the wall clock.
+    nowMs: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
+    cameraState,
+    fitRadius,
+    resetToken,
+    detailAtomId: detailDescriptor ? detailDescriptor.id : null,
+    // Feeder traces (directive 40): a live in-flight count only drives them while fresh.
+    telemetryStale: telemetryState !== "available",
+  };
 
   const handleProviderClick = useCallback(
     (providerId: string) => {
@@ -1096,6 +1098,7 @@ export function AtomicTopologyRenderer({
             model={buildDetailModel(detailDescriptor, {
               now: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
               events: eventPool ? eventPool.events() : undefined,
+              inFlightStale: telemetryState !== "available",
             })}
             onClose={() => onDetailExit?.()}
           />

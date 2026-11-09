@@ -20,6 +20,7 @@
  * Pure + three-free + React-free: importable from node tests.
  */
 import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
+import { atomFeederSignal, feederLine } from "./feederUsage";
 import type { AtomicEvent } from "../eventPool";
 import { activityLine } from "../overlays/activityVocabulary";
 import { LANE_HUES } from "../visualEncoding";
@@ -140,6 +141,8 @@ export interface DetailContext {
   now: number;
   /** Live lifecycle events (the host pool). Failures are counted from here only. */
   events?: readonly AtomicEvent[];
+  /** Measured feed stale / unavailable: live in-flight counts do not drive feeders. */
+  inFlightStale?: boolean;
 }
 
 const noData = "no data";
@@ -226,6 +229,18 @@ export function buildDetailModel(d: AtomVisualDescriptor, ctx: DetailContext): D
             : "unavailable (no queue telemetry)",
     },
     { label: "In flight", value: d.activeRequests == null ? "no data" : String(d.activeRequests) },
+    // Directive 40: what (if anything) drives this atom's feeder traces, same rule as the scene.
+    {
+      label: "Feeder traces",
+      value: feederLine(
+        atomFeederSignal(d, {
+          events: ctx.events ?? null,
+          nowMs: ctx.now,
+          inFlightStale: ctx.inFlightStale ?? true,
+        }),
+        null
+      ).replace(/^Feeder traces: /, ""),
+    },
   ];
 
   const f = d.deviceFacts;

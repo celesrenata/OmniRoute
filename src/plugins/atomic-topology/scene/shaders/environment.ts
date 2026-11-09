@@ -76,7 +76,7 @@ export const MAX_PEDESTALS = 256;
 /** Room/pedestal placement. All optional; defaults reproduce the Gate A bench room. */
 export interface EnvironmentLayout {
   /** Pedestal centres (x, z) on the floor, with optional scale (hub = larger). */
-  pedestals: { x: number; z: number; y?: number; scale?: number; hub?: boolean }[];
+  pedestals: { x: number; z: number; y?: number; scale?: number; hub?: boolean; id?: string }[];
   /** Z of the near wall behind the default camera (container encloses the fit pose). */
   nearZ?: number;
   /** Corridor half-width (world units). */
@@ -98,6 +98,11 @@ export interface Environment {
   setLife: (life: number) => void;
   /** Re-place the room + pedestals (layout change); no shader rebuild. */
   setLayout: (layout: EnvironmentLayout) => void;
+  /**
+   * Usage-driven feeder traces (directive 40), per frame: `levelOf(atomId)` is the atom's
+   * eased usage level (0 = no usage: decorative baseline). No allocation.
+   */
+  updateFeeders: (levelOf: (atomId: string) => number, dt: number, life: number) => void;
   /** Keep the room shell centred on the camera and inside its far plane. */
   follow: (camera: { position: { x: number; y: number; z: number }; far: number }) => void;
   dispose: () => void;
@@ -504,6 +509,13 @@ export function createEnvironment(
     return { mesh: m, y: p.y, hubOnly: p.hubOnly };
   });
   const mtx = new Matrix4();
+  /** Atom id per pad index of the last layout (feeder nets are keyed by pad index). */
+  let padIds: string[] = [];
+  let feedLevelOfId: (atomId: string) => number = () => 0;
+  const levelOfPad = (i: number): number => {
+    const id = padIds[i];
+    return id ? feedLevelOfId(id) : 0;
+  };
   const setLayout = (l: EnvironmentLayout): void => {
     (dims.value as Vector4).set(
       l.wallX ?? WALL_X,
@@ -526,6 +538,7 @@ export function createEnvironment(
     const padList = peds.map((q) => ({ x: q.x, z: q.z, r: 62 * (q.scale ?? 1) }));
     const placed = boardParts.setLayout(boardExt, padList);
     boardTraces.setLayout(boardExt, padList, placed);
+    padIds = peds.map((q) => q.id ?? "");
     (hazeRect.value as Vector4).set(...boardParts.haze.rect.value);
     const hubPed = peds.find((q) => q.hub ?? false);
     (trailCenter.value as Vector4).set(hubPed?.x ?? 0, hubPed?.z ?? 0, 0, 0);
@@ -569,6 +582,10 @@ export function createEnvironment(
       boardParts.setLife(life);
     },
     setLayout,
+    updateFeeders(levelOf, dt, life) {
+      feedLevelOfId = levelOf;
+      boardTraces.updateFeeders(levelOfPad, dt, life);
+    },
     follow(camera) {
       roomMesh.position.set(camera.position.x, camera.position.y, camera.position.z);
       roomMesh.scale.setScalar(Math.max(0.01, (camera.far * 0.8) / ROOM_RADIUS));

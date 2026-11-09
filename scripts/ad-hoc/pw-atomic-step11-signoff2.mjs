@@ -101,6 +101,13 @@ report.toggle = await toggleColors();
 await page.screenshot({ path: path.join(outDir, "home-default.png") });
 await host.screenshot({ path: path.join(outDir, "home-card-default.png") });
 report.defaultCam = await cam();
+// Directive 40: which real atoms light their feeder traces, and on what basis.
+report.feeders = await page.evaluate(() =>
+  JSON.parse(JSON.stringify(window.__atomicFeeders ?? null))
+);
+report.traceStats = await page.evaluate(() =>
+  JSON.parse(JSON.stringify(window.__atomicTraceStats ?? null))
+);
 report.perfDefault = await perf();
 const ids = await page.evaluate(() =>
   [...document.querySelectorAll(".atomic-labels [data-atom-id]")].map((e) =>

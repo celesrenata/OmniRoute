@@ -71,14 +71,20 @@ function parseAtomCount(raw: string | null): number | undefined {
 
 function useBenchScene(
   atomCount: number | undefined,
-  opts: { allIdle?: boolean; errorPhase?: "error" | "recovered" | "completed" } = {}
+  opts: {
+    allIdle?: boolean;
+    errorPhase?: "error" | "recovered" | "completed";
+    /** DEMO `?tps=N`: uniform fresh measured output tok/s (feeder-trace evidence). */
+    uniformTps?: number;
+  } = {}
 ) {
-  const { allIdle, errorPhase } = opts;
+  const { allIdle, errorPhase, uniformTps } = opts;
   return useMemo(() => {
     const snapshot = buildGoldenSnapshot({
       ...(atomCount ? { atomCount } : {}),
       allIdle,
       errorPhase,
+      ...(uniformTps != null ? { uniformTps } : {}),
     });
     const capturedAt = Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0;
     const eventPool = createAtomicEventPool();
@@ -86,7 +92,13 @@ function useBenchScene(
       eventPool.ingest(event, capturedAt);
     }
     return { snapshot, eventPool };
-  }, [atomCount, allIdle, errorPhase]);
+  }, [atomCount, allIdle, errorPhase, uniformTps]);
+}
+/** `?tps=N` (DEMO): a finite non-negative uniform measured output tok/s, else undefined. */
+function parseTps(raw: string | null): number | undefined {
+  if (raw == null || raw === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 10_000 ? n : undefined;
 }
 
 /**
@@ -174,7 +186,10 @@ function BenchRouter() {
 function InstanceBench() {
   const sp = useSearchParams();
   const atomCount = parseAtomCount(sp.get("atoms"));
-  const { snapshot } = useBenchScene(atomCount, { allIdle: sp.get("idle") === "1" });
+  const { snapshot } = useBenchScene(atomCount, {
+    allIdle: sp.get("idle") === "1",
+    uniformTps: parseTps(sp.get("tps")),
+  });
   const hostRef = useRef<HTMLElement | null>(null);
   const [ready, setReady] = useState(false);
   const nodeParam = sp.get("node");
@@ -239,7 +254,11 @@ function BenchBody() {
     failureMode === "strike" ? "strike" : failureMode === "cycle" ? "cycle" : "off"
   );
   const allIdle = searchParams.get("idle") === "1";
-  const { snapshot, eventPool } = useBenchScene(atomCount, { allIdle, errorPhase });
+  const { snapshot, eventPool } = useBenchScene(atomCount, {
+    allIdle,
+    errorPhase,
+    uniformTps: parseTps(searchParams.get("tps")),
+  });
   const [ready, setReady] = useState(false);
   const hostRef = useRef<HTMLElement | null>(null);
 

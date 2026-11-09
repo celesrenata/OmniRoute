@@ -122,6 +122,7 @@ export function environmentLayoutFor(
         y: a.position.y + FLOOR_OFFSET,
         scale: s,
         hub: a.kind === "hub",
+        id: a.id,
       };
     });
   // Board artwork is drawn at true size (scaled to the atoms), never stretched with the layout.

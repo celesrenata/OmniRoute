@@ -31,6 +31,11 @@ export interface PulseParams {
   speed: number;
   period: number;
   phase: number;
+  /**
+   * Index (into `pads`) of the atom pad this net feeds, or -1 (decorative only). Feeder
+   * nets are the one telemetry-bound part of the board (directive 40); branches inherit it.
+   */
+  feed: number;
 }
 export interface TraceSegment extends PulseParams {
   ax: number;
@@ -241,10 +246,11 @@ export function routeTraces(
     Math.abs(p[0]) <= ext.wallX - 4 && p[1] >= ext.farZ + 4 && p[1] <= ext.nearZ - 4;
   /** Junction candidates for branches: interior points of copper traces with their arc length. */
   const junctions: { p: P2; s: number; pulse: PulseParams }[] = [];
-  const pulseFor = (): PulseParams => ({
+  const pulseFor = (feed = -1): PulseParams => ({
     speed: 70 + r() * 120,
     period: 240 + r() * 360,
     phase: r(),
+    feed,
   });
   const emit = (
     pts: readonly P2[],
@@ -282,12 +288,13 @@ export function routeTraces(
     to: Terminal,
     n: number,
     endVia: boolean,
-    neonChance: number
+    neonChance: number,
+    feed = -1
   ): void => {
     const centre = octilinearRoute(from.p, to.p, from.out, to.out, 14 + r() * 26, 0.2 + r() * 0.6);
     // A bus whose centre doubles back cannot be offset cleanly: skip it (no kinks).
     if (!gentleTurns(centre)) return;
-    const pulse = pulseFor();
+    const pulse = pulseFor(feed);
     const neon = r() < neonChance ? (r() < 0.72 ? 1 : 2) : 0;
     const total = n + (neon ? 1 : 0);
     nets += 1;
@@ -305,7 +312,7 @@ export function routeTraces(
   const use = new Map<PartPlacement, number>();
   // 1) Pin-row buses into every atom pad (the hub gets more), and board-edge trunks into the hub.
   const hub = pads.reduce<Avoid | null>((m, p) => (!m || p.r > m.r ? p : m), null);
-  for (const pad of pads) {
+  pads.forEach((pad, padIndex) => {
     const isHub = pad === hub;
     const want = isHub ? 4 : 2;
     let got = 0;
@@ -316,11 +323,38 @@ export function routeTraces(
       if (d > (isHub ? 1400 : 900)) break;
       const from = pinRow(src, [pad.x, pad.z]);
       const to = padEdge(pad, from.p, 1.04);
-      bus(from, to, src.kind === "connector" ? 7 : 4 + Math.floor(r() * 3), false, 0.5);
+      bus(from, to, src.kind === "connector" ? 7 : 4 + Math.floor(r() * 3), false, 0.5, padIndex);
       use.set(src, (use.get(src) ?? 0) + 1);
       got += 1;
     }
-  }
+  });
+  // 1b) Every atom pad must be fed (directive 40): a pad whose buses were all dropped
+  //     (pin rows used up, or a route that would kink) gets a trunk from the hub platform
+  //     along its link direction, else a bus from any nearby IC / connector.
+  const fedPads = (): Set<number> => new Set(segments.map((s) => s.feed).filter((f) => f >= 0));
+  let fedNow = fedPads();
+  pads.forEach((pad, padIndex) => {
+    if (fedNow.has(padIndex) || segments.length >= maxSegments) return;
+    const tries: (() => void)[] = [];
+    if (hub && pad !== hub) {
+      tries.push(() => {
+        const from = padEdge(hub, [pad.x, pad.z], 1.08);
+        const to = padEdge(pad, [hub.x, hub.z], 1.04);
+        bus(from, to, 3, false, 0.5, padIndex);
+      });
+    }
+    for (const src of near(hubs, pad.x, pad.z).slice(0, 6)) {
+      tries.push(() => {
+        const from = pinRow(src, [pad.x, pad.z]);
+        bus(from, padEdge(pad, from.p, 1.04), 4, false, 0.5, padIndex);
+      });
+    }
+    for (const t of tries) {
+      t();
+      fedNow = fedPads();
+      if (fedNow.has(padIndex)) break;
+    }
+  });
   if (hub) {
     const edges: Terminal[] = [];
     const k = 3;
@@ -332,7 +366,7 @@ export function routeTraces(
     }
     for (const e of edges) {
       const to = padEdge(hub, e.p, 1.08);
-      bus(e, to, 6, false, 0.75);
+      bus(e, to, 6, false, 0.75, pads.indexOf(hub));
     }
   }
   // 2) IC <-> IC / connector buses (each part to its nearest unlinked neighbour).

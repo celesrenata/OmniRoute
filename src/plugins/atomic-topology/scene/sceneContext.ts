@@ -149,6 +149,11 @@ export interface AtomicSceneContextValue {
    * read it; the default view never sets it.
    */
   detailAtomId?: string | null;
+  /**
+   * The measured feed is stale / unavailable (the telemetry badge): live in-flight counts
+   * then no longer drive the usage feeder traces (directive 40). Absent = treated as stale.
+   */
+  telemetryStale?: boolean;
 }
 
 /**
