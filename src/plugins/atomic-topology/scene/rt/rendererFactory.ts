@@ -150,7 +150,10 @@ export function createRtPost(
   const sceneColor = scenePass.getTextureNode();
   const bloomOn = uniform(bloomEnabled ? 1 : 0);
   const bloomNode = bloom(sceneColor, 0.15, 0.5, 1.3);
-  const shifted = rgbShift(sceneColor, 0.0011, 0.0);
+  // Chromatic aberration: subtle and EDGE-ONLY (zero in the central ~38 % of the frame so
+  // atoms in the middle never fringe; operator directive 31).
+  const caAmount = smoothstep(0.38, 0.9, length(screenUV.sub(0.5).mul(vec2(1.0, 0.9)))).mul(0.0014);
+  const shifted = rgbShift(sceneColor, caAmount, 0.0);
   const viewZ = scenePass.getViewZNode();
   const focusDist = uniform(1e7); // no DOF until a host calls setFocus (bench look unchanged)
   const focusAtom = uniform(new Vector3(0.5, 0.5, 0));

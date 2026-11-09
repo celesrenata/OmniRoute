@@ -20,6 +20,10 @@ export interface SceneAtomInput {
   activeRequests: number | null;
   deviceFacts?: { activeJobs?: number | null; queuedJobs?: number | null };
   visualState: { state: "error" | "active" | "last" | "healthy" | "idle" };
+  /** Energy tier 0-3 (directive 30); absent = legacy idle look. */
+  energyTier?: 0 | 1 | 2 | 3;
+  /** Epoch ms of the last REAL activity (call-log / live), or null. */
+  lastActivityAt?: number | null;
 }
 
 /** The hub reads as the scene's primary atom: larger than ring atoms. */
@@ -44,7 +48,11 @@ const finiteOrNull = (v: number | null | undefined): number | null =>
   v != null && Number.isFinite(v) ? v : null;
 
 /** Measured-only energy input for one atom (stale/missing -> idle). */
-export function atomEnergyInput(d: SceneAtomInput, reducedMotion: boolean): EnergyInput {
+export function atomEnergyInput(
+  d: SceneAtomInput,
+  reducedMotion: boolean,
+  now: number = Date.now()
+): EnergyInput {
   const active = finiteOrNull(d.activeRequests) ?? finiteOrNull(d.deviceFacts?.activeJobs ?? null);
   return {
     measuredTps: finiteOrNull(d.measuredTps),
@@ -52,6 +60,11 @@ export function atomEnergyInput(d: SceneAtomInput, reducedMotion: boolean): Ener
     queued: finiteOrNull(d.deviceFacts?.queuedJobs ?? null),
     stale: false,
     reducedMotion,
+    tier: d.energyTier,
+    activityAgeMs:
+      d.lastActivityAt != null && Number.isFinite(d.lastActivityAt)
+        ? Math.max(0, now - d.lastActivityAt)
+        : null,
   };
 }
 

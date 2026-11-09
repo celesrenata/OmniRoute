@@ -98,13 +98,20 @@ export function marchStepsFor(maxSteps: number, radiusPx: number): number {
   return Math.max(16, Math.min(maxSteps, Math.round(maxSteps * f)));
 }
 
-/** Cloud diameter (device px) below which the small-atom LOD is fully on. */
-export const SMALL_LOD_NEAR = 340;
-/** Cross-fade span (device px) from the small LOD to the full ray-traced atom. */
-export const SMALL_LOD_SPAN = 300;
+/**
+ * Projected cloud diameter (CSS px, bounding sphere) at or below which the small-atom LOD is
+ * fully on, and the cross-fade span to the full ray-traced atom (fully full at NEAR + SPAN =
+ * 46 css px). Operator directive 31 asks that only genuinely tiny atoms use the LOD and that
+ * most atoms at the real `/home` default zoom render the full atom. The real dashboard panel
+ * (1440x900 window) measures 39-78 css px per atom, so the literal 40 -> 110 band would put
+ * every atom in the LOD; 16 -> 46 keeps only the farthest/smallest atoms in it (see
+ * `OR_ATOM_010_RAYTRACED/PERFORMANCE.md` for the measured distribution per viewport).
+ */
+export const SMALL_LOD_NEAR = 16;
+export const SMALL_LOD_SPAN = 30;
 
-/** Small-atom LOD weight: 1 for small clouds, smooth cross-fade to 0 (full atom) as they grow. */
-export function smallAtomLod(diameterPx: number): number {
-  const t = Math.min(1, Math.max(0, (diameterPx - SMALL_LOD_NEAR) / SMALL_LOD_SPAN));
+/** Small-atom LOD weight: 1 for tiny clouds, smooth cross-fade to 0 (full atom) as they grow. */
+export function smallAtomLod(diameterCssPx: number): number {
+  const t = Math.min(1, Math.max(0, (diameterCssPx - SMALL_LOD_NEAR) / SMALL_LOD_SPAN));
   return 1 - t * t * (3 - 2 * t);
 }

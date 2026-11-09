@@ -34,6 +34,24 @@ import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
  * observed 0 (quiet upstream) and must not read as missing; "unavailable"
  * means no telemetry was sampled at all (no fabricated rate).
  */
+/**
+ * Activity row (operator directive 30): decorative vitality must never read as live
+ * work, so the tooltip states which energy tier the atom is in and why.
+ */
+export function activityCopy(
+  tier: 0 | 1 | 2 | 3,
+  lastActivityAt: number | null,
+  now: number
+): string {
+  if (tier === 0) return "no data (stale or unknown health)";
+  if (tier === 3) return "active (live or measured work)";
+  if (tier === 2 && lastActivityAt != null && Number.isFinite(lastActivityAt)) {
+    const mins = Math.max(0, Math.round((now - lastActivityAt) / 60_000));
+    return mins < 1 ? "recent activity < 1m ago" : `recent activity ${mins}m ago`;
+  }
+  return "idle, no measured activity";
+}
+
 function spinCopy(descriptor: AtomVisualDescriptor): string {
   const { value, mode } = descriptor.spin;
   switch (mode) {
@@ -174,6 +192,14 @@ export function AtomicTooltip({
         <dd>{descriptor.lane}</dd>
         <dt>State</dt>
         <dd>{state}</dd>
+        <dt>Activity</dt>
+        <dd>
+          {activityCopy(
+            descriptor.energyTier,
+            descriptor.lastActivityAt,
+            capturedAt ?? descriptor.lastActivityAt ?? 0
+          )}
+        </dd>
         <dt>Spin</dt>
         <dd>{spinCopy(descriptor)}</dd>
         <dt>{queueRowLabel(descriptor.kind, descriptor.deviceFacts?.hostedRuntimeIds)}</dt>

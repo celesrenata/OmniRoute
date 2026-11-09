@@ -495,7 +495,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       const rdIn = refract(rd, ng, float(1 / 1.32));
       const res = traceNucleus(pg, rdIn);
       // Distance-faded glass: at default zoom the plasma reads first, not a glassy orb.
-      const shellK = float(1).sub((u.far as any).mul(0.7));
+      const shellK = float(1).sub((u.far as any).mul(0.95));
       surface.assign(reflG.add(rim.mul(0.6)).mul(shellK));
       surfAlpha.assign(
         saturate(fg.mul(0.8).add(rim.x.mul(0.2)))
@@ -503,7 +503,13 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
           .mul(shellK)
       );
       If(res.w.greaterThan(0), () => {
-        surface.addAssign(res.xyz.mul(float(1).sub(fg)).mul(brightness.mul(0.5).add(0.2)));
+        surface.addAssign(
+          res.xyz
+            .mul(float(1).sub(fg))
+            .mul(brightness.mul(0.5).add(0.2))
+            // Small on screen: the model-coloured nucleus must read through the cloud.
+            .mul((u.far as any).mul(2.2).add(1))
+        );
         surfAlpha.assign(1);
         tNuc.assign(hg.x.add(res.w));
       });
@@ -531,7 +537,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
           .mul(1.5)
           .add(0.22)
           .mul(0.011)
-          .mul((u.far as any).mul(1.5).add(1));
+          .mul((u.far as any).mul(2.1).add(1));
         Loop(u.steps as any, () => {
           If(t.greaterThan(t1).or(trans.lessThan(0.02)), () => {
             Break();
@@ -585,26 +591,21 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
   });
 
   /**
-   * Small-projected-size LOD (operator directive 26): a bold, cheap rendering of the
-   * same atom for clouds below ~150 css px. Crisp petal/flower plasma silhouette with
-   * dark voids and a defined cyan rim, a saturated self-glowing model-coloured
-   * nucleus, 5 thick non-coplanar-looking orbital arcs and a deep violet body; no
-   * glass shell. Pure analytic function of the view-ray's closest approach to the
-   * atom centre (no loops, no texture reads), so it is far cheaper than the full atom.
+   * Small-projected-size LOD (operator directives 26 + 31): the SAME atom for genuinely
+   * tiny clouds (<= ~50 css px; cross-fades to the full atom by ~110 px). A cheap
+   * analytic stand-in for the ray march: deep violet plasma body with soft organic
+   * petal bundles (soft modulation, never flat cut-outs), a defined sparkly cyan rim and
+   * a glowing MODEL-COLOURED nucleus (tint sectors, saturated, never a white blob). The
+   * orbit wires stay real geometry; the sub-pixel hairline strands are swapped for the
+   * body's own thicker, brighter radial streaks. Pure function of the quad-local
+   * coordinate (no loops, no texture reads).
    */
   const smallFragment = Fn(() => {
     const mirrorOn = u.mirror as any;
-    const fy = u.floorY as any;
-    const camM = vec3(cameraPosition.x, fy.mul(2).sub(cameraPosition.y), cameraPosition.z);
-    const posM = vec3(positionWorld.x, fy.mul(2).sub(positionWorld.y), positionWorld.z);
-    const ro = select(mirrorOn.greaterThan(0.5), camM, cameraPosition);
-    const rd = normalize(select(mirrorOn.greaterThan(0.5), posM, positionWorld).sub(ro));
     const cloudR = u.cloudRadius as any;
     // Quad-local coordinates (identical for the main and the mirrored floor pass).
     const x = positionGeometry.x.mul(u.quadHalf as any).div(cloudR);
     const y = positionGeometry.y.mul(u.quadHalf as any).div(cloudR);
-    void ro;
-    void rd;
     const r = length(vec3(x, y, 0)).max(0.0005);
     const phase = u.phase as any;
     const reach = u.reach as any;
@@ -620,23 +621,25 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const petal2 = cos(ang.mul(nPet.add(3)).add(phase.mul(0.15)).add(seedF.mul(3)))
       .mul(0.5)
       .add(0.5);
-    const bundle = smoothstep(0.12, 0.8, petal.mul(petal2.mul(0.35).add(0.65)));
-    const edgeR = reach.mul(0.92).mul(float(0.74).add(bundle.mul(0.26)));
+    // Soft petal bundles: modulate brightness and the outline only slightly.
+    const bundle = smoothstep(0.05, 0.95, petal.mul(petal2.mul(0.35).add(0.65)));
+    const edgeR = reach.mul(0.94).mul(float(0.9).add(bundle.mul(0.1)));
     const rr = r.div(edgeR);
     const inside = float(1).sub(smoothstep(0.9, 1.0, rr));
-    // Deep violet body with radial plasma streaks and dark petal voids.
+    // Deep violet plasma body: dense bright core fading outward, radial streaks as the
+    // thick stand-in for the hairline strands, mild dark voids between bundles.
     const streak = pow(
-      cos(ang.mul(nPet.mul(5)).add(r.mul(14)).add(seedF.mul(9)))
+      cos(ang.mul(nPet.mul(4)).add(r.mul(10)).add(seedF.mul(9)))
         .mul(0.5)
         .add(0.5),
       2
     );
     const bodyHue = mix(u.inner as any, (u.hues as any)[0], 0.35).mul(vec3(0.85, 0.5, 1.15));
-    const bodyDeep = mix(bodyHue, vec3(0.42, 0.1, 1.0), 0.55);
-    const radial = smoothstep(0.0, 1.0, rr);
-    const bodyK = mix(float(0.18), float(1.1), bundle)
-      .mul(streak.mul(0.55).add(0.55))
-      .mul(radial.mul(0.9).add(0.35));
+    const bodyDeep = mix(bodyHue, vec3(0.42, 0.1, 1.0), 0.5);
+    const coreFall = exp(rr.mul(rr).mul(-1.4));
+    const bodyK = mix(float(0.5), float(1.15), bundle)
+      .mul(streak.mul(0.4).add(0.7))
+      .mul(coreFall.mul(0.9).add(0.45));
     const bodyCol = bodyDeep.mul(bodyK);
     // Defined cyan rim, sparkly (angular hash twinkle).
     const cell = ang.mul(70).floor();
@@ -644,16 +647,16 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const twk = sin(phase.mul(1.7).add(tw.mul(30)))
       .mul(0.5)
       .add(0.5);
-    const rimBand = exp(pow(rr.sub(0.965).div(0.05), 2).negate());
+    const rimBand = exp(pow(rr.sub(0.965).div(0.055), 2).negate());
     const rimCol = (u.rim as any)
       .mul(rimBand)
       .mul(tw.mul(0.5).add(0.5).add(twk.mul(0.6)))
-      .mul(2.0);
+      .mul(2.4);
     const halo = exp(pow(rr.sub(1.02).div(0.22), 2).negate())
-      .mul(0.25)
+      .mul(0.22)
       .mul(u.rim as any);
-    // Nucleus: saturated, self-glowing model-coloured ball (sectored by up to 3 tints).
-    const rho = (u.glassRadius as any).div(cloudR).mul(0.95).max(0.2);
+    // Nucleus: a glowing, saturated, MODEL-COLOURED ball (sectored by up to 3 tints).
+    const rho = (u.glassRadius as any).div(cloudR).mul(0.95).max(0.17);
     const nr = r.div(rho);
     const nz = sqrt(max(float(1).sub(nr.mul(nr)), 0));
     const t0 = (u.nucleonTints as any).element(0).xyz;
@@ -670,74 +673,32 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const tint = t0.mul(s0).add(t1.mul(s1)).add(t2.mul(s2)).div(s0.add(s1).add(s2));
     const tl = dot(tint, vec3(0.2126, 0.7152, 0.0722));
     const tintSat = max(mix(vec3(tl), tint, 3.4), 0);
-    const nucK = excitation.mul(0.9).add(0.55);
-    const ballCol = tintSat
-      .mul(nz.mul(0.8).add(0.55))
-      .mul(nucK)
-      .mul(1.5)
-      .add(vec3(1.0, 0.8, 0.95).mul(pow(nz, 8)).mul(0.5));
+    const nucK = excitation.mul(0.8).add(0.7);
+    // Hue-preserving: lit by its own colour (no white add), so the model colour reads.
+    const ballCol = tintSat.mul(nz.mul(0.7).add(0.6)).mul(nucK).mul(1.45);
     const ballIn = float(1).sub(smoothstep(0.92, 1.0, nr));
     const ballGlow = tintSat
       .mul(exp(nr.mul(nr).mul(-0.9)))
       .mul(nucK)
-      .mul(0.9)
-      .add((u.coreColor as any).mul(exp(r.mul(r).mul(-60))).mul(1.4));
-    // Five thick bright orbital arcs (non-coplanar look: differing axis ratios and tilts).
-    const arcs = vec3(0).toVar();
-    const lanes = [
-      vec3(0.15, 0.9, 1.0),
-      vec3(1.0, 0.35, 0.8),
-      vec3(0.4, 0.55, 1.0),
-      vec3(0.2, 1.0, 0.8),
-      vec3(1.0, 0.6, 0.3),
-    ];
-    for (let k = 0; k < 5; k += 1) {
-      const rot = seedF.mul(6.28).add(k * 1.2566);
-      const cr = cos(rot);
-      const sr = sin(rot);
-      const ex = x.mul(cr).add(y.mul(sr));
-      const ey = y.mul(cr).sub(x.mul(sr));
-      const A = float(0.8 + 0.045 * k);
-      const B = A.mul(0.28 + 0.13 * k);
-      const q = length(vec3(ex.div(A), ey.div(B), 0));
-      const dd = q.sub(1).abs().mul(B.min(A)).mul(1.0);
-      const th = atan(ey.div(B), ex.div(A));
-      const sweep = pow(
-        sin(
-          th
-            .mul(2)
-            .sub(phase.mul(1.2))
-            .add(k * 1.7)
-        )
-          .mul(0.5)
-          .add(0.5),
-        3
-      )
-        .mul(1.2)
-        .add(0.55);
-      const line = exp(pow(dd.div(0.017), 2).negate()).mul(sweep);
-      arcs.addAssign(lanes[k].mul(line));
-    }
-    const arcMask = float(1).sub(ballIn.mul(0.9));
-    const energyK = excitation.mul(0.7).add(0.55).mul(brightness.mul(0.6).add(0.5));
+      .mul(0.7);
+    const energyK = excitation.mul(0.6).add(0.7).mul(brightness.mul(0.5).add(0.55));
     const crowdK = (u.crowd as any).max(0.55);
     let col: any = bodyCol
       .mul(inside)
-      .mul(energyK.max(0.7))
+      .mul(energyK.max(0.75))
       .mul(1.9)
       .add(rimCol.mul(inside.mul(0.6).add(0.4)))
       .add(halo);
     col = col.mul(float(1).sub(ballIn)).add(ballCol.mul(ballIn)).add(ballGlow.mul(inside));
-    col = col.add(arcs.mul(arcMask).mul(0.62).mul(energyK));
-    // Idle fades toward grey (saturation uniform), never washed to white.
+    // Only Tier 0 greys (saturation uniform); healthy atoms keep full colour.
     const l = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    col = max(mix(vec3(l), col, sat.mul(0.5).add(0.5)), 0).mul(crowdK.mul(0.35).add(0.65));
+    col = max(mix(vec3(l), col, sat.mul(0.5).add(0.5)), 0).mul(crowdK.mul(0.3).add(0.7));
     const dimK = u.dim as any;
     const edgeFade = float(1).sub(smoothstep(0.93, 1.04, r));
     col = col.mul(edgeFade).mul(dimK);
     const refl = select(mirrorOn.greaterThan(0.5), float(0.3), float(1));
-    const alpha = saturate(inside.mul(0.9).add(halo.x.mul(0.3)).add(ballIn)).mul(refl);
-    return vec4(col.mul(refl), alpha.mul(edgeFade).mul(dimK.mul(0.6).add(0.4)));
+    const alpha = saturate(inside.mul(0.9).add(halo.x.mul(0.3)).add(ballIn));
+    return vec4(col.mul(refl), alpha.mul(refl).mul(edgeFade).mul(dimK.mul(0.6).add(0.4)));
   });
 
   const fragment = Fn(() => {

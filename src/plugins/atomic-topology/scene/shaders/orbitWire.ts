@@ -134,8 +134,8 @@ export function createWireMaterial(data: AtomData): MeshBasicNodeMaterial {
   material.positionNode = center.add(
     pL.add(perp.mul(aw.y.mul(0.5).mul(drawPx).mul(dist).mul(U.pxScale)))
   );
-  // Small-atom LOD: the analytic impostor arcs carry the read; only 4 real wires remain.
-  const wireOn = mix(float(1), step(float(w), float(3.5)).mul(0.8), U.lod);
+  // Small-atom LOD: 7 of the 11 wires remain (fewer overlapping hairlines at tiny sizes).
+  const wireOn = mix(float(1), step(float(w), float(6.5)).mul(0.9), U.lod);
   const coverV = varying(wd.div(drawPx).mul(wireOn));
   const sideV = varying(aw.y);
   const thetaV = varying(theta);

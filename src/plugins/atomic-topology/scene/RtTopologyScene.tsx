@@ -29,6 +29,7 @@ import {
   advanceAnimationPhase,
   createEnergySmoother,
   energyFromActivity,
+  isVibrantTier,
   resolveEnergyState,
 } from "./energyState";
 import {
@@ -445,7 +446,12 @@ export function RtTopologyContent({
       }
       const target = resolveEnergyState(atomEnergyInput(d, reduced));
       const level = reduced ? activityOf(target) : rt.energy.step(activityOf(target), dt);
-      const energy = energyFromActivity(level, target.measured, reduced);
+      const energy = energyFromActivity(
+        level,
+        target.measured,
+        reduced,
+        isVibrantTier(d.energyTier)
+      );
       rt.phase = advanceAnimationPhase(rt.phase, dt, energy.speedMul, reduced);
       if (!frozen) {
         // Nucleus spin is bound strictly to measured output tok/s (null -> decays to 0).

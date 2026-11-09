@@ -101,6 +101,7 @@ import {
   type ProvenPulseGate,
 } from "./scene/provenPulse";
 import { createAtomicCameraState, type AtomicSceneContextValue } from "./scene/sceneContext";
+import { TIER2_DECAY_MS } from "./scene/energyState";
 
 // Re-export the pure visual-encoding types so the scene/overlay subtree has a
 // single import point (this adapter) rather than reaching into `visualEncoding`
@@ -291,6 +292,17 @@ export interface AtomVisualDescriptor {
    * atoms); absent without one.
    */
   fleetSampledAt?: number | null;
+  /**
+   * Energy tier (operator directive 30), derived ONLY from real data:
+   *  0 absent (unknown health / stale device telemetry): the only tier that greys;
+   *  1 idle but healthy / connected: full colour, alive;
+   *  2 recently active (call-log / live timestamps within the afterglow window);
+   *  3 active (in-flight traffic or measured work).
+   * Decorative vitality is never presented as live work (the tooltip says so).
+   */
+  energyTier: 0 | 1 | 2 | 3;
+  /** Epoch ms of the last REAL activity (newest successful call-log row / live), or null. */
+  lastActivityAt: number | null;
 }
 
 /**
@@ -452,11 +464,35 @@ export function resolveAtomDescriptors(
       latestErrorAt: node.latestErrorAt ?? null,
     });
 
+    // Energy tier (directive 30) from real data only. The newest successful call-log row
+    // (`observedModels.sampledAt`) is the real "last activity" timestamp; a node the
+    // snapshot marks `recent` without a row falls back to the snapshot capture time.
+    const rowAt = node.observedModels?.sampledAt ?? null;
+    const lastActivityAt =
+      node.traffic === "active"
+        ? snapshot.capturedAt
+        : rowAt != null
+          ? rowAt
+          : node.traffic === "recent"
+            ? snapshot.capturedAt
+            : null;
+    const recentAge = lastActivityAt != null ? snapshot.capturedAt - lastActivityAt : null;
+    const energyTier: 0 | 1 | 2 | 3 =
+      node.traffic === "active"
+        ? 3
+        : node.traffic === "recent" ||
+            (recentAge != null && recentAge >= 0 && recentAge < TIER2_DECAY_MS)
+          ? 2
+          : isHub || node.health === "healthy" || node.health === "unhealthy"
+            ? 1
+            : 0;
     return {
       id: node.id,
       kind: node.kind,
       label: node.label,
       providerId: node.providerId,
+      energyTier,
+      lastActivityAt,
       position,
       color,
       lane,
@@ -674,6 +710,14 @@ export function resolveAtomDescriptors(
         // Device atoms are telemetry evidence, not route traffic: no route
         // link connects them, so they render as idle/unknown (neutral).
         visualState: resolveVisualState({ health: "unknown", traffic: "idle" }),
+        // Directive 30: fresh telemetry = healthy/connected (tier 1, tier 3 while it
+        // reports work); stale / decayed telemetry = absent (tier 0, the only grey tier).
+        energyTier: deviceStale
+          ? 0
+          : (spinTps ?? 0) > 0 || (sumRuntime((r) => r.activeJobs) ?? 0) > 0
+            ? 3
+            : 1,
+        lastActivityAt: null,
         activeRequests: null,
         ringIndex: placement.ringIndex,
         deviceFacts: {

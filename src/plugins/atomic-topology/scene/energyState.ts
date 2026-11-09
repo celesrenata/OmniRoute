@@ -24,7 +24,18 @@ export interface EnergyInput {
   stale: boolean;
   /** `prefers-reduced-motion`: no animation at all (static frame). */
   reducedMotion: boolean;
+  /**
+   * Energy tier (operator directive 30). Absent = legacy behaviour (idle fades to grey).
+   *  0 absent (stale / disconnected / unknown health): the ONLY tier that greys and dims;
+   *  1 idle but healthy: full-colour, alive, ~70-80 % of the excited richness;
+   *  2 recently active (real timestamps): extra warmth decaying over {@link TIER2_DECAY_MS};
+   *  3 active / measured: the full excited look.
+   */
+  tier?: EnergyTier;
+  /** Age (ms) of the last REAL activity (tier 2 decay); null/absent = unknown. */
+  activityAgeMs?: number | null;
 }
+export type EnergyTier = 0 | 1 | 2 | 3;
 
 /** Resolved visual energy (all values finite and bounded; see the constants). */
 export interface EnergyState {
@@ -47,6 +58,17 @@ export const SATURATION_MIN = 0.35;
 export const BRIGHTNESS_MIN = 0.35;
 export const CLOUD_RADIUS_MIN = 0.8;
 export const SPEED_MIN = 0.15;
+/** Tier activity levels: healthy idle rests at ~60 % activity, afterglow peaks at ~80 %. */
+export const TIER1_LEVEL = 0.6;
+export const TIER2_PEAK = 0.8;
+export const TIER3_FLOOR = 0.85;
+/** Real-activity afterglow decays smoothly over this long (directive 30: 5-10 min). */
+export const TIER2_DECAY_MS = 8 * 60_000;
+/** Healthy (tier >= 1) atoms never drop below these: contrast comes from motion/FX, not desaturation. */
+export const VIBRANT_SATURATION = 0.92;
+export const VIBRANT_BRIGHTNESS = 0.82;
+export const VIBRANT_CLOUD_RADIUS = 0.93;
+export const VIBRANT_SPEED = 0.4;
 /** Smoothing time constants (seconds). */
 export const ENERGY_RISE_TAU = 0.4;
 export const ENERGY_FALL_TAU = 3;
@@ -74,31 +96,53 @@ function lerp(a: number, b: number, t: number): number {
 export function energyFromActivity(
   activity: number,
   measured: boolean,
-  reducedMotion: boolean
+  reducedMotion: boolean,
+  /** Healthy atom (tier >= 1): keeps full colour; only motion/FX scale with activity. */
+  vibrant = false
 ): EnergyState {
   const a = clamp01(activity);
   return {
     excitation: lerp(IDLE_EXCITATION, 1, a),
-    saturation: lerp(SATURATION_MIN, 1, a),
-    brightness: lerp(BRIGHTNESS_MIN, 1, a),
-    cloudRadiusMul: lerp(CLOUD_RADIUS_MIN, 1, a),
-    speedMul: reducedMotion ? 0 : lerp(SPEED_MIN, 1, a),
+    saturation: Math.max(lerp(SATURATION_MIN, 1, a), vibrant ? VIBRANT_SATURATION : 0),
+    brightness: Math.max(lerp(BRIGHTNESS_MIN, 1, a), vibrant ? VIBRANT_BRIGHTNESS : 0),
+    cloudRadiusMul: Math.max(lerp(CLOUD_RADIUS_MIN, 1, a), vibrant ? VIBRANT_CLOUD_RADIUS : 0),
+    speedMul: reducedMotion ? 0 : Math.max(lerp(SPEED_MIN, 1, a), vibrant ? VIBRANT_SPEED : 0),
     measured,
   };
 }
 
+/** True for tiers 1-3 (healthy atoms keep full colour; only tier 0 greys). */
+export function isVibrantTier(tier: EnergyTier | undefined): boolean {
+  return tier != null && tier >= 1;
+}
+
+/** Afterglow weight 0..1 from the age of the last real activity (smooth, 1 -> 0 over the decay). */
+export function afterglowWeight(ageMs: number | null | undefined): number {
+  if (ageMs == null || !Number.isFinite(ageMs) || ageMs < 0) return 0;
+  const t = clamp01(1 - ageMs / TIER2_DECAY_MS);
+  return t * t * (3 - 2 * t);
+}
+
 /** Resolve the (unsmoothed) target energy for measured telemetry. */
 export function resolveEnergyState(input: EnergyInput): EnergyState {
-  if (input.stale) return energyFromActivity(0, false, input.reducedMotion);
+  if (input.stale || input.tier === 0) return energyFromActivity(0, false, input.reducedMotion);
   const tps = finiteNonNeg(input.measuredTps);
   const active = finiteNonNeg(input.activeRequests);
   const queued = finiteNonNeg(input.queued);
   const fromTps = 1 - Math.exp(-tps / TPS_SCALE);
   const fromActive = Math.min(1, active / ACTIVE_SATURATION);
   const fromQueue = Math.min(1, queued / QUEUE_SATURATION) * QUEUE_ACTIVITY_CAP;
-  const activity = Math.max(fromTps, fromActive, fromQueue);
+  const measuredActivity = Math.max(fromTps, fromActive, fromQueue);
   const measured = tps > 0 || active > 0 || queued > 0;
-  return energyFromActivity(activity, measured, input.reducedMotion);
+  const tier = input.tier;
+  if (tier == null) return energyFromActivity(measuredActivity, measured, input.reducedMotion);
+  // Tiers 1-3: a healthy atom rests at TIER1_LEVEL; real recent activity adds a decaying
+  // afterglow; in-flight / measured work is the full excited look.
+  let level = TIER1_LEVEL;
+  if (tier === 2)
+    level = TIER1_LEVEL + (TIER2_PEAK - TIER1_LEVEL) * afterglowWeight(input.activityAgeMs);
+  if (tier === 3) level = TIER3_FLOOR;
+  return energyFromActivity(Math.max(level, measuredActivity), measured, input.reducedMotion, true);
 }
 
 /**

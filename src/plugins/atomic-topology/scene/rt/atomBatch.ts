@@ -456,6 +456,12 @@ export function createAtomBatch(
     const pxScale = (2 * Math.tan((fov * Math.PI) / 360)) / pxH;
     const n = Math.min(states.length, Math.max(0, frames.length - offset));
     const cullOn = ctx.cull !== false;
+    const dprCss = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    // Dev-only LOD distribution (non-production): atoms per LOD state in the last frame.
+    const lodStats =
+      process.env.NODE_ENV !== "production" && typeof window !== "undefined"
+        ? { n, lod: 0, blend: 0, diameters: [] as number[] }
+        : null;
     if (cullOn) {
       viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       extractFrustumPlanes(viewProj.elements, planes);
@@ -512,7 +518,13 @@ export function createAtomBatch(
       );
       const lodRadiusPx =
         (Math.min(1, Math.max(0.5, lodMul)) * CLOUD_BOUND_RADIUS * lodScale) / lodDist / pxScale;
-      const smallLod = f.fullDetail ? 0 : smallAtomLod(lodRadiusPx * 2);
+      const lodDiameterCss = (lodRadiusPx * 2) / dprCss;
+      const smallLod = f.fullDetail ? 0 : smallAtomLod(lodDiameterCss);
+      if (lodStats) {
+        lodStats.diameters.push(+lodDiameterCss.toFixed(1));
+        if (smallLod > 0.5) lodStats.lod += 1;
+        if (smallLod > 0 && smallLod <= 0.5) lodStats.blend += 1;
+      }
       const params = clampShaderParams({
         marchSteps: cullOn ? marchStepsFor(f.marchSteps, projRadiusPx) : f.marchSteps,
         exposure: 1,
@@ -677,7 +689,7 @@ export function createAtomBatch(
         st.coreColor[0],
         st.coreColor[1],
         st.coreColor[2],
-        (Math.pow(Math.max(crowdG, readS * 0.8), 1.2) / Math.pow(lod, 0.75)) * (1 - 0.93 * smallLod)
+        (Math.pow(Math.max(crowdG, readS * 0.8), 1.2) / Math.pow(lod, 0.75)) * (1 + 0.6 * smallLod)
       );
       setF(
         row,
@@ -794,6 +806,7 @@ export function createAtomBatch(
         set4(dyn, DYN_COLS, row, base + 2, col[0], col[1], col[2], 0);
       }
     }
+    if (lodStats) (window as unknown as { __atomicLodStats?: unknown }).__atomicLodStats = lodStats;
     bucketOfRow.length = n;
     strandField.setBuckets(bucketOfRow);
     // Upload only the rows in use (one writeBuffer each), not the whole capacity.

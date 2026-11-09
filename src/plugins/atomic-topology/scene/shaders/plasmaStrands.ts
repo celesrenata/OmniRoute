@@ -296,7 +296,7 @@ export function createStrandMaterial(data: AtomData, mirror = false): MeshBasicN
       .mul(bri)
       // Small on screen: hairlines overlap per pixel and sum to white, so they
       // thin out with distance and let the violet body carry the read.
-      .mul(float(1).sub(U.far.mul(0.55)))
+      .mul(float(1).sub(U.far.mul(0.72)))
       .mul(U.strandCrowd)
       .mul(flick.mul(0.55).add(0.45).add(pulse))
       .mul(fade)
