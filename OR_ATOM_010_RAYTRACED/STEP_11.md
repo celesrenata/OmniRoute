@@ -156,3 +156,59 @@ Perf, detail open, real /home:
 Tests: atomic-topology unit tests 514 pass / 0 fail / 1 skipped; `tests/unit/topology/` (vitest) 13/13; eslint clean on changed files; typecheck:core 45 pre-existing errors, 0 in changed code.
 
 Open items (honest): there is no real GPU atom on the real fleet, so GPU detail is bench-only. Uncapped fullscreen pacing (above) is pre-existing and not root-caused. FORBIDDEN_ORIGIN remains on dev `/home` by policy. The inactive-toggle contrast caveat over a white backdrop is theoretical.
+
+## Checkpoint 3d (directives 39 + 40)
+
+Commits: 39.1 label mask `065763ab4`, 39.3 frame-breakdown tooling `b513198f8` (no render change), 39.2 pulse strips `3a3597373`, 40 feeder traces `91c88b508`, this doc (39.4 + evidence) in the next commit.
+
+Evidence root: /Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/step11/c39/
+
+- 39.1 Neighbour labels (`overlays/detailLabelMask.ts`, wired in `scene/AtomicScene.tsx::DetailFlight`). Detail view only, every 100 ms the scene projects the focused atom's envelope silhouette (centre + radius along the camera right axis, lens shift included), measures the label rows and the detail panel, and fades (0.25 s; none in reduced motion) every non-focused label that overlaps either, through a scoped stylesheet keyed by `data-atom-id`. A masked label returns only after it clears margin + 10 px (no flicker). On exit the stylesheet is removed. `AtomicLabels.tsx`, `labelCollision.ts` and `projection.ts` are untouched (`git diff` empty). Real /home: `signoff2/card-detail-openai.png`, `card-detail-hub.png`, `fullscreen-detail-openai.png`, `fullscreen-detail-hub.png`. Per run `signoff2/signoff2-report.json` -> `runs[].labels` records `visibleOverlaps: []` in all four runs (masked 3 / 6 / 8 / 5 neighbours), and `labelsAfterEsc` shows 0 mask stylesheets and 0 non-opaque labels. Tests: `tests/unit/atomic-topology/detailLabelMask.test.ts`.
+- 39.2 Pulse strips: `strip/pulse-strip-default.jpg` (default zoom; real capture times 0/150/316/450/600/733/900/1066 ms) and `strip/pulse-strip-closeup.jpg` (detail close-up; 0/150/317/450/600/733/900/1033 ms). Both are taken from a CDP screencast of the bench on the real GPU, and the times are in `strip/strip-report.json`. The pulses visibly travel along long nets in both, so no visibility boost was needed. The existing recording is `../c3c/traces/traces-pulses.webm`. Tools: `scripts/ad-hoc/pw-atomic-pulse-strip.mjs`, `scripts/ad-hoc/pulse-strip.py`.
+- 39.3 Fullscreen pacing: root cause found, NOT fixed. Every fix that reaches >=120 fps changes the look, so per the directive it is reported, not shipped. Breakdown with real /home, OpenAI detail open, uncapped, M5 Max (`perf/profile-*.json`, tool `scripts/ad-hoc/pw-atomic-fs-profile.mjs` with dev-only `?gputime=1` GPU timestamps and `window.__atomicGpuDbg`):
+  - Card vs fullscreen: 1400x836 vs 2876x1796 device px (4.4x the pixels). Render-target reallocation: 0 `setSize` calls during measurement. Uploads are identical in both: 160 `writeBuffer` calls, ~1.06 MB per frame (`profile-up.json`).
+  - The JS CPU profile in fullscreen detail (`profile-cpu.json`) spends 2.9 s of 4 s blocked inside `GPUQueue.writeBuffer`, plus 0.6 s in `setPipeline`. The main thread is waiting on GPU backpressure, so the GPU is the limit.
+  - Interleaved A/B (`profile-ab2.json`, base vs variant, median of 3 pairs):
+
+    | Variant                     | base fps | variant fps |
+    | --------------------------- | -------- | ----------- |
+    | DPR 2 -> 1                  | 82.6     | 212         |
+    | bloom off                   | 78.4     | 77.6        |
+    | DOF off                     | 75.5     | 73.9        |
+    | all atoms hidden            | 69.8     | 558.7       |
+    | environment hidden          | 64.8     | 75.7        |
+    | strands hidden              | 60.9     | 78.1        |
+    | strand mirror hidden        | 60.7     | 80.2        |
+    | impostor (ray march) hidden | 44.9     | 59.2        |
+    | impostor mirror hidden      | 47.1     | 53.7        |
+    | flareBack hidden            | 49.6     | 54.2        |
+
+    Separate page loads: MSAA off +9 % (101 vs 92.6 fps), opaque canvas `alpha:false` +0 % (95.8 vs 92.6; compositor path ruled out).
+
+  - Root cause: fill rate. The hero atom covers most of a 5.2 MP frame, and its overlapping full-screen transparent layers (ray-marched cloud, plasma strands, their floor reflections, flares, wires) each cost 5-20 fps. No single culprit exists, and bloom, DOF, RT reallocation, compositor and march steps are not it (march steps are already chord-scaled and capped by projected size). Sustained load also drifts: 90 -> 72 fps over 40 s with no input (`profile-drift.json`).
+  - DPR sweep (`profile-dpr.json`): 2.0 -> 67 fps, 1.75 -> 77 fps, 1.5 -> 96 fps. Reaching >=120 needs about DPR 1.25 in fullscreen detail (visibly softer hairlines and strands), or dropping/lowering hero layers. Both are look changes, so they are left to the operator.
+  - Before/after (uncapped, real /home, detail open): c3c (before item 39/40) fullscreen OpenAI 78.1 / hub 60.8 fps; now 85.9 / 68.2 fps (`perf-home/signoff2-report.json`). Profile tool, fullscreen OpenAI: 92.6 fps before (`profile-q` series), 95.8 fps after (`profile-after.json`). Card: 217.8 / 220.1 -> 239.5 / 252.8 fps. With vsync on the 120 Hz display: card 120 fps (0 frames > 30 ms); fullscreen detail 79.2 / 62.7 fps with 0 frames > 30 ms (`signoff2/signoff2-report.json`).
+- 39.4 Real GPU-atom detail: UNVERIFIABLE LOCALLY. The real fleet behind /home has no GPU atom (10 atoms: hub + 9 providers; `gpuAtomPresent: false` in every report), so GPU-atom detail framing, labels and feeders were exercised only on the DEMO bench (2 bench GPU atoms), never on real GPU telemetry.
+- 40 Usage-driven feeder traces (`scene/feederUsage.ts`, `scene/traceRouter.ts` feed tags, `scene/shaders/boardTraces.ts` per-pad uniforms, driven from `RtTopologyScene.tsx` `useFrame`; no React per-frame state):
+  - Feeder nets: the nets routed into each atom's pad carry that pad's index; branches inherit it. A fallback trunk from the hub platform (or a nearby IC) guarantees every pad is fed: bench 22/22 pads, real /home 10/10. Layout and links are unchanged.
+  - Signal priority:
+    1. measured output tok/s (already stale-gated upstream);
+    2. live in-flight count (ignored while the telemetry badge is not "available");
+    3. real call-log rate (started requests per minute, last 60 s, from the event pool; providers only their own, the hub all of them, device atoms none).
+
+    Log mapping per basis (tok/s ref 6 / full 120; in-flight 1 / 12; calls 3 / 90 per min), deadband 0.04, off below 0.015, easing tau 0.33 s (frame-rate independent; about 95 % in 1 s).
+
+  - Effect: pulse speed up to 2.6x (a per-pad clock offset, so it never jumps), up to 3 extra pulse trains, and a copper glow of at most 0.055 HDR (below the bloom threshold, so well under the atoms, links and lightning). Level 0 (none, unknown, stale or measured zero) is exactly the decorative baseline. Reduced motion shows glow only.
+  - Detail panel row "Feeder traces: driven by measured output tok/s (24.0 tok/s)" / "idle (no measured usage; decorative only)". It uses the same signal function as the scene.
+  - Bench DEMO `?tps=0|20|80` (`feeders/feeders-idle.webm`, `feeders-tps20.webm`, `feeders-tps80.webm`, stills `*-default.jpg`, strip `feeders-strip-idle-20-80.jpg`, `feeders-report.json`): lit atoms 0 / 18 / 18 (the stale, unknown and error providers and the hub have no fresh tok/s, so they stay dark); levels 0 / 0.48 / 0.87. Same-crop pulse-bright pixels 0.63 / 0.71 / 0.93 %, mean luminance 48.4 / 49.2 / 50.5. That is proportional and subtle; 0 console errors.
+  - Real /home (`signoff2/home-default.png`, `signoff2-report.json` -> `feeders`): all 10 atoms basis "calls", value 0, level 0, so no feeder is lit. No real usage was observed during the capture, and on this dev server the live event feed is rejected (FORBIDDEN_ORIGIN, see 38.5). Feeders lighting on a real active atom has therefore NOT been observed on /home; it needs real traffic (and the WS origin allowed) to verify.
+  - Tests: `tests/unit/atomic-topology/feederUsage.test.ts` covers mapping (monotonic, bounded, zero-at-zero, null -> none, saturation), priority incl. stale in-flight and measured zero, the call-rate window, easing (60 vs 240 fps identical) and hysteresis, the explanation line, and router tagging.
+
+Tests at `91c88b508`: atomic-topology unit tests 525 pass / 0 fail / 1 skipped; `tests/unit/topology/` (vitest) 13/13; eslint clean on changed files; typecheck:core 45 pre-existing errors, 0 in atomic code.
+
+Open items (honest):
+
+- 39.3 needs an operator decision on a look change (fullscreen-detail DPR cap or hero-layer reduction) to reach >=120 fps uncapped.
+- No real GPU atom (39.4).
+- Feeders on real /home have not been seen lit (no real usage / WS origin).
+- FORBIDDEN_ORIGIN remains by policy.

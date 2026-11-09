@@ -1,0 +1,136 @@
+{
+  "label": "after",
+  "card": {
+    "fps": 249.8,
+    "p50": 1.1,
+    "p95": 21.1,
+    "gpuMsPerFrame": 2.08,
+    "gpuSamples": 36,
+    "canvasPx": [1400, 836],
+    "cssPx": [700, 418],
+    "dpr": 2,
+    "resizes": 0
+  },
+  "cardUploads": {
+    "frames": 491,
+    "callsPerFrame": 175,
+    "kbPerFrame": 1065,
+    "top": [
+      {
+        "bufSize": 65536,
+        "label": "bindingBufferundefined_UniformBuffer_10_(vertex)",
+        "kbPerFrame": 640,
+        "callsPerFrame": 10
+      },
+      {
+        "bufSize": 24576,
+        "label": "bindingBufferundefined_UniformBuffer_75_(fragment)",
+        "kbPerFrame": 145,
+        "callsPerFrame": 7
+      },
+      {
+        "bufSize": 35840,
+        "label": "bindingBufferundefined_UniformBuffer_147_(fragment)",
+        "kbPerFrame": 106,
+        "callsPerFrame": 4
+      },
+      {
+        "bufSize": 16384,
+        "label": "bindingBufferundefined_UniformBuffer_70_(vertex)",
+        "kbPerFrame": 96,
+        "callsPerFrame": 6
+      },
+      {
+        "bufSize": 32768,
+        "label": "bindingBufferundefined_UniformBuffer_87_(fragment)",
+        "kbPerFrame": 40,
+        "callsPerFrame": 2
+      },
+      {
+        "bufSize": 1024,
+        "label": "bindingBufferundefined_UniformBuffer_0_(fragment)",
+        "kbPerFrame": 30,
+        "callsPerFrame": 30
+      },
+      {
+        "bufSize": 4096,
+        "label": "bindingBufferundefined_UniformBuffer_162_(vertex)",
+        "kbPerFrame": 4,
+        "callsPerFrame": 1
+      },
+      {
+        "bufSize": 256,
+        "label": "",
+        "kbPerFrame": 2,
+        "callsPerFrame": 8
+      }
+    ]
+  },
+  "fullscreenActive": true,
+  "fullscreen": {
+    "fps": 95.8,
+    "p50": 9.8,
+    "p95": 45.7,
+    "gpuMsPerFrame": 6.25,
+    "gpuSamples": 15,
+    "canvasPx": [2876, 1796],
+    "cssPx": [1438, 898],
+    "dpr": 2,
+    "resizes": 0
+  },
+  "fullscreenUploads": {
+    "frames": 198,
+    "callsPerFrame": 175,
+    "kbPerFrame": 1065,
+    "top": [
+      {
+        "bufSize": 65536,
+        "label": "bindingBufferundefined_UniformBuffer_10_(vertex)",
+        "kbPerFrame": 640,
+        "callsPerFrame": 10
+      },
+      {
+        "bufSize": 24576,
+        "label": "bindingBufferundefined_UniformBuffer_75_(fragment)",
+        "kbPerFrame": 145,
+        "callsPerFrame": 7
+      },
+      {
+        "bufSize": 35840,
+        "label": "bindingBufferundefined_UniformBuffer_147_(fragment)",
+        "kbPerFrame": 106,
+        "callsPerFrame": 4
+      },
+      {
+        "bufSize": 16384,
+        "label": "bindingBufferundefined_UniformBuffer_70_(vertex)",
+        "kbPerFrame": 96,
+        "callsPerFrame": 6
+      },
+      {
+        "bufSize": 32768,
+        "label": "bindingBufferundefined_UniformBuffer_87_(fragment)",
+        "kbPerFrame": 40,
+        "callsPerFrame": 2
+      },
+      {
+        "bufSize": 1024,
+        "label": "bindingBufferundefined_UniformBuffer_0_(fragment)",
+        "kbPerFrame": 30,
+        "callsPerFrame": 30
+      },
+      {
+        "bufSize": 4096,
+        "label": "bindingBufferundefined_UniformBuffer_162_(vertex)",
+        "kbPerFrame": 4,
+        "callsPerFrame": 1
+      },
+      {
+        "bufSize": 256,
+        "label": "",
+        "kbPerFrame": 2,
+        "callsPerFrame": 8
+      }
+    ]
+  }
+}
