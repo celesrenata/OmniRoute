@@ -1,3 +1,41 @@
+# TESTS (Gate B, round 6)
+
+Source SHA of the code under test: `076bc2219ed03505ebeef69e9e9487dcb2cf434b` (short `076bc2219`; branch `feat/atomic-raytraced-renderer`; the following commit only adds docs/evidence).
+Deployment status: **not deployed.** Nothing pushed, no PR opened, no production or fleet change.
+Environment: macOS, Apple M5 Max, Node v24.21.0, headed Chrome via Playwright, dev server from this worktree on :20199.
+
+## Commands and outcomes
+
+| Command                                                                                                 | Outcome                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts`                                     | 467 tests, 466 pass, 0 fail, 1 skipped. New: `smallAtomLod.test.ts` (LOD weight, band 16 -> 46 css px, smooth cross-fade), `energyTiers.test.ts` (tier 0 greys, tier 1 floors and 70-95 % richness, tier 2 smooth 8-min decay, tier 3 floor, measured never lowers a tier, legacy path unchanged, reduced motion, tooltip Activity copy). |
+| `npx eslint src/plugins/atomic-topology src/app/dev tests/unit/atomic-topology`                         | 0 problems (after replacing `Date.now()`-in-render in the tooltip).                                                                                                                                                                                                                                                                       |
+| `npm run typecheck:core`                                                                                | 45 errors, all pre-existing (the same 45 on the base); 0 in `atomic-topology`.                                                                                                                                                                                                                                                            |
+| `npm run lint`                                                                                          | 7 errors, all pre-existing and outside the plugin (scriptVault / scripts.ts / scriptVaultTools).                                                                                                                                                                                                                                          |
+| `npm run test:vitest`                                                                                   | 54 files, 493 tests passed.                                                                                                                                                                                                                                                                                                               |
+| `npm run check:cycles`                                                                                  | OK, no cycles (462 files).                                                                                                                                                                                                                                                                                                                |
+| `node scripts/ad-hoc/pw-atomic-gateB.mjs ladder / loss / reduced / fallback / toggle 50 / soak 1200000` | See `PERFORMANCE.md` (all on this SHA, real GPU `apple/metal-3`).                                                                                                                                                                                                                                                                         |
+| `node scripts/ad-hoc/pw-atomic-home.mjs ...`                                                            | Real `/home` Atomic captures + LOD distribution (`home-before/` = previous SHA `1d7bccc3f`, `home-after/` = this SHA).                                                                                                                                                                                                                    |
+| `node scripts/ad-hoc/pw-atomic-gateB-capture.mjs ...` (+ `VIDEO=12000`)                                 | All round-6 stills and 4 videos, 0 console errors per capture.                                                                                                                                                                                                                                                                            |
+| pre-commit hooks (lint-staged, docs-sync, any-budget, tracked-artifacts, ai-attribution)                | Pass on `076bc2219`.                                                                                                                                                                                                                                                                                                                      |
+
+## New or changed tests (this round)
+
+- `smallAtomLod.test.ts`: fully on at/below 16 css px, fully off at/above 46, smoothstep midpoint 0.5, monotonic with no step, a 45 px atom is mostly the full atom, 78 px is exactly the full atom.
+- `energyTiers.test.ts`: see above.
+
+## Frozen-area guard
+
+`git diff 689178516 HEAD` is empty for `layout.ts`, `cameraFit.ts`, `labelCollision.ts`, `projection.ts`, `scene/SceneOrbitControls.tsx`, `overlays/AtomicLabels.tsx`, `overlays/AtomicControls.tsx`, `ProviderTopology2D.tsx`. Changed outside the scene this round: `overlays/AtomicTooltip.tsx` (Activity row), `AtomicTopologyRenderer.tsx` (two read-only descriptor fields).
+
+## Known gaps
+
+- No automated visual-regression diff; visual evidence is the captured images and videos. Shaders (PCB, platform, panels, LOD) are exercised only on a real GPU run, not in unit tests.
+- The real local fleet has no tier-0 provider on screen; tier 0 is shown on the bench (`idle-20.jpg`) and covered by unit tests.
+- The tab-hidden loop stop was driven by overriding `document.hidden` in an earlier round, not by an OS-level hidden tab.
+
+---
+
 # TESTS (Gate B, round 5)
 
 Source SHA of the code under test: `96c17acf3` (branch `feat/atomic-raytraced-renderer`; the following commit only adds docs/evidence).

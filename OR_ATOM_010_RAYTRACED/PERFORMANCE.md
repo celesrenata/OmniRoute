@@ -1,3 +1,46 @@
+# PERFORMANCE (Gate B, round 6)
+
+Code SHA `076bc2219ed03505ebeef69e9e9487dcb2cf434b`. Apple M5 Max, headed Chrome (adapter `apple/metal-3`), 1600x1000 CSS px @ DPR 2 (bench), MSAA + bloom + DOF + post, no quality tier, uncapped, 5 s rAF deltas. Background GPU load not controlled.
+
+## 8 / 16 / 20 / 32 atoms, uncapped (`node scripts/ad-hoc/pw-atomic-gateB.mjs ladder`; rendered = param + hub + merged devices)
+
+| atoms (rendered)                                                                                                                                                                                                                                                                                                                                                                                                 | WebGPU avg fps | WebGPU p50 / p95 / p99 (ms) | WebGL2 avg fps | WebGL2 p50 / p95 / p99 (ms) | round 5 WebGPU / WebGL2 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------: | --------------------------: | -------------: | --------------------------: | ----------------------: |
+| 8 (10)                                                                                                                                                                                                                                                                                                                                                                                                           |          255.4 |           3.1 / 20.4 / 21.4 |          217.4 |            4.4 / 7.6 / 10.0 |             326.6 / 239 |
+| 16 (18)                                                                                                                                                                                                                                                                                                                                                                                                          |          231.0 |           2.0 / 20.9 / 22.1 |          215.0 |            4.5 / 7.8 / 11.2 |             275.6 / 227 |
+| 20 (22)                                                                                                                                                                                                                                                                                                                                                                                                          |          200.6 |           2.3 / 21.3 / 22.7 |          198.6 |            5.1 / 9.0 / 11.1 |             231.0 / 202 |
+| 32 (34)                                                                                                                                                                                                                                                                                                                                                                                                          |          192.2 |           2.2 / 21.6 / 22.6 |          153.4 |           6.1 / 12.3 / 14.5 |             192.6 / 174 |
+| Targets (~120 fps @ ~20 atoms, >= 60 fps @ 32): **met** on both backends. Spikes: 0 (WebGL2: 1 each at 8 and 32). The WebGPU p95 tail (~21 ms) is the known pattern, deferred by directive 21.                                                                                                                                                                                                                   |
+| Why it is slower than round 5 at 8-20 atoms: directive 31 moved the LOD switch from ~170 css px to 16-46 css px, so most atoms now render the full ray-traced atom (round 5 rendered the cheaper LOD for them), plus the platform / reflection / panel shading. Round 6a (LOD up to 170 px) measured 349 / 324 / 270 / 231 fps, which is the cost of the earlier LOD choice for comparison. No target regressed. |
+
+## Real dashboard (`/home`, Atomic mode, 1440x900 @2x, real local fleet) LOD distribution (`pw-atomic-home.mjs`, dev-only `window.__atomicLodStats`)
+
+| case                                                                                                                                                                                                                                                                         | atoms | css px diameter min / median / max | atoms with LOD weight > 0.5 | atoms with 0 < weight <= 0.5 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----: | ---------------------------------- | --------------------------: | ---------------------------: |
+| real fleet (mostly idle)                                                                                                                                                                                                                                                     |    10 | 39.2 / 50.2 / 78.3                 |                     0 (0 %) |                     3 (30 %) |
+| `topology-demo=mixed-lanes`                                                                                                                                                                                                                                                  |    11 | 26.9 / 35.6 / 56.9                 |                           1 |                            7 |
+| `topology-demo=unknown-stale`                                                                                                                                                                                                                                                |    11 | 21.8 / 35.6 / 56.9                 |                           2 |                            8 |
+| `topology-demo=idle`                                                                                                                                                                                                                                                         |    11 | 25.4 / 35.6 / 56.9                 |                           2 |                            8 |
+| Before this round (LOD fully on below ~170 css px): 100 % of the atoms in every case. Target "< 25 % in LOD": met for the real fleet (0 % mostly-LOD); the demo scenarios (larger 11-atom layout, smaller atoms) have 9-18 % mostly-LOD and the rest in the cross-fade tail. |
+
+## Forced context / device loss (`loss`): 3/3 WebGPU `device.destroy` and 3/3 WebGL2 `WEBGL_lose_context` recovered, 1 canvas, 3196x1996, p50 8.3 ms after.
+
+## Fallback (`fallback`): two failed restores -> host 2D in 1701 ms, 0 atomic canvases, 2D pressed.
+
+## Reduced motion (`reduced`): static while idle (`staticWhileIdle: true`), orbit renders a new frame (`orbitRendersNewFrame: true`).
+
+## 2D <-> Atomic toggle x50 (`toggle 50`, real host): 50/50 Atomic, 50/50 2D, peak 1 canvas, 0 at end, switch p50 34 ms / max 149 ms, heap 86.4 -> 89.0 MB over 40 toggles (flat), 81.5 MB after forced GC. Console: pre-existing `[LiveWS] FORBIDDEN_ORIGIN` and the pre-existing React "synchronously unmount a root" warning (reproduced on `9805665e6`, host code).
+
+## 20-minute soak (`soak 1200000`, real `/home`, Atomic renderer, 40 samples of 30 s)
+
+20.0 min on the dashboard (real host), 40 samples: avg fps 45.3-60.3 (the window was display-synced at 60 Hz this run; the round-5 soak ran at 120 Hz), p50 16.7-16.7 ms, p95 17-17.7 ms, p99 max 133.5 ms, 3 spikes over 30 ms in total (one 30 s sample dipped to 45.3 fps avg / 133 ms p99 at about 4 min, when I ran `npm run check:cycles` on the same machine; every other sample is 60.3 fps), 1 canvas, context lost 0; heap start 89 MB, end 95.4 MB, max 96.7 MB (flat; +6 MB over 20 min is within allocator noise, no growth trend in the 40 samples). Console: pre-existing `[LiveWS] FORBIDDEN_ORIGIN` (dev origin, so `telemetry: null`) and the pre-existing React unmount warning.
+**Not exercised:** the 3.5 s live telemetry cadence. The dev server's websocket rejects this origin (`FORBIDDEN_ORIGIN`), so `telemetry` stayed `null`; this is a rendering/stability soak, not a live-data soak.
+
+## Visibility savings / profile phase
+
+Unchanged from round 5 (frustum culling, projected-size march steps, hidden-tab stop). The deeper profile (GPU timestamps, the 32-atom tail, the p95 stalls) stays deferred to the post-Step-12 phase (directive 21).
+---
+
 # PERFORMANCE (Gate B, round 5)
 
 Code SHA `96c17acf3`. Apple M5 Max, headed Chrome (adapter `apple/metal-3`), 1600x1000 CSS px @ DPR 2, MSAA + bloom + DOF + post, no quality tier, uncapped, 5 s rAF deltas.
