@@ -378,6 +378,18 @@ export default function ProviderTopology({
     }
   }, [snapshot, rendererId]);
 
+  // View-mode toggle styling only. In Atomic mode it uses fixed dark glass that matches the
+  // Pause/Reset/Fullscreen cluster (theme-independent; the light theme's white `bg-bg` washed
+  // it out over the 3D canvas). slate-300 on slate-900/80 over the dark scene is > 4.5:1.
+  const atomicMode = rendererId === atomicRendererId;
+  const toggleSegmentClass = (active: boolean): string =>
+    atomicMode
+      ? active
+        ? "bg-slate-700/90 px-2 py-0.5 font-medium text-white"
+        : "px-2 py-0.5 text-slate-300 hover:text-white"
+      : active
+        ? "bg-white/10 px-2 py-0.5 font-medium text-white"
+        : "px-2 py-0.5 text-white/60 hover:text-white";
   return (
     <div className="relative h-[300px] w-full min-w-0 sm:h-[420px]">
       <div ref={containerRef} className="h-full w-full min-w-0" />
@@ -385,17 +397,17 @@ export default function ProviderTopology({
         <div
           role="group"
           aria-label="Topology view mode"
-          className="flex overflow-hidden rounded-md border border-white/10 bg-bg/90 text-[11px] shadow-sm"
+          className={
+            atomicMode
+              ? "flex overflow-hidden rounded-md border border-slate-400/25 bg-slate-900/80 text-[11px] text-slate-200 shadow-sm backdrop-blur-sm"
+              : "flex overflow-hidden rounded-md border border-white/10 bg-bg/90 text-[11px] shadow-sm"
+          }
         >
           <button
             type="button"
             aria-pressed={rendererId === DEFAULT_TOPOLOGY_RENDERER_ID}
             onClick={() => switchRenderer(DEFAULT_TOPOLOGY_RENDERER_ID)}
-            className={
-              rendererId === DEFAULT_TOPOLOGY_RENDERER_ID
-                ? "bg-white/10 px-2 py-0.5 font-medium text-white"
-                : "px-2 py-0.5 text-white/60 hover:text-white"
-            }
+            className={toggleSegmentClass(rendererId === DEFAULT_TOPOLOGY_RENDERER_ID)}
           >
             2D
           </button>
@@ -403,11 +415,7 @@ export default function ProviderTopology({
             type="button"
             aria-pressed={rendererId === atomicRendererId}
             onClick={() => switchRenderer(atomicRendererId)}
-            className={
-              rendererId === atomicRendererId
-                ? "bg-white/10 px-2 py-0.5 font-medium text-white"
-                : "px-2 py-0.5 text-white/60 hover:text-white"
-            }
+            className={toggleSegmentClass(rendererId === atomicRendererId)}
           >
             Atomic
           </button>
