@@ -192,6 +192,27 @@ export function RtTopologyContent({
     root.traverse((o) => {
       (o as { raycast?: unknown }).raycast = () => {};
     });
+    // Dev-only layer A/B (`?hideLayers=strands,wires,...` by mesh name); never in production.
+    const hideLayers =
+      process.env.NODE_ENV !== "production" && typeof window !== "undefined"
+        ? (new URLSearchParams(window.location.search).get("hideLayers") ?? "")
+            .split(",")
+            .filter(Boolean)
+        : [];
+    if (hideLayers.length) {
+      const hideSet = new Set(hideLayers);
+      const hideNew = (o: { name?: string; material?: unknown }) => {
+        const m = o.material as { visible?: boolean } | undefined;
+        if (o.name && hideSet.has(o.name) && m) m.visible = false;
+      };
+      root.traverse(hideNew);
+      // Impostor slots are created lazily on configure: re-apply on the next frames.
+      let tries = 0;
+      const timer = window.setInterval(() => {
+        root.traverse(hideNew);
+        if (++tries > 20) window.clearInterval(timer);
+      }, 250);
+    }
     scene.add(root);
     gpuRef.current = {
       root,
@@ -223,6 +244,7 @@ export function RtTopologyContent({
         observedModelIds: d.kind === "hub" ? undefined : d.observedModelIds,
         laneHue: d.laneHue,
         neutral: isNeutralAtom(d),
+        absent: d.energyTier === 0 || (d.energyTier == null && isNeutralAtom(d)),
       })),
     [descriptors]
   );

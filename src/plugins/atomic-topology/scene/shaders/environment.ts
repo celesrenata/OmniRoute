@@ -114,6 +114,45 @@ export function createEnvironment(
   disposables.push(boardParts);
   // Floor haze field (magnetic / high-voltage parts): world rect + R8 texture.
   const hazeRect = uniform(new Vector4(...boardParts.haze.rect.value));
+  /** Floor point the warm light trails radiate from (the hub platform), x/z. */
+  const trailCenter = uniform(new Vector4(0, 0, 0, 0));
+
+  // --- warm light trails (idea5): long orange streaks racing across the floor from
+  // the hero platform toward the walls, with outward-travelling light packets.
+  // Decorative only (never telemetry); packets freeze when life = 0 (reduced motion).
+  const TRAILS = 22;
+  const warmTrails = (p: any, tHit: any) => {
+    const TC = trailCenter as any;
+    const life = (dims2 as any).y;
+    const dx = p.x.sub(TC.x);
+    const dz = p.z.sub(TC.y);
+    const rr = length(vec2(dx, dz));
+    const cellF = atan(dz, dx)
+      .add(Math.PI)
+      .mul(TRAILS / (2 * Math.PI));
+    const cell = cellF.floor();
+    const hsh = fract(sin(cell.mul(91.7).add(3.1)).mul(43758.5453));
+    const on = step(0.42, hsh);
+    // Slight per-trail angular offset so the fan is irregular, not a pinwheel.
+    const across = fract(cellF.add(hsh.sub(0.5).mul(0.5)))
+      .sub(0.5)
+      .abs()
+      .mul((2 * Math.PI) / TRAILS)
+      .mul(rr);
+    // Width grows gently with view distance (stays >= ~1 px, no shimmer).
+    const w = float(0.9).add(tHit.mul(0.0022));
+    const core = exp(across.div(w).pow(2).negate());
+    const halo = exp(across.div(w.mul(5)).pow(2).negate()).mul(0.22);
+    const startR = float(150).add(hsh.mul(90));
+    const env = smoothstep(startR, startR.add(120), rr);
+    const tm = (time as any).mul(life);
+    const q = fract(rr.div(float(260).add(hsh.mul(200))).sub(tm.mul(hsh.mul(0.25).add(0.18))));
+    const packet = exp(q.mul(-6))
+      .mul(smoothstep(0.0, 0.02, q))
+      .mul(1.6);
+    const col = mix(vec3(1.0, 0.42, 0.08), vec3(1.0, 0.68, 0.3), hsh);
+    return col.mul(core.add(halo)).mul(packet.add(0.35)).mul(env).mul(on).mul(0.9);
+  };
 
   // --- solid circuit-board container (ray-box from the camera) ------------------
   const room = Fn(() => {
@@ -210,7 +249,8 @@ export function createEnvironment(
       const floorC = b
         .add(vec3(0.05, 0.2, 0.35).mul(gl).mul(0.28))
         .add(vec3(0.05, 0.16, 0.3).mul(hz.mul(hz)).mul(0.1))
-        .add(reflPanel.mul(fresR).mul(1.7));
+        .add(reflPanel.mul(fresR).mul(1.7))
+        .add(warmTrails(p, tHit));
       const ceilC = pcbPanel(
         p.x.div(sc),
         p.z.div(sc),
@@ -447,6 +487,7 @@ export function createEnvironment(
     );
     (hazeRect.value as Vector4).set(...boardParts.haze.rect.value);
     const hubPed = peds.find((q) => q.hub ?? false);
+    (trailCenter.value as Vector4).set(hubPed?.x ?? 0, hubPed?.z ?? 0, 0, 0);
     if (hubPed) {
       hero.place(hubPed.x, hubPed.y ?? fy, hubPed.z, hubPed.scale ?? 1);
       hero.group.visible =

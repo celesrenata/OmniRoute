@@ -178,8 +178,10 @@ export function createWireMaterial(data: AtomData): MeshBasicNodeMaterial {
       .add(trail.mul(1.6))
       .mul(U.wireEnergy)
       .mul(mix(float(0.45), float(1), nearV));
-    const col = graded.mul(k).add(d3.xyz.mul(eK));
-    return vec4(col.mul(prof).mul(coverV).mul(vis), 1);
+    const colRaw = graded.mul(k).add(d3.xyz.mul(eK)).mul(prof).mul(coverV).mul(vis);
+    // Hue-preserving soft cap: overlapping wires stay cyan/violet, not white.
+    const mxc = max(colRaw.x, max(colRaw.y, colRaw.z));
+    return vec4(colRaw.div(mxc.mul(0.45).add(1)).mul(1.3), 1);
   })();
   material.transparent = true;
   material.blending = AdditiveBlending;

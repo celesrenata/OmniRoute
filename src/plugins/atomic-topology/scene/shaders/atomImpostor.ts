@@ -78,6 +78,11 @@ void AdditiveBlending;
 const KEY_DIR = vec3(-0.45, 0.72, 0.52).normalize();
 const KEY_COLOR = vec3(1.0, 0.86, 0.95);
 
+/** Emission gain of the radial plasma petals in the cloud march (idea5 strand body). */
+const FIL_GAIN = 0.55;
+/** Emission gain of the defined cyan rim shell. */
+const RIM_GAIN = 0.8;
+
 /** Edge length (voxels) of the baked, tileable filament-noise volume. */
 export const NOISE_SIZE = 64;
 
@@ -424,7 +429,27 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     const edgeR = u.reach as any;
     const crowdK = u.crowd as any;
     const interior = float(1).sub(smoothstep(edgeR.mul(0.78), edgeR.mul(0.98), r));
+    // Radial plasma petals (idea5): noise of the DIRECTION only is constant along
+    // the radius, so its zero sheets are radial walls bursting from the nucleus.
+    // Seen edge-on they are bright violet-to-cyan strands; between them the body
+    // stays dark (petal voids). A finer direction-only octave striates each petal.
+    const farK = u.far as any;
+    const sheetN = noise4(dir.mul(4.6), phase.mul(0.03), 0);
+    const sheet = pow(float(1).sub(sheetN.abs()).max(0), mix(float(10), float(7), farK));
+    const striaN = noise4(dir.mul(13.0), phase.mul(0.05).add(3.7), 1);
+    const stria = pow(float(1).sub(striaN.abs()).max(0), 5);
+    const filEnv = smoothstep(0.07, 0.24, r).mul(
+      float(1).sub(smoothstep(edgeR.mul(0.86), edgeR.mul(1.0), r))
+    );
+    const fil = sheet
+      .mul(stria.mul(mix(float(0.8), float(0.45), farK)).add(mix(float(0.35), float(0.6), farK)))
+      .mul(filEnv)
+      .mul(petal.mul(0.55).add(0.45))
+      .mul(float(0.55).add(excitation.mul(0.6)));
+    // Dark voids: the diffuse body is carried by the petals, not uniform haze.
+    const voidK = pow(float(1).sub(sheetN.abs()).max(0), 2.5).mul(0.75).add(0.25);
     const bodyD = lobeSum
+      .mul(voidK)
       .mul(shell)
       .mul(churn)
       .mul(interior)
@@ -445,7 +470,7 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       .mul(petal.mul(0.9).add(0.1))
       .mul(0.55);
     const density = bodyD.add(core).add(rimBand);
-    const rimT = smoothstep(edgeR.mul(0.62), edgeR.mul(0.9), r);
+    const rimT = smoothstep(edgeR.mul(0.78), edgeR.mul(0.96), r);
     const interiorCol = mix(hueMix, u.inner as any, 0.5);
     const rimCol = mix(u.rim as any, hueMix, 0.2);
     const baseCol = mix(interiorCol, rimCol, rimT);
@@ -462,10 +487,23 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
       .mul(petal.mul(0.7).add(0.3))
       .mul(u.mediumK as any);
     const mediumCol = pow(max(mix(vec3(luma), u.inner as any, saturation), 0.0001), vec3(1.6));
+    // Filament colour: hot violet-white at the root, violet/magenta mid, cyan tip.
+    const filT = smoothstep(0.55, 0.97, r.div(edgeR));
+    const filBase = mix(
+      mix(vec3(0.95, 0.55, 1.0), u.inner as any, smoothstep(0.08, 0.35, r)),
+      u.rim as any,
+      filT
+    );
+    const fl = dot(filBase, vec3(0.2126, 0.7152, 0.0722));
+    const filCol = pow(max(mix(vec3(fl), filBase, saturation), 0.0001), vec3(1.35));
     return {
-      col: graded.mul(density).add(mediumCol.mul(medium).mul(petal.mul(0.8).add(0.02)).mul(0.4)),
-      w: density,
-      m: medium,
+      col: graded
+        .mul(density)
+        .add(filCol.mul(fil).mul(mix(float(FIL_GAIN), float(FIL_GAIN * 2.8), farK)))
+        .add(mediumCol.mul(medium).mul(petal.mul(0.8).add(0.02)).mul(0.4)),
+      w: density.add(fil.mul(0.4)),
+      // Deeper voids when small on screen: dark violet body behind bright petals.
+      m: medium.mul(float(1.6).sub(voidK.mul(0.6))).mul(farK.mul(0.8).add(1)),
     };
   };
   const fullFragment = Fn(() => {
@@ -581,7 +619,33 @@ export function createAtomMaterial(u: AtomUniforms): MeshBasicNodeMaterial {
     // Plasma in front of the gem is thinner (the reference keeps the crystal
     // crisp): the body glow over a nucleus hit is held back.
     const accK = select(tNuc.greaterThan(0), float(0.35), float(1));
-    const withFlare = acc.mul(accK).add(flare.mul(trans.mul(0.5).add(0.5)));
+    // Defined luminous cyan rim (idea5): an analytic limb on the ray's impact
+    // parameter (only the silhouette lights, never the face of the disc), broken
+    // into sparkly petal tips by direction-only noise.
+    const bImp = length(pc);
+    const edgeW = (u.reach as any).mul(cloudR).mul(0.9);
+    const limbD = bImp.sub(edgeW).div(cloudR);
+    const limbCore = exp(limbD.div(0.018).pow(2).negate());
+    const limbGlow = exp(limbD.div(0.05).pow(2).negate()).mul(0.1);
+    const limbN = bakedNoise(
+      normalize(pc)
+        .mul(22)
+        .add(vec3((u.phase as any).mul(0.02))),
+      0
+    );
+    const limbBreak = float(1).sub(limbN.abs()).max(0).pow(2.2).mul(0.85).add(0.15);
+    const rimL = dot(u.rim as any, vec3(0.2126, 0.7152, 0.0722));
+    const rimTone = max(mix(vec3(rimL), u.rim as any, saturation), 0);
+    const limb = rimTone
+      .mul(limbCore.mul(limbBreak).add(limbGlow))
+      .mul(float(0.55).add(excitation.mul(0.45)))
+      .mul(brightness.mul(0.6).add(0.4))
+      .mul((u.crowd as any).mul(0.6).add(0.4))
+      .mul(RIM_GAIN);
+    const withFlare = acc
+      .mul(accK)
+      .add(flare.mul(trans.mul(0.5).add(0.5)))
+      .add(limb);
     const refl = select(mirrorOn.greaterThan(0.5), float(0.3), float(1));
     const color = withFlare.add(surface.mul(mix(trans, float(1), 0.6))).mul(refl);
     const alpha = float(1)

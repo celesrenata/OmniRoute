@@ -296,7 +296,7 @@ export function createStrandMaterial(data: AtomData, mirror = false): MeshBasicN
       .mul(bri)
       // Small on screen: hairlines overlap per pixel and sum to white, so they
       // thin out with distance and let the violet body carry the read.
-      .mul(float(1).sub(U.far.mul(0.72)))
+      .mul(float(1).sub(U.far.mul(0.86)))
       .mul(U.strandCrowd)
       .mul(flick.mul(0.55).add(0.45).add(pulse))
       .mul(fade)
@@ -305,7 +305,10 @@ export function createStrandMaterial(data: AtomData, mirror = false): MeshBasicN
       .mul(prof)
       .mul(vis)
       .mul(mirror ? 0.28 : 1);
-    return vec4(grade(col, sat).mul(k).mul(1.45), 1);
+    // Saturated (violet/cyan, never white): overlapping hairlines sum to colour.
+    const l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    const vivid = pow(max(mix(vec3(l), col, sat.mul(1.35)), 0.0001), vec3(1.9));
+    return vec4(vivid.mul(k).mul(1.25), 1);
   })();
   return finish(material);
 }
@@ -355,8 +358,10 @@ export function createSparkleMaterial(data: AtomData): MeshBasicNodeMaterial {
       .mul(float(0.6).add(exc.mul(1.4)))
       .mul(bri)
       .mul(vis)
-      .mul(mix(float(3.4), float(15), kindV))
-      .mul(U.far.mul(mix(float(1.1), float(0.5), kindV)).add(0.8))
+      .mul(mix(float(3.4), float(6), kindV))
+      // Small on screen: the cyan rim fringe brightens (silhouette), the pink/orange
+      // motes recede (they summed to a pale pink-white speckle at 40-80 px).
+      .mul(U.far.mul(mix(float(0.15), float(-0.55), kindV)).add(0.8))
       .mul(U.sparkleGain);
     return vec4(grade(col, sat).mul(k), 1);
   })();

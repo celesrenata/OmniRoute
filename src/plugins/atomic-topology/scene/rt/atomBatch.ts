@@ -105,6 +105,30 @@ function mix3(
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
 
+/**
+ * Saturated mean nucleon tint, normalised to a max channel of 1 and lifted
+ * slightly toward the hot pink core (still clearly the model hue).
+ */
+export function modelCoreColor(packed: PackedNucleus): [number, number, number] {
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  const n = Math.max(1, packed.count);
+  for (let i = 0; i < packed.count; i += 1) {
+    r += packed.tints[i * 4];
+    g += packed.tints[i * 4 + 1];
+    b += packed.tints[i * 4 + 2];
+  }
+  r /= n;
+  g /= n;
+  b /= n;
+  const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const sat = (c: number) => Math.max(0, l + (c - l) * 1.8);
+  const s: [number, number, number] = [sat(r), sat(g), sat(b)];
+  const mx = Math.max(s[0], s[1], s[2], 1e-4);
+  return mix3([s[0] / mx, s[1] / mx, s[2] / mx], [1.0, 0.62, 0.9], 0.2);
+}
+
 export interface BatchAtomConfig {
   id: string;
   hub: boolean;
@@ -113,6 +137,13 @@ export interface BatchAtomConfig {
   laneHue: string;
   /** Unknown / stale attribution: restrained blue-silver, never a model colour. */
   neutral: boolean;
+  /**
+   * Energy tier 0 (absent: stale / disconnected / unknown health). Only absent atoms
+   * take the grey blue-silver CLOUD; a healthy unattributed atom keeps a vivid
+   * violet/cyan cloud (directive 30) while its nucleus stays neutral (no model colour).
+   * Default: same as `neutral` (legacy behaviour).
+   */
+  absent?: boolean;
 }
 
 export interface BatchAtomFrame {
@@ -180,7 +211,7 @@ interface AtomState {
 }
 
 function signatureOf(c: BatchAtomConfig): string {
-  return `${c.id}|${c.hub ? 1 : 0}|${c.neutral ? 1 : 0}|${c.laneHue}|${(c.observedModelIds ?? []).join(",")}`;
+  return `${c.id}|${c.hub ? 1 : 0}|${c.neutral ? 1 : 0}|${c.absent ? 1 : 0}|${c.laneHue}|${(c.observedModelIds ?? []).join(",")}`;
 }
 
 function buildAtomState(config: BatchAtomConfig): AtomState {
@@ -217,9 +248,11 @@ function buildAtomState(config: BatchAtomConfig): AtomState {
   const lane = hexToLinear(config.laneHue);
   const known = !config.neutral && packed.modelGroups.length > 0;
   const hub = config.hub;
+  // Vivid cloud: attributed atoms, and healthy unattributed atoms (not tier 0).
+  const vivid = known || (config.neutral && config.absent === false);
   const hueSet: [number, number, number][] = hub
     ? HUB_HUES
-    : known
+    : vivid
       ? [mix3(lane, [0.55, 0.2, 1.0], 0.7), [0.8, 0.22, 0.95], [0.95, 0.32, 0.85]]
       : NEUTRAL_HUES;
   const orient = new Matrix3().setFromMatrix4(
@@ -233,7 +266,7 @@ function buildAtomState(config: BatchAtomConfig): AtomState {
     )
   );
   const orbitals = orbitalLayout(seed);
-  const palette = config.neutral ? NEUTRAL_PALETTE : LANE_PALETTE;
+  const palette = vivid || hub ? LANE_PALETTE : NEUTRAL_PALETTE;
   const wires = orbitWires(seed, WIRES_PER_ATOM);
   return {
     signature: signatureOf(config),
@@ -248,13 +281,23 @@ function buildAtomState(config: BatchAtomConfig): AtomState {
     orient,
     known,
     hueSet,
-    inner: hub ? [0.75, 0.1, 0.55] : known ? [0.5, 0.14, 1.0] : [0.4, 0.5, 0.78],
-    strandInner: hub ? [0.85, 0.15, 0.6] : known ? [0.62, 0.16, 1.0] : [0.45, 0.55, 0.8],
-    rim: hub || known ? [0.08, 0.85, 1.0] : [0.55, 0.72, 0.95],
-    coreColor: hub || known ? [1.0, 0.62, 0.9] : [0.85, 0.9, 1],
-    rootColor: hub || known ? [1.0, 0.42, 0.82] : [0.75, 0.82, 1.0],
+    inner: hub ? [0.75, 0.1, 0.55] : vivid ? [0.5, 0.14, 1.0] : [0.4, 0.5, 0.78],
+    strandInner: hub ? [0.85, 0.15, 0.6] : vivid ? [0.62, 0.16, 1.0] : [0.45, 0.55, 0.8],
+    rim: hub || vivid ? [0.08, 0.85, 1.0] : [0.55, 0.72, 0.95],
+    // Known atoms: the hot core/glow carries the MODEL colour (saturated mean of the
+    // nucleon tints) so nuclei stay distinguishable at 40-80 px instead of every
+    // core summing to the same pink-white.
+    // Unattributed healthy atoms: a clean cyan-white core (explicitly NOT a model hue).
+    coreColor: hub
+      ? [1.0, 0.62, 0.9]
+      : known
+        ? modelCoreColor(packed)
+        : vivid
+          ? [0.62, 0.88, 1.0]
+          : [0.85, 0.9, 1],
+    rootColor: hub || vivid ? [1.0, 0.42, 0.82] : [0.75, 0.82, 1.0],
     palette,
-    electronHot: config.neutral ? [0.75, 0.85, 1.0] : [1.0, 0.5, 0.32],
+    electronHot: vivid || hub ? [1.0, 0.5, 0.32] : [0.75, 0.85, 1.0],
     electronCount: wires.map((_, i) => (i % 3 === 0 ? 2 : 1)),
     flickerClock: 0,
     swirlClock: 0,
@@ -679,7 +722,7 @@ export function createAtomBatch(
         st.rim[2],
         (0.35 + 0.9 * bri) *
           0.8 *
-          (1 - 0.7 * farK) *
+          (1 - 0.78 * farK) *
           Math.pow(Math.max(crowdG, readS * 0.9), 1.0) *
           (1 - 0.2 * smallLod)
       );

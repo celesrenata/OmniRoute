@@ -30,6 +30,7 @@ import {
   pass,
   pow,
   screenUV,
+  select,
   sin,
   smoothstep,
   uniform,
@@ -199,14 +200,21 @@ export function createRtPost(
     return out;
   });
   const grade = Fn(() => {
-    const hdr = dof().add(bloomNode.rgb.mul(bloomOn));
+    const hdrRaw = dof().add(bloomNode.rgb.mul(bloomOn));
+    // Hue-preserving highlight shoulder before ACES: additive stacks of saturated
+    // light (violet body + cyan rim + model-coloured cores) are compressed by their
+    // max channel, so they keep their hue instead of clipping to pink-white.
+    const mxc = max(hdrRaw.x, max(hdrRaw.y, hdrRaw.z)).max(1e-4);
+    const over = mxc.sub(1).max(0);
+    const mapped = select(mxc.greaterThan(1), over.div(over.mul(0.45).add(1)).add(1), mxc);
+    const hdr = hdrRaw.mul(mapped.div(mxc));
     // Filmic split-tone: cool teal in shadows, warm magenta/orange in highlights.
     const luma = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
-    const shadowTint = vec3(0.9, 1.0, 1.1);
-    const highTint = vec3(1.12, 0.95, 1.03);
+    const shadowTint = vec3(0.86, 1.0, 1.13);
+    const highTint = vec3(1.14, 0.96, 1.0);
     const toned = hdr.mul(mix(shadowTint, highTint, smoothstep(0.1, 1.2, luma)));
     // Deep blacks + contrast: crush the lifted floor so the atom is the brightest object.
-    const graded = pow(max(toned.sub(0.012), 0), vec3(1.14));
+    const graded = pow(max(toned.sub(0.014), 0), vec3(1.2));
     // Vignette.
     const v = length(screenUV.sub(0.5).mul(vec2(1.0, 0.9)));
     const vig = float(1).sub(smoothstep(0.3, 0.9, v).mul(0.72));
