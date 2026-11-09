@@ -177,6 +177,9 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
     const hidden = new Set(
       (new URLSearchParams(location.search).get("hide") ?? "").split(",").filter(Boolean)
     );
+    // Dev-only profiling: ?hideEnv=1 hides the circuit-board environment.
+    if (new URLSearchParams(location.search).get("hideEnv") === "1")
+      env.objects.forEach((o) => (o.visible = false));
     let last = performance.now();
     let frames = 0;
 
@@ -235,6 +238,14 @@ export function GoldenAtomBench({ params }: { params: GoldenBenchParams }) {
           return;
         }
         rtRenderer = r;
+        // Dev-only handle for the GPU timestamp / layer breakdown (`pw-atomic-layers.mjs`).
+        (window as unknown as { __atomicGpuDbg?: unknown }).__atomicGpuDbg = {
+          gl: r.renderer,
+          post: { pipeline: r.pipeline, setBloom: r.setPostEnabled },
+          atoms: batch,
+          env,
+          motes: { far: { visible: true }, near: { visible: true } },
+        };
         raf = requestAnimationFrame(frame);
       })
       .catch((error: unknown) => {

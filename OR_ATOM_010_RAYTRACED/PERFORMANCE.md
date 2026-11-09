@@ -1,3 +1,133 @@
+# PERFORMANCE: profile-and-optimize phase, round 1 (directives 19, 21, 41)
+
+Apple M5 Max (40-core GPU), macOS, headed Chrome via Playwright, WebGPU adapter `apple/metal-3`, real GPU (no SwiftShader).
+Bench viewport 1600x1000 CSS px at DPR 2 (canvas 3196x1996), MSAA + bloom + DOF + post on, no quality tier.
+Background load was NOT controlled: with no bench running, `ioreg` showed GPU "Device Utilization" at 38-55 %
+(WindowServer, Discord, TIDAL, Kiro) and BTLEServer at ~99 % CPU. A/B comparisons below are interleaved runs in the same session.
+
+## Method
+
+| Tool (all in `scripts/ad-hoc/`)                                              | What it measures                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pw-atomic-profile.mjs`                                                      | Per frame: rAF delta, CPU time inside `pipeline.render()` (JS submit), GPU time from WebGPU timestamp queries (`?gputime=1`, three `trackTimestamp`, resolved every frame). `CAPPED=1` = normal vsync, `WINPOS=0,0` = window on the built-in 120 Hz ProMotion panel, default = uncapped (`--disable-gpu-vsync --disable-frame-rate-limit`). Modes: bench queries, `home` (real /home, Atomic), `home:detail=<id>`, `home:fs` (Fullscreen button + OpenAI detail). |
+| `pw-atomic-presents.mjs`                                                     | Frames the page renders vs frames the GPU process actually presents (Chrome trace, `gpu`/`viz`).                                                                                                                                                                                                                                                                                                                                                                  |
+| `pw-atomic-stall-probe.mjs`, `pw-atomic-cpu-tail.mjs`, `pw-atomic-trace.mjs` | Where a slow frame blocks: wrapped `GPU*` prototypes, CPU sampling split by slow/fast frame, GPU-process trace events.                                                                                                                                                                                                                                                                                                                                            |
+| `pw-atomic-pacing-control.mjs`                                               | Control: a raw WebGPU page (no three.js, one full-screen draw with N ALU iterations) under the same flags.                                                                                                                                                                                                                                                                                                                                                        |
+| `pw-atomic-uploads.mjs`, `pw-atomic-tris.mjs`, `pw-atomic-ablate.mjs`        | `writeBuffer` volume per frame, triangle/instance inventory, cumulative ablation.                                                                                                                                                                                                                                                                                                                                                                                 |
+| `pw-atomic-perf-capture.mjs` + `atomic-perf-diff.mjs`                        | Identical-camera captures (frozen clock: topology bench `paused=1`, Gate A grid `t=7.25`; warm-up load first; each scene captured twice to measure the build's own determinism) and pixel diff: max/mean abs, % pixels > 2 and > 8 levels, PSNR, 8x8 luma SSIM, side-by-side and x16 diff images.                                                                                                                                                                 |
+
+Bench "atoms=N" renders N providers + hub + merged device atoms (8 -> 10, 16 -> 18, 20 -> 22, 32 -> 34). The real /home fleet renders 10 atoms.
+
+## Finding 1: the uncapped p95/p99 tail (and the 32-atom grid tail) is presentation back-pressure, not render cost
+
+Uncapped, baseline (this branch at `60bb0af23`), 8 s windows:
+
+| case                 | rAF fps | rAF p50 / p95 / p99 ms           | GPU ms/frame (timestamps, mean) | CPU in render() p50 | slow frames > 12 ms recur every |
+| -------------------- | ------: | -------------------------------- | ------------------------------: | ------------------: | ------------------------------- |
+| atoms=20 (22)        | 177-197 | 1.6-4.7 / 22.1-22.5 / 22.7-23.7  |                         2.5-3.1 |             1.1-1.5 | 6-7 frames                      |
+| atoms=32 (34)        | 165-185 | 2.1-4.8 / 22.2-23.2 / 23.5-24.7  |                        2.75-3.2 |             1.3-1.5 | 7 frames                        |
+| Gate A grid count=32 |  75-107 | 8.6-12.6 / 43.9-65.1 / 44.8-66.2 |                         6.3-9.2 |    n/a (bench loop) | 2-11 frames                     |
+
+- The GPU needs 2.5-3.2 ms per frame for the topology and 6-9 ms for the grid, yet every 6th-7th frame takes ~22 ms (grid: ~44-65 ms).
+  A 22 ms frame is not GPU work: no single frame's GPU time comes near it.
+- Where the main thread blocks: in a slow frame the time is spent inside `GPURenderPassEncoder.setPipeline` (CDP sampling: 3.5 s of 5 s in slow
+  frames), i.e. the Dawn wire command ring is full and the renderer waits for the GPU process to drain it.
+- Why the GPU process stops draining: the trace shows `IOSurfaceImageBacking::WaitForCommandsToBeScheduled` on `CrGpuMain` (~17 ms per present).
+  At each compositor present the GPU process waits until Metal has scheduled every queued command buffer that touches the canvas surface.
+- **Presents vs renders** (`pw-atomic-presents.mjs`, 2 s): uncapped atoms=20 renders 177 frames/s but the GPU process presents **27.5/s**;
+  atoms=32 169.5 vs 28; grid32 89 vs 14. Capped (vsync), every rendered frame is presented: 60.5 vs 60 (60 Hz monitor), 110.5 vs 110.5 (120 Hz panel).
+  So uncapped mode renders ~6 frames that are never shown for every frame that is, and each present waits ~6 frames x GPU time. That is the
+  6-7-frame beat and the 22 ms (topology) / 44-65 ms (grid, 6-9 ms GPU frames) tail.
+- **Control without our code:** a raw WebGPU page with one full-screen draw shows the same signature once it runs at a similar rate:
+  ~170 fps -> p50 0.1 / p95 12.9 / p99 14.7 ms; ~190 fps -> 0.1 / 17.5 / 18.5; ~160 fps -> 0.2 / 17.8 / 25.5. It is Chrome/macOS presentation
+  pacing with vsync disabled.
+- Rejected fixes (measured, reverted): a frames-in-flight governor (`onSubmittedWorkDone`, limit 2/3/4) cut the uncapped p99 to 17.8 ms but
+  dropped rendered fps to 97-119 (the completion round-trip is slower than presentation); trimming `writeBuffer` uploads to the used prefix
+  (1.1 MB/frame -> less) did not change the tail. Upload volume is not the cause.
+- Conclusion: uncapped fps on this machine is a GPU-headroom indicator, not what a user sees. The user metric is vsync-capped presented frames on
+  the 120 Hz panel (below). GPU timestamps give the true per-frame GPU cost. With vsync on, the 22/44 ms tail does not exist (capped grid32 at 60 Hz:
+  p95 17.4, p99 17.5, 0 spikes; at 120 Hz: no frame above 17.7 ms).
+
+## Finding 2: what costs GPU time (timestamps, uncapped, interleaved, bench)
+
+| A/B (atoms=20 unless noted)                                                       |                   GPU ms/frame | note                                                                                  |
+| --------------------------------------------------------------------------------- | -----------------------------: | ------------------------------------------------------------------------------------- |
+| baseline                                                                          |                        2.9-3.8 |                                                                                       |
+| impostor cloud ray-march loop removed (dev hack, not shipped)                     |                            1.5 | the march is ~50 % of the frame                                                       |
+| nucleus trace removed (dev hack)                                                  |                            2.7 | nucleus ~0.3 ms                                                                       |
+| `hideLayers=impostor,impostorMirror,atomDepth`                                    |                           1.85 | all impostors ~1.9 ms                                                                 |
+| `hideLayers=impostorMirror`                                                       |                 3.0 (from 3.8) | floor reflection of the impostors ~0.8 ms                                             |
+| all board parts hidden                                                            |         1.8-2.0 (from 3.1-3.4) | board parts ~1.4 ms, noisy                                                            |
+| grid32: march removed / nucleus removed                                           |           2.8 / 6.7 (from 7.0) | march ~4.2 ms of 7                                                                    |
+| fullscreen detail (`pw-atomic-fs-profile.mjs`): DPR 1 / atoms hidden / env hidden | 2.7 / 0.8 / 1.8 (from 7.8-8.1) | per mesh (noisy): strands -2.0, strandMirror -2.7, impostor -3.9, impostorMirror -2.9 |
+
+Capped at 120 Hz, the frames that miss vsync go away when the impostors or one of the two mirror layers are hidden
+(atoms=20: 110 fps / 58 missed -> 120 fps / 0 missed with `impostorMirror` hidden, 119.7 / 2 with `strandMirror` hidden), while hiding all
+board parts does not help (110.8 / 55). The ray-marched impostor and the floor reflection decide whether a 120 Hz frame fits.
+
+## Non-visible work (directive 19)
+
+- Already in place and re-verified: frustum culling of strands/sparkles/links, projected-size march steps and strand buckets, and the render loop
+  stop when the canvas is off-screen (IntersectionObserver) or the tab is hidden (0 scene frames in 3 s, measured in Gate B round 4).
+- New finding: in uncapped mode ~85 % of rendered frames are never presented (Finding 1). With normal vsync this waste is zero (rendered = presented),
+  so no change is needed for users.
+- Tried and rejected because they saved nothing measurable (interleaved A/B, all within noise, reverted, pixel diff <= 1 level):
+  rotating the sample direction instead of the 13 petal axes per march step (the Metal compiler already hoists it), and skipping march samples
+  in the empty outer cloud shell (beyond `reach + 0.08`).
+- Board parts on walls/ceiling are not frustum-culled per instance; the GPU clips them, and hiding all parts did not move the 120 Hz result.
+
+## Shipped in this round: no visible change (pixel-identical)
+
+The only production-path edits are dev-only (no effect in production builds): GPU timestamp queries on the Gate A bench renderer behind `?gputime=1`,
+a dev handle on the bench, `?hideEnv=1` on the bench, and the `?mirrorres=<scale>` experiment below (default off).
+Identical-camera captures, baseline `60bb0af23` vs this round's default, 9 scenes (topology 8/16/20/32, 20 close-up, Gate A grid 32,
+single default/close/idle): **max abs difference 0 in every scene** (PSNR inf, SSIM 1). Build determinism (r1 vs r2): max 0-1 level.
+Full PNGs (on disk, gitignored): `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/before/`, `.../perf/after/`,
+side-by-sides and x16 diffs in `.../perf/diff-after/`; previews (tracked) `.../perf/preview/diff-after_*`.
+
+## Experiment awaiting operator decision: half-resolution floor reflection (`?mirrorres=0.5`, NOT shipped)
+
+`src/plugins/atomic-topology/scene/rt/mirrorPass.ts`: the two mirror layers (`impostorMirror`, premultiplied over; `strandMirror`, additive) are
+rendered into their own half-resolution targets and composited back with one full-screen quad each, at the same renderOrder and blend equation.
+Over-blends accumulated over transparent black composite exactly (associativity), additive layers commute, so only the reflection's resolution changes.
+
+Measured, capped at 120 Hz on the built-in panel, 3 interleaved pairs (`.../perf/ab-mirror-capped120.txt`):
+
+| case                                              | full-res reflection fps (missed vsyncs / 5 s)          | half-res reflection fps (missed)            |
+| ------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------- |
+| atoms=32 (34)                                     | 101.5 / 109.8 / 109.4 (93 / 51 / 53), p99 16.7-17.2 ms | **120 / 120 / 120 (0 / 0 / 0), p99 9.2 ms** |
+| real /home fullscreen + OpenAI detail (3196x1996) | 60.7 / 66.5 / 65.8                                     | 90.0 / 88.9 / 80.4                          |
+
+Pixel diff at identical camera (5 topology scenes): mean abs 0.08-0.22 levels, 1.5-3.0 % of pixels differ by > 2 levels, 0.2-0.7 % by > 8,
+PSNR 42.8-50.7 dB, SSIM 0.9982-0.9993. All differences are inside the reflections (the x16 diff is black elsewhere); max local difference
+135-212 levels on single pixels of thin reflected strands/nucleon edges, which the half-res reflection renders slightly softer.
+Worst-region crop, 1.5x (before | half-res | diff x16): `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/preview/diff-mirror-half_topo-20-worst-crop-before-after-diff.jpg`.
+Full side-by-sides: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/diff-mirror-half/` (previews `.../perf/preview/diff-mirror-half_*`).
+Because a change remains (a slightly softer reflection), it is not shipped (directive 41: stop and show the operator).
+
+## Targets (vsync on, 120 Hz built-in panel, this round's default build)
+
+| case                                  |         fps | p50 / p95 / p99 ms                | missed vsyncs | target                                                                           |
+| ------------------------------------- | ----------: | --------------------------------- | ------------: | -------------------------------------------------------------------------------- |
+| real /home, Atomic, 10 atoms (2 runs) |   120 / 120 | 8.3 / 9.1-9.2 / 9.3-9.4           |             0 | ~120 at real fleet: **met**                                                      |
+| real /home, OpenAI detail open        | 120 / 119.8 | 8.3 / 9.0-9.3 / 9.3-9.4           |           0-1 | met                                                                              |
+| bench atoms=8 (10)                    |         120 | 8.3 / 9.1-9.2 / 9.3               |             0 | met                                                                              |
+| bench atoms=16 (18)                   |         120 | 8.3 / 8.9-9.3 / 9.2-9.3           |             0 | met                                                                              |
+| bench atoms=20 (22)                   | 101.5-115.8 | 8.3-8.4 / 9.2-16.7 / 16.7-17.5    |  25-111 / 6 s | ~120: not met under this background load                                         |
+| bench atoms=32 (34)                   |  98.7-109.9 | 8.3-8.4 / 16.6-16.7 / 16.9-17.5   |  61-128 / 6 s | >= 60: **met**; healthy p95/p99 needs the half-res reflection (120 fps, p99 9.2) |
+| Gate A grid count=32                  |   86.7-90.5 | 8.4 / 16.8 / 17.4-17.5            | 177-200 / 6 s | >= 60: met                                                                       |
+| real /home fullscreen + detail        |   60.7-82.5 | 16.5-16.7 / 17.0-17.6 / 17.4-25.1 |               | directive 41 >= 120: **not met**                                                 |
+
+No frame above 25.2 ms in any capped run. The missed vsyncs at 20-32 atoms are single 16.7 ms frames (one missed vsync), never stalls.
+
+## What remains
+
+- Fullscreen detail >= 120 fps needs directive 41's mixed-resolution hero translucency (cloud march + strands at 0.5-0.7x with depth-aware upsample)
+  on top of the half-res reflection; both change pixels slightly, so both need the operator's go-ahead.
+- Directive 41's real-traffic feeder verification, directive 43 (replayed in-flight distinctness) and the directive 33 polish items are not part of this round.
+
+---
+
 # PERFORMANCE (Gate B, round 7)
 
 Code SHA `a6d18051bac49fe744f91e6cde8c7ae21b72e998`. Apple M5 Max, headed Chrome (adapter `apple/metal-3`), 1600x1000 CSS px @ DPR 2 (bench), MSAA + bloom + DOF + post, no quality tier, uncapped, 5 s rAF deltas. Background GPU load not controlled.

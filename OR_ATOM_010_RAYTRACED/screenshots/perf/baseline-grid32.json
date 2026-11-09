@@ -1,0 +1,184 @@
+[
+  {
+    "query": "atomic-fx=rt&count=32&paused=0",
+    "atoms": 0,
+    "calls": 12936,
+    "tris": 9400375,
+    "frames": 599,
+    "fps": 74.6,
+    "dt": {
+      "p50": 12.6,
+      "p95": 65.1,
+      "p99": 66.2,
+      "max": 83.3
+    },
+    "renderCpuMs": {
+      "p50": 12.3,
+      "p95": 65.2,
+      "p99": 68.2,
+      "max": 69.8
+    },
+    "gpuMsPerFrame": {
+      "p50": 8.59,
+      "p95": 9.69,
+      "max": 10.23
+    },
+    "acquireMs": {
+      "p50": 0,
+      "p99": 0.1,
+      "slowFramesMedian": 0,
+      "fastFramesMedian": 0
+    },
+    "gpuSamples": 31,
+    "slowFrames": 340,
+    "slowFramesMedianDt": 13.7,
+    "slowGapsFrames": {
+      "n": 339,
+      "p50": 1,
+      "max": 7
+    },
+    "top": [
+      {
+        "i": 18,
+        "dt": 83.3,
+        "renderCpu": 14.3,
+        "acquire": 0
+      },
+      {
+        "i": 226,
+        "dt": 67.3,
+        "renderCpu": 14,
+        "acquire": 0
+      },
+      {
+        "i": 317,
+        "dt": 67.2,
+        "renderCpu": 13.5,
+        "acquire": 0
+      },
+      {
+        "i": 213,
+        "dt": 66.9,
+        "renderCpu": 15.1,
+        "acquire": 0
+      },
+      {
+        "i": 434,
+        "dt": 66.5,
+        "renderCpu": 14.4,
+        "acquire": 0
+      },
+      {
+        "i": 343,
+        "dt": 66.2,
+        "renderCpu": 12.9,
+        "acquire": 0.1
+      },
+      {
+        "i": 499,
+        "dt": 66.2,
+        "renderCpu": 12.8,
+        "acquire": 0
+      },
+      {
+        "i": 408,
+        "dt": 66.2,
+        "renderCpu": 14.1,
+        "acquire": 0.1
+      }
+    ],
+    "renderedFps": 0,
+    "skipped": 0
+  },
+  {
+    "query": "atomic-fx=rt&count=16&paused=0",
+    "atoms": 0,
+    "calls": 13468,
+    "tris": 7417527,
+    "frames": 601,
+    "fps": 74.6,
+    "dt": {
+      "p50": 10.5,
+      "p95": 65.1,
+      "p99": 66.2,
+      "max": 66.8
+    },
+    "renderCpuMs": {
+      "p50": 5.7,
+      "p95": 65.6,
+      "p99": 66.9,
+      "max": 68.4
+    },
+    "gpuMsPerFrame": {
+      "p50": 8.92,
+      "p95": 10.53,
+      "max": 10.69
+    },
+    "acquireMs": {
+      "p50": 0,
+      "p99": 0.1,
+      "slowFramesMedian": 0,
+      "fastFramesMedian": 0
+    },
+    "gpuSamples": 32,
+    "slowFrames": 278,
+    "slowFramesMedianDt": 14.2,
+    "slowGapsFrames": {
+      "n": 277,
+      "p50": 1,
+      "max": 7
+    },
+    "top": [
+      {
+        "i": 530,
+        "dt": 66.8,
+        "renderCpu": 1.1,
+        "acquire": 0
+      },
+      {
+        "i": 12,
+        "dt": 66.6,
+        "renderCpu": 1.1,
+        "acquire": 0
+      },
+      {
+        "i": 166,
+        "dt": 66.5,
+        "renderCpu": 1.2,
+        "acquire": 0.1
+      },
+      {
+        "i": 418,
+        "dt": 66.5,
+        "renderCpu": 0.9,
+        "acquire": 0
+      },
+      {
+        "i": 544,
+        "dt": 66.3,
+        "renderCpu": 1,
+        "acquire": 0
+      },
+      {
+        "i": 264,
+        "dt": 66.3,
+        "renderCpu": 1.2,
+        "acquire": 0
+      },
+      {
+        "i": 180,
+        "dt": 66.2,
+        "renderCpu": 1.1,
+        "acquire": 0
+      },
+      {
+        "i": 306,
+        "dt": 66.2,
+        "renderCpu": 1.1,
+        "acquire": 0
+      }
+    ],
+    "renderedFps": 0,
+    "skipped": 0
+  }
+]

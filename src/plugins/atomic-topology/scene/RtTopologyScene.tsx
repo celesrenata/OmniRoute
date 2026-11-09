@@ -65,6 +65,7 @@ import {
 import { batchCapacityFor } from "./rt/atomData";
 import { createRtPost, type RtPost } from "./rt/rendererFactory";
 import { createRtRegistry } from "./rt/rtRegistry";
+import { createMirrorPass, type MirrorPass } from "./rt/mirrorPass";
 import { envTime, floorY, pxScale } from "./rt/sharedUniforms";
 import {
   FLOOR_OFFSET,
@@ -140,7 +141,16 @@ interface Gpu {
   env: Environment;
   motes: MoteLayer;
   post: RtPost;
+  /** Reduced-resolution floor reflection (`?mirrorres=<scale>`), null = full-res inline. */
+  mirror: MirrorPass | null;
   dispose: () => void;
+}
+
+/** Dev A/B only: `?mirrorres=0.5` renders the floor reflection at that scale. */
+function mirrorResScale(): number | null {
+  if (process.env.NODE_ENV === "production" || typeof window === "undefined") return null;
+  const v = Number(new URLSearchParams(window.location.search).get("mirrorres"));
+  return Number.isFinite(v) && v > 0 && v < 1 ? v : null;
 }
 
 export interface RtTopologyContentProps {
@@ -221,6 +231,12 @@ export function RtTopologyContent({
     root.add(atoms.group);
     const post = createRtPost(gl, scene as never, camera as never, bloom);
     registry.add(post);
+    const mScale = mirrorResScale();
+    const mirror = mScale != null ? createMirrorPass(mScale) : null;
+    if (mirror) {
+      registry.add(mirror);
+      root.add(...mirror.objects);
+    }
     // DOM labels and the R3F pointer layer never pick these meshes.
     root.traverse((o) => {
       (o as { raycast?: unknown }).raycast = () => {};
@@ -272,6 +288,7 @@ export function RtTopologyContent({
       env,
       motes,
       post,
+      mirror,
       dispose: () => {
         scene.remove(root);
         registry.disposeAll();
@@ -703,6 +720,11 @@ export function RtTopologyContent({
         : 1 - Math.exp(-Math.min(Math.max(delta, 0), 0.25) * 5);
     focusEase.current += (Math.max(50, focusDepth) - focusEase.current) * ease;
     gpu.post.setFocus(focusEase.current);
+    if (gpu.mirror) {
+      // Impostor slots are created lazily: (re)assign the mirror layers before each render.
+      gpu.mirror.assignLayers(gpu.atoms.group);
+      gpu.mirror.render(gl, scene as never, camera);
+    }
     gpu.post.pipeline.render();
     if (process.env.NODE_ENV !== "production") {
       const w = window as unknown as { __atomicRtFrames?: number };

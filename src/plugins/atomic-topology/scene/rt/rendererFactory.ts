@@ -71,7 +71,12 @@ export async function createRtRenderer(opts: RtRendererOptions): Promise<RtRende
     alpha: false,
     forceWebGL: !!opts.forceWebGL,
     powerPreference: "high-performance",
-  });
+    // Dev-only GPU timestamp queries for the bench (`?gputime=1`), as in createRtCanvasRenderer.
+    trackTimestamp:
+      process.env.NODE_ENV !== "production" &&
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("gputime") === "1",
+  } as ConstructorParameters<typeof WebGPURenderer>[0]);
   // Full retina: no DPR cap.
   renderer.setPixelRatio(window.devicePixelRatio || 1);
   renderer.setSize(opts.width, opts.height, false);
