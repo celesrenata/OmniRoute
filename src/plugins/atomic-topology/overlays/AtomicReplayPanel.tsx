@@ -223,11 +223,11 @@ export function AtomicReplayPanel({
               step={1000}
               value={clock.positionMs}
               onChange={(e) => controller.seek(Number(e.target.value))}
-              style={{ flex: "1 1 120px", minWidth: 96, accentColor: AMBER }}
+              style={{ flex: "1 1 60px", minWidth: 56, accentColor: AMBER }}
               data-progress={replayProgress(clock).toFixed(3)}
             />
           ) : (
-            <span style={{ flex: "1 1 120px" }} />
+            <span style={{ flex: "1 1 60px" }} />
           )}
           {ready && clock ? (
             <span

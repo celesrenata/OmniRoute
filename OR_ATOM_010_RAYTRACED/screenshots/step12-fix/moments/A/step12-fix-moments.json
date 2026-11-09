@@ -1,0 +1,257 @@
+{
+  "mode": "moments",
+  "windowMin": 5,
+  "errors": [
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed",
+    "[LiveWS] Server error: FORBIDDEN_ORIGIN Origin not allowed"
+  ],
+  "steps": {},
+  "atomId": "provider:kiro",
+  "chosenRuns": {
+    "quiet": 131250,
+    "in-flight": 11500,
+    "completed": 3750,
+    "failed": null
+  },
+  "liveDetailActivity": "Activity: last · recent activity < 1m ago",
+  "window": {
+    "startMs": 1794251586508,
+    "endMs": 1794251886508,
+    "rows": 29
+  },
+  "videoOffsetSec": 11.8,
+  "moments": [
+    {
+      "name": "completed",
+      "at": 1794251638633,
+      "state": {
+        "marker": "REPLAY · 2026-11-09 11:13:58recorded history, not live",
+        "scrubberValue": 1794251638508,
+        "scrubberFraction": 0.173,
+        "scrubberText": "2026-11-09 11:13:58",
+        "clock": "11:13:58",
+        "momentChip": "fleet · completed",
+        "momentState": "completed",
+        "detailActivity": "Activity: replayed · completed (recorded success)",
+        "positionMs": 1794251638633,
+        "chips": [
+          {
+            "id": "hub",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:aihorde",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:kiro",
+            "chip": "last"
+          },
+          {
+            "id": "provider:openai",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:mistral",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:bedrock",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:ollama-local",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:vllm",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:llama-cpp",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:ovms-arc",
+            "chip": "idle"
+          }
+        ]
+      }
+    },
+    {
+      "name": "quiet",
+      "at": 1794251798633,
+      "state": {
+        "marker": "REPLAY · 2026-11-09 11:16:38recorded history, not live",
+        "scrubberValue": 1794251798508,
+        "scrubberFraction": 0.707,
+        "scrubberText": "2026-11-09 11:16:38",
+        "clock": "11:16:38",
+        "momentChip": "fleet · quiet",
+        "momentState": "quiet",
+        "detailActivity": "Activity: replayed · quiet (no recorded request in flight)",
+        "positionMs": 1794251798633,
+        "chips": [
+          {
+            "id": "hub",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:aihorde",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:kiro",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:openai",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:mistral",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:bedrock",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:ollama-local",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:vllm",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:llama-cpp",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:ovms-arc",
+            "chip": "idle"
+          }
+        ]
+      }
+    },
+    {
+      "name": "in-flight",
+      "at": 1794251870258,
+      "state": {
+        "marker": "REPLAY · 2026-11-09 11:17:50recorded history, not live",
+        "scrubberValue": 1794251870508,
+        "scrubberFraction": 0.947,
+        "scrubberText": "2026-11-09 11:17:50",
+        "clock": "11:17:50",
+        "momentChip": "fleet · 2 in flight",
+        "momentState": "in-flight",
+        "detailActivity": "Activity: replayed · in flight (2 recorded requests)",
+        "positionMs": 1794251870258,
+        "chips": [
+          {
+            "id": "hub",
+            "chip": "active"
+          },
+          {
+            "id": "provider:aihorde",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:kiro",
+            "chip": "active"
+          },
+          {
+            "id": "provider:openai",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:mistral",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:bedrock",
+            "chip": "idle"
+          },
+          {
+            "id": "provider:ollama-local",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:vllm",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:llama-cpp",
+            "chip": "healthy"
+          },
+          {
+            "id": "provider:ovms-arc",
+            "chip": "idle"
+          }
+        ]
+      }
+    }
+  ],
+  "videoDurationSec": 12.4,
+  "overlap": {
+    "items": {
+      "legend": {
+        "x": 294,
+        "y": 775,
+        "w": 296.4296875,
+        "h": 67,
+        "r": 590.4296875,
+        "b": 842
+      },
+      "transportBar": {
+        "x": 294,
+        "y": 850,
+        "w": 684,
+        "h": 31,
+        "r": 978,
+        "b": 881
+      },
+      "detailPanel": {
+        "x": 754,
+        "y": 507,
+        "w": 220,
+        "h": 108.09375,
+        "r": 974,
+        "b": 615.09375
+      },
+      "marker": {
+        "x": 294,
+        "y": 511,
+        "w": 340,
+        "h": 44.59375,
+        "r": 634,
+        "b": 555.59375
+      },
+      "controls": {
+        "x": 525.59765625,
+        "y": 479,
+        "w": 220.8046875,
+        "h": 28.5,
+        "r": 746.40234375,
+        "b": 507.5
+      },
+      "host": {
+        "x": 285,
+        "y": 470,
+        "w": 702,
+        "h": 420,
+        "r": 987,
+        "b": 890
+      }
+    },
+    "overlaps": [],
+    "barHeightPct": 7.4,
+    "barInsideHost": true,
+    "inset": "39px"
+  },
+  "errorsAfter": []
+}

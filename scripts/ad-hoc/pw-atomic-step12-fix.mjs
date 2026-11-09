@@ -231,20 +231,53 @@ if (MODE === "moments") {
   await page.locator("[data-atomic-replay-open]").click();
   const v0 = await waitReady();
   const truth = await rawTruth(v0);
-  const mine = truth.requests
-    .filter((r) => r.provider === provider && r.end != null && r.end > r.start)
-    .sort((a, b) => b.end - b.start - (a.end - a.start))
-    .map((r) => r)[0];
-  report.liveDetailActivity = liveDetailActivity;
-  report.chosenRequest = mine ?? null;
-  report.window = { startMs: v0.clock.startMs, endMs: v0.clock.endMs, rows: truth.rows };
-  const wanted = (process.env.MOMENTS ?? "quiet,in-flight,completed").split(",");
-  const at = {
-    quiet: v0.clock.startMs + 500,
-    "in-flight": mine ? mine.start + (mine.end - mine.start) / 2 : null,
-    completed: mine && mine.outcome === "ok" ? mine.end + 300 : null,
-    failed: mine && mine.outcome === "failed" ? mine.end + 300 : null,
+  // The provider's own replayed state at t, by the same rules as scene/replaySnapshot.ts
+  // (failure in the 4 s hold wins, then in flight, then a success in the hold, else quiet).
+  const HOLD = 4000;
+  const reqs = truth.requests.filter((r) => r.provider === provider);
+  const provState = (t) => {
+    let inFlight = 0;
+    let failed = false;
+    let ok = false;
+    for (const r of reqs) {
+      if (r.start > t) continue;
+      const ended = r.end != null && r.end <= t;
+      if (!ended && r.end !== r.start) inFlight += 1;
+      if (ended && t - r.end < HOLD) {
+        if (r.outcome === "failed") failed = true;
+        else if (r.outcome === "ok") ok = true;
+      }
+    }
+    return failed ? "failed" : inFlight > 0 ? "in-flight" : ok ? "completed" : "quiet";
   };
+  // Longest contiguous run of each state (250 ms scan); park the playhead in its middle.
+  const runs = { quiet: [], "in-flight": [], completed: [], failed: [] };
+  let cur = null;
+  for (let t = v0.clock.startMs; t <= v0.clock.endMs; t += 250) {
+    const st = provState(t);
+    if (cur && cur.st === st) cur.to = t;
+    else {
+      cur = { st, from: t, to: t };
+      runs[st].push(cur);
+    }
+  }
+  const at = {};
+  for (const [st, rs] of Object.entries(runs)) {
+    const best = rs.sort((x, y) => y.to - y.from - (x.to - x.from))[0];
+    at[st] = best ? Math.round((best.from + best.to) / 2) : null;
+  }
+  report.chosenRuns = Object.fromEntries(
+    Object.entries(runs).map(([k, rs]) => [
+      k,
+      rs.length ? Math.max(...rs.map((r) => r.to - r.from)) : null,
+    ])
+  );
+  report.liveDetailActivity = liveDetailActivity;
+  report.window = { startMs: v0.clock.startMs, endMs: v0.clock.endMs, rows: truth.rows };
+  // Visit the moments in recorded-time order so the scrubber sweeps forward through the video.
+  const wanted = (process.env.MOMENTS ?? "quiet,in-flight,completed")
+    .split(",")
+    .sort((x, y) => (at[x] ?? Infinity) - (at[y] ?? Infinity));
   report.videoOffsetSec = Math.round(((Date.now() - pageStart) / 1000 - 0.5) * 10) / 10;
   report.moments = [];
   // Opening state: the replay (collapsed bar) before any seeking.
@@ -256,7 +289,9 @@ if (MODE === "moments") {
       continue;
     }
     await page.evaluate((p) => window.__atomicReplay.seek(p), t);
-    await page.waitForTimeout(1800);
+    await page.waitForTimeout(450);
+    await hostShot(`moment-${name}-early`);
+    await page.waitForTimeout(1350);
     await hostShot(`moment-${name}`);
     report.moments.push({ name, at: t, state: await momentState() });
     await page.waitForTimeout(1300);
