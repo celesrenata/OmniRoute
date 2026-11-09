@@ -18,7 +18,8 @@ const PANEL: React.CSSProperties = {
   position: "absolute",
   top: 36,
   right: 12,
-  bottom: 12,
+  // Step 12: sits above the replay transport bar (its height is published as a CSS variable).
+  bottom: "calc(12px + var(--atomic-replay-inset, 0px))",
   width: 320,
   maxWidth: "calc(100% - 24px)",
   overflowY: "auto",

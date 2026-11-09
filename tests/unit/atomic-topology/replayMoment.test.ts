@@ -47,11 +47,11 @@ test("replayed activity wording follows the replayed descriptor, never live idle
     ({ visualState: { state }, activeRequests: n }) as never;
   assert.match(
     replayedActivityLine(d("active", 2)),
-    /^replayed: in flight \(2 recorded requests\)/
+    /^replayed · in flight \(2 recorded requests\)/
   );
   assert.match(replayedActivityLine(d("active", 1)), /1 recorded request\)/);
-  assert.match(replayedActivityLine(d("error", null)), /^replayed: failed/);
-  assert.match(replayedActivityLine(d("last", null)), /^replayed: completed/);
-  assert.match(replayedActivityLine(d("healthy", null)), /^replayed: quiet/);
+  assert.match(replayedActivityLine(d("error", null)), /^replayed · failed/);
+  assert.match(replayedActivityLine(d("last", null)), /^replayed · completed/);
+  assert.match(replayedActivityLine(d("healthy", null)), /^replayed · quiet/);
   assert.doesNotMatch(replayedActivityLine(d("healthy", null)), /measured activity/);
 });

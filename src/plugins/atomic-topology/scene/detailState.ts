@@ -152,13 +152,13 @@ export function replayedActivityLine(d: AtomVisualDescriptor): string {
   const n = d.activeRequests ?? 0;
   switch (d.visualState.state) {
     case "error":
-      return "replayed: failed (recorded failure)";
+      return "replayed · failed (recorded failure)";
     case "active":
-      return `replayed: in flight (${n} recorded request${n === 1 ? "" : "s"})`;
+      return `replayed · in flight (${n} recorded request${n === 1 ? "" : "s"})`;
     case "last":
-      return "replayed: completed (recorded success)";
+      return "replayed · completed (recorded success)";
     default:
-      return "replayed: quiet (no recorded request in flight)";
+      return "replayed · quiet (no recorded request in flight)";
   }
 }
 

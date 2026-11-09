@@ -1020,7 +1020,8 @@ html[dir="rtl"] :where(.material-symbols-outlined, .traffic-lights, .react-flow)
 .atomic-legend {
   position: absolute;
   left: 8px;
-  bottom: 8px;
+  /* Step 12: the replay transport bar publishes its height here so the legend sits above it. */
+  bottom: calc(8px + var(--atomic-replay-inset, 0px));
   display: flex;
   flex-direction: column;
   gap: 4px;

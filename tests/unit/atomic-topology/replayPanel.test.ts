@@ -41,8 +41,10 @@ function controller(rows: unknown[], fail = false): ReplayController {
   });
 }
 
-const html = (c: ReplayController) =>
-  renderToStaticMarkup(createElement(AtomicReplayPanel, { controller: c, onExit: () => {} }));
+const html = (c: ReplayController, initialExpanded = true) =>
+  renderToStaticMarkup(
+    createElement(AtomicReplayPanel, { controller: c, onExit: () => {}, initialExpanded })
+  );
 
 test("renders nothing until a session exists", () => {
   assert.equal(html(controller([])), "");
@@ -131,4 +133,88 @@ test("error: the cover stays (no live scene under the banner) and points at Retr
   assert.match(cover(c), /data-atomic-replay-cover="error"/);
   assert.equal(replayCoverVisible("ready"), false);
   assert.equal(replayCoverVisible("closed"), false);
+});
+
+// ---- Step 12 fix round (directive 42.2): slim collapsible transport bar
+const one = [
+  {
+    id: "1",
+    timestamp: new Date(T0 + 10_000).toISOString(),
+    provider: "openai",
+    model: "gpt-4o",
+    status: 200,
+    duration: 100,
+  },
+];
+test("collapsed (default): slim bar keeps play, step, speed, scrubber, time, moment and Exit", async () => {
+  const c = controller(one);
+  await c.open(WINDOW);
+  const out = html(c, false);
+  assert.match(out, /data-expanded="false"/);
+  for (const l of [
+    "Play replay",
+    "Previous recorded event",
+    "Next recorded event",
+    "Speed 16x",
+    "Replay position",
+    "Exit replay and return to live",
+    "Expand replay options",
+  ])
+    assert.match(out, new RegExp(`aria-label="${l}"`));
+  assert.match(out, /aria-expanded="false"/);
+  assert.match(out, /data-atomic-replay-moment="quiet"/);
+  assert.match(out, /data-atomic-replay-time/);
+  // the optional parts are not rendered
+  assert.doesNotMatch(out, /Replay window/);
+  assert.doesNotMatch(out, /recorded events from/);
+});
+test("expanded: window, loop, range and the summary appear; toggle is labelled Collapse", async () => {
+  const c = controller(one);
+  await c.open(WINDOW);
+  const out = html(c, true);
+  assert.match(out, /data-expanded="true"/);
+  assert.match(out, /aria-label="Replay window"/);
+  assert.match(out, /Loop/);
+  assert.match(out, /aria-label="Collapse replay options"/);
+});
+test("the moment chip follows the playhead (in flight / completed)", async () => {
+  const c = controller([
+    { ...one[0], id: "x", timestamp: new Date(T0 + 10_000).toISOString(), duration: 4000 },
+  ]);
+  await c.open(WINDOW);
+  c.seek(T0 + 12_000);
+  assert.match(html(c, false), /data-atomic-replay-moment="in-flight"[^>]*>fleet · 1 in flight</);
+  c.seek(T0 + 14_500);
+  assert.match(html(c, false), /data-atomic-replay-moment="completed"/);
+});
+test("a capped history is flagged in the collapsed bar", async () => {
+  const c = createReplayController({
+    getBaseSnapshot: () => base,
+    fetchHistory: async () => ({
+      timeline: buildTraceTimeline(one as never, { sinceMs: T0, untilMs: T0 + WINDOW }),
+      fetchedRows: 2000,
+      truncated: true,
+    }),
+    onSnapshot: () => {},
+    scheduler: { setInterval: () => 0, clearInterval: () => {} },
+  });
+  await c.open(WINDOW);
+  assert.match(html(c, false), /data-atomic-replay-truncated/);
+  assert.match(html(c, true), /history capped; oldest rows omitted/);
+});
+test("loading / error states keep the status line and Exit in the collapsed bar", async () => {
+  const c = controller([]);
+  const p = c.open(WINDOW);
+  const out = html(c, false);
+  assert.match(out, /Loading recorded requests/);
+  assert.match(out, /aria-label="Exit replay and return to live"/);
+  await p;
+});
+test("the marker never reaches under the detail panel", async () => {
+  const c = controller(one);
+  await c.open(WINDOW);
+  const out = renderToStaticMarkup(
+    createElement(AtomicReplayPanel, { controller: c, onExit: () => {}, reservedRight: 344 })
+  );
+  assert.match(out, /max-width:calc\(100% - 360px\)/);
 });
