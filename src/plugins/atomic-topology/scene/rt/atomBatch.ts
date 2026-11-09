@@ -62,6 +62,7 @@ import {
   sphereVisible,
 } from "./visibility";
 import { floorY } from "./sharedUniforms";
+import { advanceElectronClock, electronAngle } from "../electronMotion";
 
 /** World units an idle (tightest) atom sinks into its dome. */
 const IDLE_SEAT_DROP = 28;
@@ -217,6 +218,8 @@ interface AtomState {
   electronCount: number[];
   flickerClock: number;
   swirlClock: number;
+  /** Decorative electron orbit clock (directive 36); independent of nucleus spin. */
+  electronClock: number;
   slots: BoltSlotState[];
 }
 
@@ -311,6 +314,7 @@ function buildAtomState(config: BatchAtomConfig): AtomState {
     electronCount: wires.map((_, i) => (i % 3 === 0 ? 2 : 1)),
     flickerClock: 0,
     swirlClock: 0,
+    electronClock: 0,
     bucket: -1,
     slots: Array.from({ length: BOLT_SLOTS_PER_ATOM }, () => ({
       variant: -1,
@@ -683,6 +687,12 @@ export function createAtomBatch(
       // Decorative differential swirl: rate rises with energy, never encodes
       // throughput; frozen (still-rich frame) under reduced motion.
       st.swirlClock += reducedMotion || !(dt > 0) ? 0 : Math.min(dt, 0.25) * (0.1 + 0.16 * exc);
+      st.electronClock = advanceElectronClock(
+        st.electronClock,
+        dt,
+        f.energy.speedMul,
+        reducedMotion
+      );
       st.flickerClock += reducedMotion || !(dt > 0) ? 0 : Math.min(dt, 0.25);
 
       const o = st.orbitals;
@@ -748,7 +758,7 @@ export function createAtomBatch(
         st.hueSet[2][2],
         (cr / CLOUD_BOUND_RADIUS) * 1.18
       );
-      setF(row, FIELD.INNER_WIRETIME, st.inner[0], st.inner[1], st.inner[2], f.phase * 2.2);
+      setF(row, FIELD.INNER_WIRETIME, st.inner[0], st.inner[1], st.inner[2], st.electronClock);
       setF(
         row,
         FIELD.RIM_WIREENERGY,
@@ -828,15 +838,22 @@ export function createAtomBatch(
       });
 
       // Electron angles per wire (heads ride the wire shader).
+      const electronDbg = devElectronDebug();
       let eIdx = 0;
       for (let w = 0; w < WIRES_PER_ATOM; w += 1) {
         const wd = st.wires[w];
         const th = (k: number): number => {
-          const v = wd.phase + f.phase * wd.speed * 1.4 + (eIdx + k) * 1.3 + k * Math.PI;
-          return ((v % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+          return electronAngle(
+            wd.phase,
+            wd.speed,
+            st.electronClock,
+            (eIdx + k) * 1.3 + k * Math.PI
+          );
         };
         const two = st.electronCount[w] > 1;
         set4(dyn, DYN_COLS, row, ELECTRON_BASE + w, th(0), two ? th(1) : -100, 0, 0);
+        if (electronDbg)
+          (electronDbg[row] ??= [])[w] = dyn[(row * DYN_COLS + ELECTRON_BASE + w) * 4];
         eIdx += st.electronCount[w];
       }
 
@@ -911,6 +928,12 @@ export function createAtomBatch(
   };
 }
 
+/** Dev-only live evidence hook: per-row electron angles (`window.__atomicElectronDbg`). */
+function devElectronDebug(): number[][] | null {
+  if (process.env.NODE_ENV === "production" || typeof window === "undefined") return null;
+  const w = window as unknown as { __atomicElectronDbg?: number[][] };
+  return (w.__atomicElectronDbg ??= []);
+}
 export { floorY };
 void STATIC_COLS;
 

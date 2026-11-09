@@ -233,6 +233,83 @@ async function gpuId(page) {
   await ctx.close();
 }
 
+// ---- Flow 4: fullscreen enter/exit (directive 35), detail inside fullscreen ----
+{
+  const { ctx, page } = await session("fullscreen", { video: !!process.env.VIDEO });
+  await page.goto(`${base}/dev/atomic-bench?atoms=20&paused=0&instance=1`);
+  await page.waitForSelector('[data-ready="true"]', { timeout: 120000 });
+  await page.waitForTimeout(3500);
+  report.gpuAdapter = await page.evaluate(async () => {
+    try {
+      const a = await navigator.gpu?.requestAdapter();
+      const i = a?.info ?? (await a?.requestAdapterInfo?.());
+      return i
+        ? {
+            vendor: i.vendor,
+            architecture: i.architecture,
+            device: i.device,
+            description: i.description,
+          }
+        : null;
+    } catch (e) {
+      return { error: String(e) };
+    }
+  });
+  const fsBtn = page.locator('[data-atomic-control="fullscreen"]');
+  const fsState = () =>
+    page.evaluate(() => ({
+      fs: document.fullscreenElement?.getAttribute("data-atomic-host") ?? null,
+      w: innerWidth,
+      h: innerHeight,
+      dpr: devicePixelRatio,
+      canvas: (() => {
+        const c = document.querySelector("canvas");
+        return c ? [c.width, c.height] : null;
+      })(),
+    }));
+  const fsSteps = (report.steps.fullscreen = {});
+  fsSteps.buttonCount = await fsBtn.count();
+  fsSteps.labelBefore = await fsBtn.getAttribute("aria-label");
+  fsSteps.camBefore = await camDist(page);
+  fsSteps.before = await fsState();
+  await fsBtn.click();
+  await page.waitForTimeout(2500);
+  fsSteps.labelIn = await fsBtn.getAttribute("aria-label");
+  fsSteps.in = await fsState();
+  fsSteps.camIn = await camDist(page);
+  fsSteps.perf = await framePerf(page);
+  await page.screenshot({
+    type: "jpeg",
+    quality: 88,
+    path: path.join(outDir, "fullscreen-in.jpg"),
+  });
+  // detail inside fullscreen
+  const id2 = await gpuId(page);
+  await page.locator(`[data-atom-id="${id2}"]`).first().click({ force: true });
+  await page.waitForTimeout(2500);
+  await page.locator("[data-atomic-open-detail]").click();
+  await page.waitForTimeout(4500);
+  fsSteps.detailInFs = await page.locator('[data-atomic-detail="true"]').count();
+  fsSteps.perfDetailInFs = await framePerf(page);
+  await page.screenshot({
+    type: "jpeg",
+    quality: 88,
+    path: path.join(outDir, "fullscreen-detail.jpg"),
+  });
+  await fsBtn.click();
+  await page.waitForTimeout(2500);
+  fsSteps.labelOut = await fsBtn.getAttribute("aria-label");
+  fsSteps.out = await fsState();
+  fsSteps.detailAfterExit = await page.locator('[data-atomic-detail="true"]').count();
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(1500);
+  await page.screenshot({
+    type: "jpeg",
+    quality: 88,
+    path: path.join(outDir, "fullscreen-out.jpg"),
+  });
+  await ctx.close();
+}
 await browser.close();
 fs.writeFileSync(path.join(outDir, "step11-report.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report, null, 2));

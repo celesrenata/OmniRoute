@@ -12,14 +12,14 @@
  * only computes poses; `AtomicScene.tsx` applies them. `cameraFit.ts` is never
  * altered.
  */
-/** Hero camera distance from the atom (world units); just outside OrbitControls' minimum (200). */
-export const DETAIL_HERO_DISTANCE = 214;
+/** Hero camera distance from the atom (world units); outside OrbitControls' minimum (200); with the 38 deg fov the whole cloud, rim and orbit wires fit. */
+export const DETAIL_HERO_DISTANCE = 300;
 /** Kept for the legacy fit-relative helper: never closer than the orbit minimum plus a margin. */
 export const DETAIL_MIN_DISTANCE = 205;
 /** Near eye-level elevation (radians above the horizontal plane through the atom). */
-export const DETAIL_ELEVATION_RAD = 0.1;
+export const DETAIL_ELEVATION_RAD = 0.14;
 /** Telephoto field of view of the settled hero shot (the scene default is 50). */
-export const DETAIL_FOV_DEG = 24;
+export const DETAIL_FOV_DEG = 38;
 /** Field of view at eased flight progress `e` (lerp from the scene fov to the hero fov). */
 export function detailFov(baseFovDeg: number, e: number): number {
   const p = Math.min(1, Math.max(0, Number.isFinite(e) ? e : 1));

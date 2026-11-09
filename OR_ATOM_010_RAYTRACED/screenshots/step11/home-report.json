@@ -57,17 +57,17 @@
       "chipBefore": "last",
       "opened": true,
       "detailCam": {
-        "pos": [2, 21, -16],
+        "pos": [61, 42, 44],
         "target": [-148, 0, -166]
       },
-      "panel": "OpenAIproviderActivity: last · recent activity < 1m agoNucleus · modelsNo model observed: neutral two-tone nucleus (nothing is guessed).Orbitals · laneLaneunknownSpinTPS unavailable (no telemetry)Queue vibrationempty queue (measured)In flightno dataValues are measured telemetry; decorative idle light is not activity. Panels appear only when a real value exists.Back to topology (Esc)",
+      "panel": "OpenAIproviderActivity: last · recent activity < 1m agoShow detailsBack (Esc)",
       "labelDisplay": "none",
       "chipInLabel": "last",
       "perfDetail": {
-        "fps": 280.2,
-        "p50": 3.1,
-        "p95": 17,
-        "p99": 20.9,
+        "fps": 268.7,
+        "p50": 1.4,
+        "p95": 19.5,
+        "p99": 20.3,
         "spikes30": 0
       },
       "panelAfterEsc": 0,
@@ -91,18 +91,18 @@
       "chipBefore": "idle",
       "opened": true,
       "detailCam": {
-        "pos": [127, 21, 171],
+        "pos": [177, 42, 239],
         "target": [0, 0, 0]
       },
-      "panel": "OmniRoutehubActivity: idle · idle, no measured activityNucleus · modelsNo model observed: neutral two-tone nucleus (nothing is guessed).Orbitals · laneLaneunknownSpinTPS unavailable (no telemetry)Queue vibrationunavailable (no queue telemetry)In flightno dataValues are measured telemetry; decorative idle light is not activity. Panels appear only when a real value exists.Back to topology (Esc)",
+      "panel": "OmniRoutehubActivity: idle · idle, no measured activityShow detailsBack (Esc)",
       "labelDisplay": "none",
       "chipInLabel": "idle",
       "perfDetail": {
-        "fps": 144.9,
-        "p50": 5.4,
-        "p95": 37.3,
-        "p99": 39.9,
-        "spikes30": 37
+        "fps": 228.8,
+        "p50": 2.6,
+        "p95": 20.2,
+        "p99": 21.3,
+        "spikes30": 0
       },
       "panelAfterEsc": 0,
       "camAfterEsc": {
@@ -125,10 +125,10 @@
     "target": [0, 0, 0]
   },
   "perfDefault": {
-    "fps": 291.8,
-    "p50": 2.3,
-    "p95": 16.3,
-    "p99": 19.5,
+    "fps": 399,
+    "p50": 1.2,
+    "p95": 12,
+    "p99": 13.4,
     "spikes30": 0
   },
   "gpuAtomPresent": false
