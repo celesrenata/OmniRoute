@@ -125,11 +125,14 @@ export function AtomicTooltip({
   descriptor,
   capturedAt,
   onOpenDetail,
+  onGoToProvider,
 }: {
   descriptor: AtomVisualDescriptor | null;
   capturedAt?: number | null;
   /** Opt-in detail view (Step 11): shows the "Open detail view" action when provided. */
   onOpenDetail?: (atomId: string) => void;
+  /** Explicit navigation to the provider page (provider atoms only). */
+  onGoToProvider?: (providerId: string) => void;
 }) {
   if (!descriptor) return null;
 
@@ -260,6 +263,26 @@ export function AtomicTooltip({
           }}
         >
           Open detail view
+        </button>
+      ) : null}
+      {onGoToProvider && descriptor.kind !== "hub" && descriptor.providerId ? (
+        <button
+          type="button"
+          data-atomic-goto-provider="true"
+          onClick={() => onGoToProvider(descriptor.providerId as string)}
+          style={{
+            marginTop: 6,
+            width: "100%",
+            padding: "4px 8px",
+            borderRadius: 6,
+            border: "1px solid rgba(34, 211, 238, 0.35)",
+            background: "transparent",
+            color: "#67e8f9",
+            cursor: "pointer",
+            font: "600 11px system-ui, sans-serif",
+          }}
+        >
+          Go to provider →
         </button>
       ) : null}
     </div>

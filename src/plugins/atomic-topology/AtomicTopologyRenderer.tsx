@@ -1155,12 +1155,18 @@ export function AtomicTopologyRenderer({
             })}
             onClose={() => onDetailExit?.()}
             onReplay={replay ? undefined : onReplayRequest}
+            onGoToProvider={
+              detailDescriptor.kind !== "hub" && detailDescriptor.providerId
+                ? () => handleProviderClick(detailDescriptor.providerId as string)
+                : undefined
+            }
           />
         ) : (
           <AtomicTooltip
             descriptor={focusedDescriptor}
             capturedAt={capturedAt}
             onOpenDetail={onDetailRequest}
+            onGoToProvider={handleProviderClick}
           />
         )}
         {replay ? <AtomicReplayCover controller={replay} /> : null}

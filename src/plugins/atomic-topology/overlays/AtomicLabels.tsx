@@ -115,18 +115,16 @@ export function AtomicLabels({
 }
 
 /**
- * The shared selection behavior: center the view on the atom, and fire the
- * delegated provider-click for provider atoms.
+ * The shared selection behavior: center the view on the atom. Clicking a label
+ * only focuses it; navigating to the provider page is the explicit
+ * "Go to provider" action in the tooltip / detail panel.
  */
 function useAtomSelection(
-  onProviderClick: (providerId: string) => void,
+  _onProviderClick: (providerId: string) => void,
   onFocusRequest?: (nodeId: string) => void
 ) {
   return (descriptor: AtomVisualDescriptor) => {
     onFocusRequest?.(descriptor.id);
-    if (descriptor.kind !== "hub" && descriptor.providerId) {
-      onProviderClick(descriptor.providerId);
-    }
   };
 }
 

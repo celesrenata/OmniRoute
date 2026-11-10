@@ -67,11 +67,14 @@ export function AtomicDetailPanel({
   model,
   onClose,
   onReplay,
+  onGoToProvider,
 }: {
   model: DetailModel | null;
   onClose: () => void;
   /** Step 12: opens the request replay (absent = no replay entry, e.g. already replaying). */
   onReplay?: () => void;
+  /** Explicit navigation to this atom's provider page (absent = no provider, e.g. the hub). */
+  onGoToProvider?: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const open = model != null;
@@ -169,6 +172,26 @@ export function AtomicDetailPanel({
           }}
         >
           Replay recorded requests
+        </button>
+      ) : null}
+      {onGoToProvider ? (
+        <button
+          type="button"
+          data-atomic-goto-provider="true"
+          onClick={onGoToProvider}
+          style={{
+            marginTop: 6,
+            marginLeft: 6,
+            padding: "2px 8px",
+            borderRadius: 6,
+            border: "1px solid rgba(34, 211, 238, 0.35)",
+            background: "transparent",
+            color: "#67e8f9",
+            cursor: "pointer",
+            font: "600 11px system-ui, sans-serif",
+          }}
+        >
+          Go to provider →
         </button>
       ) : null}
       {compact ? (
