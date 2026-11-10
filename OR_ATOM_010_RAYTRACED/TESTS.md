@@ -176,3 +176,21 @@ After deleting the legacy renderer: `npm run typecheck:core` 45 errors (all pre-
 `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts` 431 tests, 430 pass, 0 fail, 1 skipped (three legacy-only test files removed),
 `npm run test:vitest` 493 passed, `npm run build` ok. Live (headed Chrome, M5 Max): default + close-up render, `atoms=20/32` uncapped 226 / 206 fps (p50 3.9 / 4.2 ms),
 two-failed-restores fallback to 2D (1.7 s), forced loss x3 WebGPU and WebGL2 recovered, 2D<->Atomic x10 ok, `?atomic-fx=legacy` renders the ray-traced scene.
+
+# FINAL (finalize step)
+
+Code SHA under test: `48b6c6d07f6a9d322ecef2417f77321ccfe9dbd0` (branch `feat/atomic-raytraced-renderer`, base `feat/atomic-010-cinematic-renderer` @ `689178516`).
+Deployment status: **not deployed.** Branch pushed to the fork and PR opened against `feat/atomic-010-cinematic-renderer`. No production or fleet change; deploying needs operator confirmation.
+
+| Command                                                             | Outcome                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node --import tsx/esm --test tests/unit/atomic-topology/*.test.ts` | 620 tests, 619 pass, 0 fail, 1 skipped.                                                                                                                                                                                                                        |
+| `npm run test:vitest`                                               | Pass (exit 0).                                                                                                                                                                                                                                                 |
+| `npm run typecheck:core`                                            | 45 errors, all inherited: `rateLimitManager.ts`, `bottleneckPatch.ts`, `quotaPools.ts`, `embeddings/service.ts`, `db/scripts.ts`, `scripts/scriptVault.ts`, `FlowCanvas.tsx`. None of these files differ from base `689178516`; 0 errors in `atomic-topology`. |
+| `npm run lint`                                                      | 7 errors, all inherited and in files unchanged vs base (`scriptVaultTools.ts`, `db/scripts.ts`, `scriptVault.ts`). 0 in the plugin.                                                                                                                            |
+
+## Frozen-file record (diff vs `689178516`)
+
+Empty for `layout.ts`, `cameraFit.ts`, `labelCollision.ts`, `projection.ts`, `overlays/AtomicLabels.tsx`, `ProviderTopology2D.tsx` (2D renderer).
+Changed, each operator-approved: `scene/ContainerCameraClamp.tsx` (new) and `SceneOrbitControls.tsx` (+5/-1, `orbitDampingFor()`): the container-camera exception (directive 15) and the time-based glide (46.2); `overlays/AtomicControls.tsx` (+60): Fullscreen chip (35) and refresh-sync checkbox (45).
+Telemetry semantics unchanged: only additive files (`recentCallLogs.ts`, `traceHistory.ts`, `traceHistoryFetch.ts`) plus the call-log duplicate fix in `src/app/api/usage/call-logs/route.ts` (46.4). Request routing is untouched; `traceRouter.ts` is the decorative board-trace router.
