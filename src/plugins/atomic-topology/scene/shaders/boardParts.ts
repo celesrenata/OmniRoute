@@ -58,6 +58,7 @@ import {
   Vector3,
 } from "three/webgpu";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { createFrustumPlanes, extractFrustumPlanes, visibleSphereIndices } from "../rt/visibility";
 import {
   PART_FOOTPRINT,
   PART_KINDS,
@@ -435,8 +436,36 @@ export interface BoardParts {
   /** Haze field texture (floor, row-major) + its world rectangle. */
   haze: { texture: DataTexture; rect: { value: [number, number, number, number] } };
   setLife: (life: number) => void;
+  /**
+   * Directive 19: submit only the instances (parts and their contact-shadow decals) whose bounding
+   * sphere touches the camera frustum. Static source buffers are compacted only when the visible
+   * set changes, so a still camera uploads nothing. `enabled=false` restores every instance.
+   * Returns the number of part instances drawn (decals excluded).
+   */
+  cull: (viewProj: ArrayLike<number> | null) => number;
   dispose: () => void;
 }
+
+/** Static instance data for one InstancedMesh, kept so the visible subset can be re-compacted. */
+interface InstanceSource {
+  n: number;
+  mats: Float32Array;
+  aux: Float32Array | null;
+  spheres: Float32Array;
+  idx: Int32Array;
+  /** Last submitted visible index list (length `shown`); `shown < 0` = never culled (full set). */
+  last: Int32Array;
+  shown: number;
+}
+const emptySource = (): InstanceSource => ({
+  n: 0,
+  mats: new Float32Array(0),
+  aux: null,
+  spheres: new Float32Array(0),
+  idx: new Int32Array(0),
+  last: new Int32Array(0),
+  shown: -1,
+});
 
 export function createBoardParts(): BoardParts {
   const geos = new Map<PartKind, BufferGeometry>();
@@ -467,6 +496,9 @@ export function createBoardParts(): BoardParts {
   decals.renderOrder = -60;
   decals.name = "board-contact-shadows";
 
+  const sources = new Map<PartKind, InstanceSource>();
+  let decalSource = emptySource();
+  const planes = createFrustumPlanes();
   const HZ = 128;
   const hazeData = new Uint8Array(HZ * HZ);
   const hazeTex = new DataTexture(hazeData, HZ, HZ, RedFormat, UnsignedByteType);
@@ -479,12 +511,21 @@ export function createBoardParts(): BoardParts {
     const parts = placeBoardParts(ext, avoid);
     const by = groupByKind(parts);
     let di = 0;
+    const decalSph = new Float32Array(DECAL_MAX * 4);
     for (const k of PART_KINDS) {
       const list = by[k].slice(0, MAXI);
       const mesh = meshes.get(k)!;
       const attr = geos.get(k)!.getAttribute("aVar") as InstancedBufferAttribute;
+      const partSph = new Float32Array(list.length * 4);
       list.forEach((p, i) => {
         const sc = 0.92 + 0.2 * ((p.variant * 7.13) % 1);
+        {
+          // Bounding sphere (generous): centred half a part-height up the surface normal.
+          const nn = NORMAL[p.surface];
+          const rad = (PART_FOOTPRINT[k] * 1.5 + HEIGHT[k]) * sc;
+          const hc = HEIGHT[k] * 0.5 * sc;
+          partSph.set([p.x + nn[0] * hc, p.y + nn[1] * hc, p.z + nn[2] * hc, rad], i * 4);
+        }
         mesh.setMatrixAt(i, partMatrix(p, 0, sc, tmpM));
         (attr.array as Float32Array)[i] = p.variant;
         if (di < DECAL_MAX && k !== "led") {
@@ -493,6 +534,10 @@ export function createBoardParts(): BoardParts {
           tmpQ.setFromUnitVectors(UP, tmpV.set(n[0], n[1], n[2]));
           spinQ.setFromAxisAngle(UP, p.spin);
           tmpQ.multiply(spinQ);
+          decalSph.set(
+            [p.x + n[0] * 0.25, p.y + n[1] * 0.25, p.z + n[2] * 0.25, fp * 1.2 + 2],
+            di * 4
+          );
           decals.setMatrixAt(
             di,
             tmpM.compose(
@@ -507,9 +552,27 @@ export function createBoardParts(): BoardParts {
       mesh.count = list.length;
       mesh.instanceMatrix.needsUpdate = true;
       attr.needsUpdate = true;
+      sources.set(k, {
+        n: list.length,
+        mats: (mesh.instanceMatrix.array as Float32Array).slice(0, list.length * 16),
+        aux: (attr.array as Float32Array).slice(0, list.length),
+        spheres: partSph,
+        idx: new Int32Array(list.length),
+        last: new Int32Array(list.length),
+        shown: -1,
+      });
     }
     decals.count = di;
     decals.instanceMatrix.needsUpdate = true;
+    decalSource = {
+      n: di,
+      mats: (decals.instanceMatrix.array as Float32Array).slice(0, di * 16),
+      aux: null,
+      spheres: decalSph.slice(0, di * 4),
+      idx: new Int32Array(di),
+      last: new Int32Array(di),
+      shown: -1,
+    };
     const field = buildHazeField(parts, ext, HZ);
     for (let i = 0; i < field.length; i += 1) hazeData[i] = Math.round(Math.min(1, field[i]) * 255);
     hazeTex.needsUpdate = true;
@@ -517,9 +580,58 @@ export function createBoardParts(): BoardParts {
     return parts;
   };
 
+  /** Compact `src` to the visible subset into `mesh` (and `attr`); skips the upload when unchanged. */
+  const apply = (
+    src: InstanceSource,
+    mesh: InstancedMesh,
+    attr: InstancedBufferAttribute | null,
+    viewProj: ArrayLike<number> | null
+  ): number => {
+    if (viewProj == null) {
+      if (src.shown === -1) return src.n;
+      // Restore the full set.
+      (mesh.instanceMatrix.array as Float32Array).set(src.mats);
+      if (attr && src.aux) (attr.array as Float32Array).set(src.aux);
+      mesh.count = src.n;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (attr) attr.needsUpdate = true;
+      src.shown = -1;
+      return src.n;
+    }
+    const c = visibleSphereIndices(planes, src.spheres, src.n, src.idx);
+    let same = src.shown === c;
+    for (let i = 0; same && i < c; i += 1) same = src.idx[i] === src.last[i];
+    if (same) return c;
+    const m = mesh.instanceMatrix.array as Float32Array;
+    const a = attr ? (attr.array as Float32Array) : null;
+    for (let i = 0; i < c; i += 1) {
+      const j = src.idx[i];
+      m.set(src.mats.subarray(j * 16, j * 16 + 16), i * 16);
+      if (a && src.aux) a[i] = src.aux[j];
+    }
+    src.last.set(src.idx.subarray(0, c));
+    src.shown = c;
+    mesh.count = c;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (attr) attr.needsUpdate = true;
+    return c;
+  };
+
   return {
     objects: [decals, ...PART_KINDS.map((k) => meshes.get(k)!)],
     setLayout,
+    cull: (viewProj) => {
+      if (viewProj) extractFrustumPlanes(viewProj, planes);
+      let drawn = 0;
+      for (const k of PART_KINDS) {
+        const src = sources.get(k);
+        if (!src) continue;
+        const attr = geos.get(k)!.getAttribute("aVar") as InstancedBufferAttribute;
+        drawn += apply(src, meshes.get(k)!, attr, viewProj);
+      }
+      apply(decalSource, decals, null, viewProj);
+      return drawn;
+    },
     haze: { texture: hazeTex, rect },
     setLife: (life) => {
       (partLife as { value: number }).value = life;

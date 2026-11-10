@@ -46,6 +46,16 @@ import { mulberry32 } from "../strandField";
 import { envTime, pxScale } from "../rt/sharedUniforms";
 
 export const MOTE_COUNT = 900;
+/**
+ * Directive 33 bokeh trim (fewer / smaller high orbs). It is a VISIBLE change (SSIM 0.987 on the
+ * bench default view), so it is OFF by default until the operator signs it off; flip this one
+ * constant to ship it. Dev builds can A/B it with `?bokehtrim=1` / `?bokehtrim=0`.
+ */
+export const BOKEH_TRIM_DEFAULT = false;
+export function resolveBokehTrim(param: string | null, production: boolean): boolean {
+  if (production || param == null || param === "") return BOKEH_TRIM_DEFAULT;
+  return param === "1";
+}
 
 export interface MoteLayer {
   near: Mesh;
@@ -56,7 +66,16 @@ export interface MoteLayer {
   dispose: () => void;
 }
 
-export function createMotes(count = MOTE_COUNT, seed = 0x0b0c3): MoteLayer {
+export function createMotes(
+  count = MOTE_COUNT,
+  seed = 0x0b0c3,
+  trim = resolveBokehTrim(
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("bokehtrim"),
+    process.env.NODE_ENV === "production"
+  )
+): MoteLayer {
   const rnd = mulberry32(seed);
   const plane = new PlaneGeometry(2, 2);
   const g = new InstancedBufferGeometry();
@@ -94,15 +113,18 @@ export function createMotes(count = MOTE_COUNT, seed = 0x0b0c3): MoteLayer {
     // Circle of confusion (0 at the focus plane, saturating far away).
     const coc = smoothstep(0, 1, abs(d.sub(fd)).div(fd.mul(0.8)));
     const kind = fract(r.w.mul(7.31));
-    // Polish (directive 33): the large defocused orbs crowded the upper half of the default
-    // /home frame. High in the volume, big orbs shrink and two in five fade out entirely; the
-    // dust and the lower / nearer orbs are unchanged.
-    const high = smoothstep(0.1, 0.8, c.y.sub((boundsC as any).y).div((boundsH as any).y));
-    const big = coc.mul(mix(float(10), float(28), r.x)).mul(float(1).sub(high.mul(0.45)));
-    const sizePx = mix(float(1.6), float(3.2), kind).add(big);
-    const thin = float(1).sub(
-      high.mul(step(fract(r.z.mul(13.7)), 0.4)).mul(smoothstep(0.15, 0.4, coc))
-    );
+    // Polish (directive 33), only when `trim` (see BOKEH_TRIM_DEFAULT): the large defocused orbs
+    // high in the volume shrink and two in five fade out; dust and lower / nearer orbs unchanged.
+    const bigBase = coc.mul(mix(float(10), float(28), r.x));
+    let sizePx = mix(float(1.6), float(3.2), kind).add(bigBase);
+    let thin: any = float(1);
+    if (trim) {
+      const high = smoothstep(0.1, 0.8, c.y.sub((boundsC as any).y).div((boundsH as any).y));
+      sizePx = mix(float(1.6), float(3.2), kind).add(bigBase.mul(float(1).sub(high.mul(0.45))));
+      thin = float(1).sub(
+        high.mul(step(fract(r.z.mul(13.7)), 0.4)).mul(smoothstep(0.15, 0.4, coc))
+      );
+    }
     const world = sizePx.mul(d).mul(pxScale as any);
     const material = new MeshBasicNodeMaterial();
     material.positionNode = c

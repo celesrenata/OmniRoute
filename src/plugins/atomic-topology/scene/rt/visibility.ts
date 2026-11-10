@@ -115,3 +115,22 @@ export function smallAtomLod(diameterCssPx: number): number {
   const t = Math.min(1, Math.max(0, (diameterCssPx - SMALL_LOD_NEAR) / SMALL_LOD_SPAN));
   return 1 - t * t * (3 - 2 * t);
 }
+/**
+ * Indices of the bounding spheres (`[cx, cy, cz, r]` x n, packed) that may touch the frustum, in
+ * source order, written to `idxOut` (needs room for n). Returns the visible count. Used to compact
+ * static instance buffers (circuit-board parts) so off-screen instances are not submitted.
+ */
+export function visibleSphereIndices(
+  planes: FrustumPlanes,
+  spheres: ArrayLike<number>,
+  n: number,
+  idxOut: Int32Array
+): number {
+  let c = 0;
+  for (let i = 0; i < n; i += 1) {
+    const o = i * 4;
+    if (sphereVisible(planes, spheres[o], spheres[o + 1], spheres[o + 2], spheres[o + 3]))
+      idxOut[c++] = i;
+  }
+  return c;
+}

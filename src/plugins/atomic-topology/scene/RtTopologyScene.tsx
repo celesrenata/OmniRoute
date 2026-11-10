@@ -223,6 +223,7 @@ export function RtTopologyContent({
     typeof window === "undefined" || new URLSearchParams(window.location.search).get("cull") !== "0"
   );
   const lastCam = useRef(new Matrix4());
+  const viewProjTmp = useRef(new Matrix4());
   const pausedRef = useRef(paused);
   useEffect(() => {
     pausedRef.current = paused;
@@ -740,6 +741,12 @@ export function RtTopologyContent({
       cull: cullRef.current,
     });
     gpu.env.follow(camera);
+    // Directive 19: board parts / contact shadows outside the frustum are not submitted.
+    if (cullRef.current) {
+      camera.updateMatrixWorld(true);
+      viewProjTmp.current.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      gpu.env.cullParts(viewProjTmp.current.elements);
+    } else gpu.env.cullParts(null);
     const tg = cameraState.target;
     const focusPt = focusTmp.current.set(tg[0], tg[1], tg[2]);
     gpu.motes.update(camera, focusPt);

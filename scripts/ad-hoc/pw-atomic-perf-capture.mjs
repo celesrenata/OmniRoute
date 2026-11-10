@@ -57,6 +57,8 @@ const browser = await chromium.launch({
 const ctx = await browser.newContext({
   viewport: { width: 1600, height: 1000 },
   deviceScaleFactor: 2,
+  // REDUCED=1: prefers-reduced-motion freezes the board clock too (pulses, LEDs), so captures are deterministic.
+  reducedMotion: process.env.REDUCED === "1" ? "reduce" : "no-preference",
 });
 const page = await ctx.newPage();
 const errors = [];

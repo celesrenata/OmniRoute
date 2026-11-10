@@ -67,6 +67,14 @@ if (process.env.TRUNC === "1") {
   });
 }
 
+// The Atomic renderer now throttles to 30 fps by default (directive 45). Profiling needs one render
+// per rAF tick (GPU timestamps are attributed per rAF row), so default to "Sync to display refresh
+// rate" ON; SYNC=0 keeps the shipped 30 fps default.
+await page.addInitScript((sync) => {
+  try {
+    localStorage.setItem("omniroute.atomic.syncRefresh", sync ? "1" : "0");
+  } catch {}
+}, process.env.SYNC !== "0");
 async function open(query) {
   if (query.startsWith("home")) {
     // Real dashboard: /home, Atomic mode, real local fleet. "home:detail=<id>" opens a detail view.
@@ -97,6 +105,16 @@ async function open(query) {
   await page.goto(`${BASE}/dev/atomic-bench?${query}&gputime=1${extra}`);
   await page.waitForSelector('[data-ready="true"]', { timeout: 120000 });
   await page.waitForTimeout(3500);
+  // ZOOM=<n>: n wheel-in notches toward the middle of the bench (close-up: most atoms leave the frame).
+  const zoom = Number(process.env.ZOOM ?? 0);
+  if (zoom > 0) {
+    await page.mouse.move(Number(process.env.VW ?? 1600) / 2, Number(process.env.VH ?? 1000) / 2);
+    for (let i = 0; i < zoom; i += 1) {
+      await page.mouse.wheel(0, -240);
+      await page.waitForTimeout(40);
+    }
+    await page.waitForTimeout(1500);
+  }
 }
 
 const sample = (ms) =>

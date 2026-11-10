@@ -105,6 +105,12 @@ export interface Environment {
   updateFeeders: (levelOf: (atomId: string) => number, dt: number, life: number) => void;
   /** Keep the room shell centred on the camera and inside its far plane. */
   follow: (camera: { position: { x: number; y: number; z: number }; far: number }) => void;
+  /**
+   * Directive 19: draw only the board parts / contact shadows inside the view frustum
+   * (`viewProj` = projection x view elements); `null` restores every instance (`?cull=0`).
+   * Returns the number of part instances drawn.
+   */
+  cullParts: (viewProj: ArrayLike<number> | null) => number;
   dispose: () => void;
 }
 
@@ -586,6 +592,7 @@ export function createEnvironment(
       feedLevelOfId = levelOf;
       boardTraces.updateFeeders(levelOfPad, dt, life);
     },
+    cullParts: (viewProj) => boardParts.cull(viewProj),
     follow(camera) {
       roomMesh.position.set(camera.position.x, camera.position.y, camera.position.z);
       roomMesh.scale.setScalar(Math.max(0.01, (camera.far * 0.8) / ROOM_RADIUS));

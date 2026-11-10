@@ -6,6 +6,7 @@ import {
   extractFrustumPlanes,
   marchStepsFor,
   sphereVisible,
+  visibleSphereIndices,
 } from "../../../src/plugins/atomic-topology/scene/rt/visibility";
 
 /** Column-major perspective projection (OpenGL clip space) looking down -Z from the origin. */
@@ -67,4 +68,13 @@ test("marchStepsFor: full at/above the default-view size, smooth floor for tiny 
   }
   assert.equal(marchStepsFor(48, MIN_STEPS_RADIUS_PX), marchStepsFor(48, 1), "floor holds");
   assert.ok(marchStepsFor(48, 1) >= 28, "never starves tiny atoms");
+});
+test("visibleSphereIndices: returns the in-frustum spheres in source order", () => {
+  const sph = [
+    0, 0, -1000, 50, 5000, 0, -1000, 50, 0, 0, -2000, 50, 0, 0, 1000, 50, 100, 0, -500, 20,
+  ];
+  const idx = new Int32Array(5);
+  const c = visibleSphereIndices(planes, sph, 5, idx);
+  assert.equal(c, 3);
+  assert.deepEqual([...idx.subarray(0, c)], [0, 2, 4]);
 });

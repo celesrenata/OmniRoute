@@ -1,3 +1,95 @@
+# PERFORMANCE: profile-and-optimize phase, round 4 (review perf.json findings)
+
+Apple M5 Max, headed Chrome (WebGPU `apple/metal-3`), 1600x1000 css @ DPR 2, normal vsync on the built-in 120 Hz panel for the
+final-state runs, uncapped + GPU timestamps (`?gputime=1`) for the non-visible-work runs. Background GPU load was NOT removable
+(a local inference server plus the desktop kept "Device Utilization" at 32-45 % on a blank page), so every A/B is interleaved
+(3 rounds, medians) and GPU timestamps, not fps, carry the comparison.
+
+## Finding 1 (item 19): GPU time spent on non-visible work, measured
+
+Harness: `scripts/ad-hoc/pw-atomic-nonvisible.mjs` (via `pw-atomic-profile.mjs`, `ZOOM=<wheel notches>`, `SYNC` forced on so every
+rAF tick renders). Raw: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/nonvisible.json`. GPU ms/frame (timestamp queries), median of 3 interleaved rounds:
+
+| scene (bench, uncapped)     | default (all savings on) | `?cull=0` (all savings off) | all board parts hidden | board parts share |
+| --------------------------- | -----------------------: | --------------------------: | ---------------------: | ----------------: |
+| 20 atoms, default view      |                     2.45 |                        2.54 |                   1.50 |             ~39 % |
+| 32 atoms, default view      |                     2.84 |                        2.83 |                   1.67 |             ~41 % |
+| 32 atoms, close-up (zoom 7) |                     6.24 |                        6.25 |                   3.91 |             ~37 % |
+| 32 atoms, closer (zoom 11)  |                     6.05 |                        5.74 |                   3.47 |             ~43 % |
+
+What this says (and what it does not):
+
+- **Atom frustum culling + projected-size march steps** (earlier rounds) save no measurable GPU time in these four views: at 32 atoms
+  nearly all atoms are on screen at default, and in the close-ups the off-screen atoms were already cheap (a culled atom's
+  impostor quad is clipped by the GPU). Differences of 0.01-0.3 ms are inside the 0.1-0.3 ms round-to-round noise.
+- **Board parts** (ICs, cans, chokes, resistors, LEDs, contact shadows) are 37-43 % of the frame (1.1-2.4 ms). That cost is on screen,
+  not wasted: the floor parts sit right under the atoms.
+- **New this round: per-instance culling of board parts and contact-shadow decals** (`boardParts.ts` `cull()`, `visibility.ts`
+  `visibleSphereIndices`, called from `RtTopologyScene.tsx` each frame; off with `?cull=0`). Static source buffers are re-compacted only
+  when the visible set changes, so a still camera uploads nothing. It removes the wall/ceiling and out-of-frame instances from the draw:
+  submitted triangles 11.5 M -> 8.8 M (-24 %) at zoom 11, 10.3 M -> 9.5 M (-8 %) at zoom 7, 5.97 M -> 5.79 M (-3 %) at 20 atoms default.
+  **Measured GPU time did not change** (6.05 vs 5.74 ms is noise; zoom 7 identical). Honest conclusion: off-screen board geometry costs
+  about nothing on this GPU (cheap vertex stage, clipped before raster); the upper bound of the whole board-part budget in a view is the
+  "hidden" column, and most of it is visible. The culling is kept because it is correct, tested and trims submitted triangles, but it is
+  not a frame-time win and is not claimed as one.
+- **Unpresented frames (uncapped only)** and the hidden-tab / off-screen loop stop (0 frames, Gate B round 4) remain the large non-visible
+  savings: with the 30 fps default, GPU busy dropped from 65-77 % (synced) to 34-39 % (throttled) in the table below.
+- **No visible change (cull on vs `?cull=0`, identical camera, prefers-reduced-motion so the board clock is frozen; determinism floor
+  r1 vs r2 = max 0):** `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/cull-ab/diff/diff.json`.
+
+| scene         | max abs | mean abs | % px > 8 | SSIM |
+| ------------- | ------: | -------: | -------: | ---: |
+| topo-20       |      29 |   0.0000 |   0.0001 |    1 |
+| topo-32       |      34 |   0.0001 |   0.0001 |    1 |
+| topo-20 close |      11 |   0.0000 |        0 |    1 |
+| bench detail  |      16 |   0.0000 |        0 |    1 |
+
+The few differing pixels are single-pixel edges of atoms whose march step count the pre-existing savings change (`cull=0` also turns those off);
+the x16 diff is black elsewhere. Side by side (before | after): `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/cull-ab/diff/topo-32-before-after.png`,
+`/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/cull-ab/diff/topo-20-close-before-after.png`, `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/cull-ab/diff/bench-detail-before-after.png`; x16 diffs next to them
+(`*-diff-x16.png`); worst crop `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/cull-ab/diff/topo-32-worst-crop.png`. Full inputs: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/cull-ab/before/`, `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/cull-ab/after/`.
+
+## Finding 2: final-state targets (shipped defaults: half-res reflection, cloud-only hero, 30 fps throttle), vsync on
+
+`scripts/ad-hoc/pw-atomic-final.mjs`, 2 rounds each, 8 s windows, rendered-frame intervals (`__atomicFrameTimes`), GPU busy = ioreg whole-GPU
+(includes the ~30-40 % background). Raw: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/final-state.json`. 120 Hz panel, so 8.33 ms = one refresh.
+
+| scene                                           | synced: fps | p50 / p95 / p99 ms                | frames > 12.5 ms | GPU busy % | 30 fps default: fps | p50 / p95 / p99              | GPU busy % |
+| ----------------------------------------------- | ----------: | --------------------------------- | ---------------: | ---------: | ------------------: | ---------------------------- | ---------: |
+| 8 atoms                                         |         120 | 8.3 / 10.0 / 10.3                 |                0 |         66 |                  30 | 33.3 / 34.5 / 34.9           |       34.6 |
+| 16 atoms                                        |         120 | 8.3 / 9.8-10 / 10.3               |                0 |         72 |                  30 | 33.3 / 34.2-34.6 / 34.8-35   |         34 |
+| 20 atoms                                        |         120 | 8.3 / 9.6-9.7 / 10.2              |                0 |      68-70 |                  30 | 33.3 / 34.1-34.3 / 34.2-35   |      35-40 |
+| 32 atoms                                        |         120 | 8.3 / 9.0-9.1 / 9.3               |                0 |         77 |                  30 | 33.3 / 34.0-34.2 / 34.2-34.3 |         35 |
+| bench detail (hero pass)                        |         119 | 8.3 / 9.0 / 9.3                   |  1 (75 ms, load) |      87-89 |                  30 | 33.3 / 33.8-34 / 34.2-34.3   |      38-39 |
+| real /home (Atomic, ~10 atoms)                  |         120 | 8.3 / 9.1-9.2 / 9.3               |                0 |      59-61 |                  30 | 33.3 / 33.8-33.9 / 34.2      |      40-43 |
+| Gate A grid 32 (legacy bench loop, unthrottled) |       78-80 | 15.7-16.2 / 16.8-17.2 / 17.3-17.6 |     (vsync beat) |         94 |                 n/a | n/a                          |        n/a |
+
+- **~120 fps at real fleet size: met** (real /home 120 fps, p95 9.1-9.2, p99 9.3, 0 missed refreshes; 8-32 atoms the same, at a quiet-enough GPU).
+- **>= 60 fps at 32 atoms: met** (topology 32: 120 fps, p99 9.3; the Gate A synthetic grid 32 ran 78-80 fps with p95 <= 17.2 and p99 <= 17.6 ms,
+  i.e. at most one missed 120 Hz refresh, no stalls). The 30 fps default holds 30.0 with p99 <= 35 ms in every scene.
+- **The uncapped p95/p99 tail** (22 ms topology / 44-65 ms grid) is Chrome/macOS presentation back-pressure (27.5 presents/s vs 177 renders/s, reproduced
+  by a raw WebGPU page, Finding 1 below). It does not exist under vsync (table above) and nothing in this renderer can remove it; it is documented, not fixed.
+- The one 75 ms frame in bench detail is a single shader-pipeline/background-load hitch in 952 frames (1 of 2 rounds, absent in the other).
+
+## Frozen-file record (diff vs `689178516`)
+
+Only two frozen files differ, both for operator-authorised work:
+
+- `overlays/AtomicControls.tsx` (+60): the Fullscreen chip (directive 35) and the "Sync to display refresh rate" checkbox (directive 45, explicit exception to the no-new-controls freeze).
+- `scene/SceneOrbitControls.tsx` (+5): `orbitDampingFor(delta)`. Directive 45 requires all motion to be time-based; OrbitControls damping decayed per `update()`
+  (per frame), so the glide length differed at 30 and 120 fps. The scale is 1.0 at the 60 fps reference, so the feel at 60 Hz is unchanged. It is not a camera/orbit/zoom/reset/auto-fit behaviour change at a fixed
+  frame rate; it is a direct consequence of the 30 fps default, but it is **not** listed in directive 45 as an exception, so it is recorded here for the operator to confirm or veto (revert is one line).
+- Unchanged: `layout.ts`, `cameraFit.ts`, `AtomicLabels.tsx`, the 2D renderer, telemetry semantics, routing.
+
+## Bokeh trim (directive 33) is now gated, off by default
+
+The `motes.ts` trim of high bokeh orbs (SSIM 0.987) is a visible change, and directive 19 / this phase require no visible change without
+operator sign-off. It is now behind `BOKEH_TRIM_DEFAULT = false` (`resolveBokehTrim`); the shipped look is the previous one. Dev A/B: `?bokehtrim=1`.
+To ship it after the operator approves, flip that constant. Previews of the trim remain at `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/polish-bokeh/topo-20-before-after-preview.jpg`.
+Test: `tests/unit/atomic-topology/bokehTrim.test.ts`.
+
+---
+
 # Directive 33 polish gaps: status in this phase
 
 | gap                                                                                            | status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
