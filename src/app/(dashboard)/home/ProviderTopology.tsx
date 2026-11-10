@@ -394,7 +394,7 @@ export default function ProviderTopology({
         ? "bg-white/10 px-2 py-0.5 font-medium text-white"
         : "px-2 py-0.5 text-white/60 hover:text-white";
   return (
-    <div className="relative h-[300px] w-full min-w-0 sm:h-[420px]">
+    <div className="relative h-[400px] w-full min-w-0 sm:h-[560px]">
       <div ref={containerRef} className="h-full w-full min-w-0" />
       <div className="absolute left-2 top-2 z-10">
         <div

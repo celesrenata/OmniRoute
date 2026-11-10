@@ -1157,6 +1157,11 @@ html[dir="rtl"] :where(.material-symbols-outlined, .traffic-lights, .react-flow)
   right: 8px;
   z-index: 5;
   max-width: 240px;
+  /* Scrolls like the detail panel, so every row is reachable in the home card. */
+  max-height: calc(100% - 48px - var(--atomic-replay-inset, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   padding: 8px 10px;
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 10px;
