@@ -27,6 +27,10 @@ import {
 } from "@/app/(dashboard)/home/topologyUtils";
 import {
   RECENT_MODELS_BASIS,
+  RECENT_CALLS_BASIS,
+  RECENT_CALLS_WINDOW_MS,
+  deriveRecentCallTimes,
+  recentCallsForEntry,
   RECENT_MODELS_WINDOW_MS,
   deriveRecentProviderModels,
   recentModelsForEntry,
@@ -293,6 +297,7 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
   const recentModelTallies = deriveRecentProviderModels(input.recentCallLogs, {
     now: capturedAt,
   });
+  const recentCallTimes = deriveRecentCallTimes(input.recentCallLogs, { now: capturedAt });
 
   const nodes: TopologySceneNode[] = [];
   const links: TopologySceneLink[] = [];
@@ -394,6 +399,16 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
         sampledAt: recent.newestAt,
         windowMs: RECENT_MODELS_WINDOW_MS,
         basis: RECENT_MODELS_BASIS,
+      };
+    }
+    const calls = recentCallsForEntry(recentCallTimes, entry);
+    if (calls) {
+      node.recentCalls = {
+        value: calls,
+        source: "call-log",
+        sampledAt: calls[0],
+        windowMs: RECENT_CALLS_WINDOW_MS,
+        basis: RECENT_CALLS_BASIS,
       };
     }
     nodes.push(node);

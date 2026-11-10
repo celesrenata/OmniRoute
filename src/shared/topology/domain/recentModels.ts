@@ -151,3 +151,102 @@ export function recentModelsSignature(
     .map(([provider, tally]) => `${provider}=${tally.models.join(",")}`)
     .join(";");
 }
+
+/**
+ * Recent real call times per provider (directive 40 feeder traces, call-log basis).
+ *
+ * Window for the call-rate signal, independent of the 15-min model window: the feeder rate
+ * is "calls in the last minute", so only that minute's timestamps are carried.
+ */
+export const RECENT_CALLS_WINDOW_MS = 60_000;
+/** Max timestamps carried per provider (a bounded, honest sample; ~2 calls/s for a minute). */
+export const RECENT_CALLS_MAX = 120;
+/** Human-readable basis, carried on the `Observed` record. */
+export const RECENT_CALLS_BASIS = "completed call-log rows (any status), last 60 s";
+
+function rowCountsAsCall(row: RecentCallLogRow): boolean {
+  // A finished real request: not a health probe, not still in flight.
+  return !isConnectionTestRow(row) && !row.active && row.completed !== false;
+}
+
+/**
+ * Completed, non-test call times (epoch ms of completion, newest first) per lowercased provider
+ * inside the window. Pure: callers pass `now`.
+ *
+ * `/api/usage/call-logs` lists a just-finished request twice: the in-memory entry
+ * (`detailState: "in-memory"`, timestamp = start, `duration`) and, once written, the persisted
+ * row (timestamp = completion) under a different id. The pair is collapsed here: an in-memory
+ * row whose start + duration lands within 250 ms of a persisted row of the same provider,
+ * connection, model and duration is the same call. Rows are also de-duplicated by id.
+ */
+export function deriveRecentCallTimes(
+  rows: readonly RecentCallLogRow[] | null | undefined,
+  options: DeriveOptions
+): Map<string, number[]> {
+  const windowMs = options.windowMs ?? RECENT_CALLS_WINDOW_MS;
+  const now = options.now;
+  type Call = { provider: string; at: number; key: string; inMemory: boolean };
+  const calls: Call[] = [];
+  const seen = new Set<string>();
+  for (const row of rows ?? []) {
+    if (!row || typeof row !== "object" || !rowCountsAsCall(row)) continue;
+    const provider = typeof row.provider === "string" ? row.provider.trim().toLowerCase() : "";
+    if (!provider) continue;
+    const ts = typeof row.timestamp === "string" ? Date.parse(row.timestamp) : NaN;
+    if (!Number.isFinite(ts)) continue;
+    if (typeof row.id === "string" && row.id) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+    }
+    const inMemory = row.detailState === "in-memory";
+    const duration =
+      typeof row.duration === "number" && Number.isFinite(row.duration) ? row.duration : 0;
+    const at = inMemory ? ts + Math.max(0, duration) : ts;
+    if (at > now || now - at > windowMs) continue;
+    const key = `${provider}|${String(row.connectionId ?? "")}|${canonicalModelId(row.model)}|${duration}`;
+    calls.push({ provider, at, key, inMemory });
+  }
+  const persisted = new Map<string, number[]>();
+  for (const c of calls)
+    if (!c.inMemory) (persisted.get(c.key) ?? persisted.set(c.key, []).get(c.key)!).push(c.at);
+  const out = new Map<string, number[]>();
+  for (const c of calls) {
+    if (c.inMemory && (persisted.get(c.key) ?? []).some((t) => Math.abs(t - c.at) <= 250)) continue;
+    let list = out.get(c.provider);
+    if (!list) {
+      list = [];
+      out.set(c.provider, list);
+    }
+    list.push(c.at);
+  }
+  for (const [k, list] of out) out.set(k, list.sort((a, b) => b - a).slice(0, RECENT_CALLS_MAX));
+  return out;
+}
+
+/** Merge the call times of every key identifying `entry`; `null` when there are none. */
+export function recentCallsForEntry(
+  times: ReadonlyMap<string, number[]>,
+  entry: { provider: string; aliases?: string[] }
+): number[] | null {
+  const keys = new Set<string>([entry.provider.toLowerCase()]);
+  for (const alias of entry.aliases ?? []) keys.add(alias.toLowerCase());
+  const all: number[] = [];
+  for (const key of keys) all.push(...(times.get(key) ?? []));
+  if (all.length === 0) return null;
+  return all.sort((a, b) => b - a).slice(0, RECENT_CALLS_MAX);
+}
+
+/**
+ * Signature of the recent calls (provider, count, newest timestamp). It changes only when a
+ * real call arrives or one leaves the window, so a host can refresh the snapshot for real
+ * activity without churning on every poll.
+ */
+export function recentCallsSignature(
+  rows: readonly RecentCallLogRow[] | null | undefined,
+  now: number = Date.now()
+): string {
+  return Array.from(deriveRecentCallTimes(rows, { now }).entries())
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([provider, t]) => `${provider}=${t.length}@${t[0]}`)
+    .join(";");
+}

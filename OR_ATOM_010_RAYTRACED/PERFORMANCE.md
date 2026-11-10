@@ -1,3 +1,47 @@
+# Directive 41: usage-driven feeder traces verified on REAL data
+
+**Method:** real requests through the dev server's own `/v1/chat/completions`, sent to the local model `llama-cpp/deepseek-v4.1-flash-1017`
+(on this machine, /bin/zsh). Each request writes real call-log rows. Harness: `pw-atomic-feeders-real.mjs`. It samples the dev-only
+`window.__atomicFeeders` (signal basis/value, target, eased level per atom) on the real /home in Atomic mode.
+
+**Root cause found (first run, before the fix): 12 real 200-OK requests left every feeder at 0.** The feeder call rate read only the
+live lifecycle event pool. On the dev origin the live websocket is rejected (`FORBIDDEN_ORIGIN`, item 38.5), so no lifecycle event
+ever arrived, and the call-log rows, which item 40 names as the third signal, were never consulted.
+
+**Fix:**
+
+- `recentModels.ts` `deriveRecentCallTimes` collects the completed, non-test call times per provider over the last 60 s.
+- `normalizeTopology` carries them as `node.recentCalls` (`source: "call-log"`, absent when there are none).
+- The descriptor carries `recentCallTimes` (the hub gets the union).
+- `atomFeederSignal` uses the larger of the live-event rate and the call-log rate. They describe the same requests, so the two are
+  never summed. The renderer counts on its own clock, so the rate decays without a new snapshot.
+- Replay never reads live call-log rows.
+- The host refreshes the snapshot only when the call signature changes, i.e. when a real call arrives (`ProviderTopology.tsx`).
+
+**Second finding (host data, worked around, not changed):** `/api/usage/call-logs` lists every just-finished request twice. One row is
+the in-memory entry (`detailState: "in-memory"`, start timestamp); the other is the persisted row (completion timestamp, different id).
+The route's id-based de-duplication cannot match them. The first fixed run therefore counted 2 calls per request. The feeder now
+collapses the pair (same provider, connection, model and duration, with start + duration within 250 ms of the persisted row) and
+uses the completion time. The duplicate rows still appear in the API and logs grid; that is outside this phase's scope.
+
+**Result after the fix** (`/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/feeders-real/feeders-real.json`): 12 requests, all 200, about 10 s each (the local GPU was busy).
+value = calls/min, target = mapped intensity, level = eased level.
+
+| sample                   | provider:llama-cpp (value / target / level)             | hub               | every other atom (8 providers) |
+| ------------------------ | ------------------------------------------------------- | ----------------- | ------------------------------ |
+| before                   | 0                                                       | 0                 | 0                              |
+| after request 2 / 5 / 10 | 1 / 0.084 / 0.084; 4 / 0.247 / 0.247; 6 / 0.320 / 0.320 | same as llama-cpp | 0                              |
+| burst end                | 4 / 0.247 / 0.246                                       | same              | 0                              |
+| idle + 30 s              | 3 / 0.202 / 0.202                                       | same              | 0                              |
+| idle + 75 s              | 0 (no record lit)                                       | 0                 | 0                              |
+
+Feeders light only on the atom with real activity (and the hub that routed it), proportionally to the call rate. They decay to zero
+about a minute after the last call. The glow is "ever so slightly" by design (item 40), so the numbers above are the primary
+evidence. Stills (before | burst end | idle + 75 s): `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/feeders-real/feeders-real-before-burst-idle.jpg`.
+Tests: `tests/unit/atomic-topology/feederCallLog.test.ts` (window, de-dup, in-memory/persisted pair, aliases, provenance,
+signatures, provider/hub lit with others zero, decay, replay exclusion, max-not-sum).
+---
+
 # PERFORMANCE: profile-and-optimize phase, round 3 (directive 45: 30 fps target)
 
 ## What changed

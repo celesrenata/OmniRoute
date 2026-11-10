@@ -132,6 +132,23 @@ export function callsPerMinute(
   return (n * 60_000) / windowMs;
 }
 
+/**
+ * Call-log rate: completed real calls per minute among `times` (epoch ms) in `windowMs`
+ * before `nowMs`. `null` when there is no call-log observation at all (unknown, not zero).
+ */
+export function callLogPerMinute(
+  times: readonly number[] | null | undefined,
+  nowMs: number,
+  windowMs = 60_000
+): number | null {
+  if (!times || !Number.isFinite(nowMs)) return null;
+  let n = 0;
+  for (const t of times) {
+    const age = nowMs - t;
+    if (age >= 0 && age <= windowMs) n += 1;
+  }
+  return (n * 60_000) / windowMs;
+}
 /** The atom fields the feeder signal reads (a subset of the visual descriptor). */
 export interface FeederAtomInput {
   kind: "hub" | "provider" | "gpu" | "runtime";
@@ -139,6 +156,8 @@ export interface FeederAtomInput {
   measuredTps: number | null;
   activeRequests: number | null;
   deviceFacts?: { activeJobs?: number | null } | null;
+  /** Real completed-call timestamps from call-log rows (last minute), if observed. */
+  recentCallTimes?: readonly number[] | null;
 }
 /**
  * One atom's feeder signal, shared by the scene (per-frame drive) and the detail panel
@@ -151,14 +170,24 @@ export function atomFeederSignal(
     events: readonly { at: number; kind: string; providerId?: string }[] | null | undefined;
     nowMs: number;
     inFlightStale: boolean;
+    /** False while replaying: live call-log rows never drive a replayed moment. */
+    callLog?: boolean;
   }
 ): FeederSignal {
-  const calls =
+  const live =
     d.kind === "hub"
       ? callsPerMinute(ctx.events, null, ctx.nowMs)
       : d.providerId
         ? callsPerMinute(ctx.events, d.providerId, ctx.nowMs)
         : null;
+  // Call-log rows (the shared /api/usage/call-logs poll) describe the same requests as the
+  // live lifecycle events, so the two are never summed: the larger observed rate is used. With
+  // the live feed unavailable (e.g. a rejected websocket origin) the call log still drives it.
+  const logged =
+    ctx.callLog !== false && (d.kind === "hub" || d.providerId)
+      ? callLogPerMinute(d.recentCallTimes, ctx.nowMs)
+      : null;
+  const calls = live == null ? logged : logged == null ? live : Math.max(live, logged);
   return feederSignal({
     tps: d.measuredTps,
     inFlight: d.activeRequests ?? d.deviceFacts?.activeJobs ?? null,

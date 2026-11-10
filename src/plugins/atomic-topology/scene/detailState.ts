@@ -254,6 +254,7 @@ export function buildDetailModel(d: AtomVisualDescriptor, ctx: DetailContext): D
           events: ctx.events ?? null,
           nowMs: ctx.now,
           inFlightStale: ctx.inFlightStale ?? true,
+          callLog: !ctx.replayed,
         }),
         null
       ).replace(/^Feeder traces: /, ""),

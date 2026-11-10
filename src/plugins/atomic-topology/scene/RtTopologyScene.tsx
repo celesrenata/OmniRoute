@@ -431,7 +431,12 @@ export function RtTopologyContent({
       const { pool: p, telemetryStale: stale } = feedLive.current;
       const heat = heatTargets.current;
       heat.clear();
-      const fctx = { events: p ? p.events() : null, nowMs: wall, inFlightStale: stale ?? true };
+      const fctx = {
+        events: p ? p.events() : null,
+        nowMs: wall,
+        inFlightStale: stale ?? true,
+        callLog: replayAt == null,
+      };
       const targets = feederTargets.current;
       targets.clear();
       const dbg: Record<string, unknown> = {};
@@ -440,7 +445,15 @@ export function RtTopologyContent({
         targets.set(d.id, feederTarget(sig));
         if (replayAt != null)
           heat.set(d.id, trafficHeat(p ? p.events() : null, d.providerId, wall));
-        dbg[d.id] = { ...sig, target: targets.get(d.id), level: feeders.current.get(d.id)?.level };
+        dbg[d.id] = {
+          ...sig,
+          target: targets.get(d.id),
+          level: feeders.current.get(d.id)?.level,
+          logTimes: d.recentCallTimes ? [...d.recentCallTimes] : null,
+          liveEvents: p
+            ? p.events().filter((e) => !d.providerId || e.providerId === d.providerId).length
+            : null,
+        };
       }
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as { __atomicFeeders?: unknown }).__atomicFeeders = dbg;

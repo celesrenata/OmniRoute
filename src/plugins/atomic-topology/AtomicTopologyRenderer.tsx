@@ -338,6 +338,12 @@ export interface AtomVisualDescriptor {
   energyTier: 0 | 1 | 2 | 3;
   /** Epoch ms of the last REAL activity (newest successful call-log row / live), or null. */
   lastActivityAt: number | null;
+  /**
+   * Real completed-call timestamps (epoch ms) of the last minute from call-log rows
+   * (directive 40/41 feeder call rate). Provider: its own rows; hub: every provider's.
+   * Absent / null = no call-log observation.
+   */
+  recentCallTimes?: readonly number[] | null;
 }
 
 /**
@@ -436,6 +442,8 @@ export function resolveAtomDescriptors(
     for (const pn of reconciliation.providerNodes) providerJoin.set(pn.providerId, pn);
   }
 
+  // The hub routes every call: its call-log rate is the union of the providers' rows.
+  const hubCallTimes = snapshot.nodes.flatMap((n) => n.recentCalls?.value ?? []);
   const descriptors: AtomVisualDescriptor[] = snapshot.nodes.map((node) => {
     const isHub = node.id === "hub";
     const placement = placementById.get(node.id);
@@ -528,6 +536,11 @@ export function resolveAtomDescriptors(
       providerId: node.providerId,
       energyTier,
       lastActivityAt,
+      recentCallTimes: isHub
+        ? hubCallTimes.length
+          ? hubCallTimes
+          : null
+        : (node.recentCalls?.value ?? null),
       position,
       color,
       lane,

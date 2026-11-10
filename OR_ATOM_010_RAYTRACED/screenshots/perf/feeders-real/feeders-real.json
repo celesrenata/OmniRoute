@@ -1,0 +1,1660 @@
+{
+  "model": "llama-cpp/deepseek-v4.1-flash-1017",
+  "requests": [
+    {
+      "i": 0,
+      "status": 200,
+      "ms": 9614,
+      "tokens": 39,
+      "err": null
+    },
+    {
+      "i": 1,
+      "status": 200,
+      "ms": 11112,
+      "tokens": 48,
+      "err": null
+    },
+    {
+      "i": 2,
+      "status": 200,
+      "ms": 11562,
+      "tokens": 48,
+      "err": null
+    },
+    {
+      "i": 3,
+      "status": 200,
+      "ms": 13196,
+      "tokens": 48,
+      "err": null
+    },
+    {
+      "i": 4,
+      "status": 200,
+      "ms": 8881,
+      "tokens": 39,
+      "err": null
+    },
+    {
+      "i": 5,
+      "status": 200,
+      "ms": 9071,
+      "tokens": 48,
+      "err": null
+    },
+    {
+      "i": 6,
+      "status": 200,
+      "ms": 14002,
+      "tokens": 48,
+      "err": null
+    },
+    {
+      "i": 7,
+      "status": 200,
+      "ms": 9973,
+      "tokens": 48,
+      "err": null
+    },
+    {
+      "i": 8,
+      "status": 200,
+      "ms": 8976,
+      "tokens": 42,
+      "err": null
+    },
+    {
+      "i": 9,
+      "status": 200,
+      "ms": 18089,
+      "tokens": 48,
+      "err": null
+    },
+    {
+      "i": 10,
+      "status": 200,
+      "ms": 17227,
+      "tokens": 45,
+      "err": null
+    },
+    {
+      "i": 11,
+      "status": 200,
+      "ms": 17367,
+      "tokens": 48,
+      "err": null
+    }
+  ],
+  "samples": [
+    {
+      "t": "2026-11-10T00:33:55.296Z",
+      "label": "before",
+      "lit": {},
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:34:05.057Z",
+      "label": "after-request-1",
+      "lit": {},
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:34:18.172Z",
+      "label": "after-request-2",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 1,
+          "target": 0.08377494012675354,
+          "level": 0.08377494012675347
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 1,
+          "target": 0.08377494012675354,
+          "level": 0.08377494012675347
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 1,
+          "target": 0.08377494012675354,
+          "level": 0.08377494012675347,
+          "logTimes": [1794270845052],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 1,
+          "target": 0.08377494012675354,
+          "level": 0.08377494012675347,
+          "logTimes": [1794270845052],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:34:31.736Z",
+      "label": "after-request-3",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 2,
+          "target": 0.14875583202488318,
+          "level": 0.14875583202488304
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 2,
+          "target": 0.14875583202488318,
+          "level": 0.14875583202488304
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 2,
+          "target": 0.14875583202488318,
+          "level": 0.14875583202488304,
+          "logTimes": [1794270858169, 1794270845052],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 2,
+          "target": 0.14875583202488318,
+          "level": 0.14875583202488304,
+          "logTimes": [1794270858169, 1794270845052],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:34:46.935Z",
+      "label": "after-request-4",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 3,
+          "target": 0.20184908658209985,
+          "level": 0.2018490865820997
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 3,
+          "target": 0.20184908658209985,
+          "level": 0.2018490865820997
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 3,
+          "target": 0.20184908658209985,
+          "level": 0.2018490865820997,
+          "logTimes": [1794270871733, 1794270858169, 1794270845052],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 3,
+          "target": 0.20184908658209985,
+          "level": 0.2018490865820997,
+          "logTimes": [1794270871733, 1794270858169, 1794270845052],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:34:57.818Z",
+      "label": "after-request-5",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.2467387936915256
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.2467387936915256
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.2467387936915256,
+          "logTimes": [1794270886930, 1794270871733, 1794270858169, 1794270845052],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.2467387936915256,
+          "logTimes": [1794270886930, 1794270871733, 1794270858169, 1794270845052],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:35:08.892Z",
+      "label": "after-request-6",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.2467387936916432
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.2467387936916432
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.2467387936916432,
+          "logTimes": [1794270897814, 1794270886930, 1794270871733, 1794270858169],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.2467387936916432,
+          "logTimes": [1794270897814, 1794270886930, 1794270871733, 1794270858169],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:35:25.260Z",
+      "label": "after-request-7",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369164323
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369164323
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369164323,
+          "logTimes": [1794270908889, 1794270897814, 1794270886930, 1794270871733],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369164323,
+          "logTimes": [1794270908889, 1794270897814, 1794270886930, 1794270871733],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:35:37.238Z",
+      "label": "after-request-8",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369164325
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369164325
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369164325,
+          "logTimes": [1794270924894, 1794270908889, 1794270897814, 1794270886930],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369164325,
+          "logTimes": [1794270924894, 1794270908889, 1794270897814, 1794270886930],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:35:48.221Z",
+      "label": "after-request-9",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 5,
+          "target": 0.2856240267088534,
+          "level": 0.3199232330374455
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 5,
+          "target": 0.2856240267088534,
+          "level": 0.3199232330374455
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 5,
+          "target": 0.2856240267088534,
+          "level": 0.3199232330374455,
+          "logTimes": [
+            1794270937231, 1794270937230, 1794270924894, 1794270908889, 1794270897814, 1794270886930
+          ],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 5,
+          "target": 0.2856240267088534,
+          "level": 0.3199232330374455,
+          "logTimes": [
+            1794270937231, 1794270937230, 1794270924894, 1794270908889, 1794270897814, 1794270886930
+          ],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:36:08.313Z",
+      "label": "after-request-10",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 6,
+          "target": 0.3199232330374462,
+          "level": 0.3199232330374459
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 6,
+          "target": 0.3199232330374462,
+          "level": 0.3199232330374459
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 6,
+          "target": 0.3199232330374462,
+          "level": 0.3199232330374459,
+          "logTimes": [
+            1794270948211, 1794270948210, 1794270937231, 1794270937230, 1794270924894, 1794270908889
+          ],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 6,
+          "target": 0.3199232330374462,
+          "level": 0.3199232330374459,
+          "logTimes": [
+            1794270948211, 1794270948210, 1794270937231, 1794270937230, 1794270924894, 1794270908889
+          ],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:36:27.543Z",
+      "label": "after-request-11",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 5,
+          "target": 0.2856240267088534,
+          "level": 0.3199232330374459
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 5,
+          "target": 0.2856240267088534,
+          "level": 0.3199232330374459
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 5,
+          "target": 0.2856240267088534,
+          "level": 0.3199232330374459,
+          "logTimes": [1794270968307, 1794270948211, 1794270948210, 1794270937231, 1794270937230],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 5,
+          "target": 0.2856240267088534,
+          "level": 0.3199232330374459,
+          "logTimes": [1794270968307, 1794270948211, 1794270948210, 1794270937231, 1794270937230],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:36:46.915Z",
+      "label": "after-request-12",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369166038
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369166038
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369166038,
+          "logTimes": [1794270987537, 1794270968307, 1794270948211, 1794270948210],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24673879369166038,
+          "logTimes": [1794270987537, 1794270968307, 1794270948211, 1794270948210],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:36:51.920Z",
+      "label": "burst-end",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24640004455759743
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24640004455759743
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24640004455759743,
+          "logTimes": [1794271006909, 1794271006908, 1794270987537, 1794270968307],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 4,
+          "target": 0.24673879369164334,
+          "level": 0.24640004455759743,
+          "logTimes": [1794271006909, 1794271006908, 1794270987537, 1794270968307],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:37:22.119Z",
+      "label": "idle+30s",
+      "lit": {
+        "hub": {
+          "basis": "calls",
+          "value": 3,
+          "target": 0.20184908658209985,
+          "level": 0.2018490865821
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 3,
+          "target": 0.20184908658209985,
+          "level": 0.2018490865821
+        }
+      },
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 3,
+          "target": 0.20184908658209985,
+          "level": 0.2018490865821,
+          "logTimes": [1794271006909, 1794271006908, 1794270987537],
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 3,
+          "target": 0.20184908658209985,
+          "level": 0.2018490865821,
+          "logTimes": [1794271006909, 1794271006908, 1794270987537],
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    },
+    {
+      "t": "2026-11-10T00:38:07.122Z",
+      "label": "idle+75s",
+      "lit": {},
+      "all": {
+        "hub": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:aihorde": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:kiro": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:openai": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:mistral": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:bedrock": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ollama-local": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:vllm": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:llama-cpp": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        },
+        "provider:ovms-arc": {
+          "basis": "calls",
+          "value": 0,
+          "target": 0,
+          "level": 0,
+          "logTimes": null,
+          "liveEvents": 0
+        }
+      }
+    }
+  ]
+}

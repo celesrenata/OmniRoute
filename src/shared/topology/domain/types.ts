@@ -136,6 +136,12 @@ export interface TopologySceneNode {
    * renderer ignores it.
    */
   observedModels?: Observed<string[]>;
+  /**
+   * Timestamps (epoch ms, newest first) of this provider's completed real calls in the last
+   * minute, from call-log rows (`source: "call-log"`). Optional and **omitted** when there are
+   * none. Drives the Atomic feeder-trace call rate (directive 40); the 2D renderer ignores it.
+   */
+  recentCalls?: Observed<number[]>;
 }
 
 /**

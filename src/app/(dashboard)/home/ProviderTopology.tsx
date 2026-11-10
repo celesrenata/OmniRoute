@@ -62,6 +62,7 @@ import {
   type TopologyProviderEntry,
 } from "@/shared/topology/domain/normalizeTopology";
 import {
+  recentCallsSignature,
   recentModelsSignature,
   type RecentCallLogRow,
 } from "@/shared/topology/domain/recentModels";
@@ -235,7 +236,9 @@ export default function ProviderTopology({
     return () => clearInterval(t);
   }, []);
   const recentSignature = useMemo(
-    () => recentModelsSignature(recentCallLogRows),
+    // Models (15 min) + real call times (60 s, Atomic feeder traces): the snapshot refreshes
+    // when a real call arrives, never on an unchanged poll.
+    () => `${recentModelsSignature(recentCallLogRows)}|${recentCallsSignature(recentCallLogRows)}`,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- windowTick re-reads the clock
     [recentCallLogRows, windowTick]
   );
