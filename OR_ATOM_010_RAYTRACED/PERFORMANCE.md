@@ -1,3 +1,27 @@
+# CHECKPOINT 5 SUMMARY (profile and optimize): index of the evidence below
+
+- **Profiling method:** round 1 "Method" table (`scripts/ad-hoc/pw-atomic-*.mjs`; WebGPU timestamp queries via `?gputime=1`, rAF/CPU/GPU per frame, presents-vs-renders trace, raw-WebGPU control, ablation, identical-camera pixel diff). M5 Max, real GPU `apple/metal-3`, headed Chrome, DPR 2.
+- **GPU timestamp breakdown:** round 1 Finding 2 (cloud march ~50 % of the frame, all impostors ~1.9 ms, floor reflection ~0.8 ms, board parts ~1.4 ms, nucleus ~0.3 ms) and round 4 Finding 1 (board parts 37-43 % of the frame, on screen).
+- **Root causes:** (1) uncapped p95/p99 tail and 32-atom grid tail = Chrome/macOS presentation back-pressure (renders 177/s, presents 27.5/s; reproduced with a raw WebGPU page), not render cost; (2) the ray-marched impostor plus the full-res floor reflection decide whether a 120 Hz frame fits; (3) fullscreen detail cost = hero translucency at full DPR.
+- **Optimizations shipped:** half-res floor reflection (SSIM 0.998-0.999), cloud-only half-res hero translucency (SSIM 0.997-0.9997), 30 fps default throttle with a "Sync to display refresh rate" checkbox, off-screen/hidden loop stop, per-instance board-part culling. Bokeh trim is gated off (visible change).
+- **Before / after, vsync on, 120 Hz panel** (before = round 1 default build `60bb0af23`+, full-res reflection; after = shipped defaults, synced mode; the 30 fps default holds 30.0 fps with p99 <= 35 ms):
+
+| atoms (rendered) |  before fps | before p95 / p99 ms   | after fps (synced) | after p95 / p99 ms |
+| ---------------- | ----------: | --------------------- | -----------------: | ------------------ |
+| 8 (10)           |         120 | 9.1-9.2 / 9.3         |                120 | 10.0 / 10.3        |
+| 16 (18)          |         120 | 8.9-9.3 / 9.2-9.3     |                120 | 9.8-10 / 10.3      |
+| 20 (22)          | 101.5-115.8 | 9.2-16.7 / 16.7-17.5  |                120 | 9.6-9.7 / 10.2     |
+| 32 (34)          |  98.7-109.9 | 16.6-16.7 / 16.9-17.5 |                120 | 9.0-9.1 / 9.3      |
+
+Before/after are from separate sessions under a noisy shared GPU (background 30-45 %); the 8/16-atom p95 differences of ~1 ms are noise, the 20/32-atom gains are the half-res reflection (round 1 A/B: 32 atoms 101-110 fps -> 120 fps, 0 missed vsyncs). Uncapped (not user-visible) baseline: 20 atoms p95/p99 22.1-22.5 / 22.7-23.7 ms, 32 atoms 22.2-23.2 / 23.5-24.7 ms; cause above.
+
+- **Before/after identical-camera captures (no visible change):**
+  - Round 1 pixel-identical (max abs 0, 9 scenes): before `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/before/`, after `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/after/`, diffs `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/diff-after/`.
+  - Half-res reflection (SSIM 0.998-0.999): `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/diff-mirror-half/`.
+  - Hero cloud-only: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/hero-ab-cloud-only/{off,on,diff}/`.
+  - Board-part culling (round 4): `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/final/cull-ab/{before,after,diff}/`.
+- **Needs operator decision:** (a) bokeh trim off by default (flip `BOKEH_TRIM_DEFAULT` to ship); (b) `orbitDampingFor` touches frozen `SceneOrbitControls.tsx` (confirm or veto); (c) cloud+strands hero (meets 120 fps fullscreen but softens hairline strands) stays a dev flag; (d) /api/usage/call-logs lists each request twice (worked around, not fixed).
+
 # PERFORMANCE: profile-and-optimize phase, round 4 (review perf.json findings)
 
 Apple M5 Max, headed Chrome (WebGPU `apple/metal-3`), 1600x1000 css @ DPR 2, normal vsync on the built-in 120 Hz panel for the
