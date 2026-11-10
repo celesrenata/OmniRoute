@@ -119,6 +119,8 @@ export const resourceSchema = z
     providerId: z.string().refine(isNonEmptyId).optional(),
     runtimeId: z.string().refine(isNonEmptyId).optional(),
     modelId: z.string().refine(isNonEmptyId).optional(),
+    /** Runtime -> GPU attribution host, declared via the `gpu_host` scrape label. */
+    deviceHostId: z.string().refine(isNonEmptyId).optional(),
     /** Provider JOIN FACTS (OR-ATOM-009.2): validated upstream base URLs.
      * Join-only — never displayed, never credentials (validated on write).
      * One provider key can front several endpoints, so this is a set. */

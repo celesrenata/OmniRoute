@@ -10,6 +10,7 @@ import type { FleetMetricsConfig } from "../../../src/shared/topology/telemetry/
 import type { FetchLike } from "../../../src/shared/topology/telemetry/providers/fleetMetricsHttp";
 import { createPrometheusProvider } from "../../../src/shared/topology/telemetry/providers/prometheus";
 import { reconcileSnapshot } from "../../../src/shared/topology/telemetry/reconcile";
+import { resourceSchema } from "../../../src/shared/topology/telemetry/provenance";
 import { fixtureNow, resetFixtureClock } from "./telemetry-fixtures";
 
 resetFixtureClock(1_700_000_000_000);
@@ -56,7 +57,11 @@ describe("declared runtime -> GPU attribution", () => {
       fetchImpl: fetchFor({ DCGM_FI_DEV_GPU_UTIL: [gpu], "q27:num_requests_running": [rt] }),
       now: fixtureNow,
     });
-    const r = reconcileSnapshot(await provider.snapshot({ windowMs: 60_000 }));
+    const snap = await provider.snapshot({ windowMs: 60_000 });
+    // The gateway validates every resource strictly; an unknown field drops the snapshot.
+    for (const res of snap.resources)
+      assert.ok(resourceSchema.safeParse(res).success, res.resourceId);
+    const r = reconcileSnapshot(snap);
     const runtime = r.runtimeNodes.find((n) => n.runtimeId === "q27");
     assert.ok(runtime);
     assert.deepEqual(runtime.attributedGpuIds, ["gpu:esnixi:GPU-5090"]);
