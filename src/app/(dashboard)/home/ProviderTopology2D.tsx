@@ -78,11 +78,14 @@ type ProviderNodeData = {
   last: boolean;
   /** Click-through id when it differs from the node key (provider-node row id). */
   routeId?: string;
+  /** Declared node/GPU (fleet inventory): the vendor colour frames the node at rest too. */
+  device?: boolean;
 };
 
 function ProviderNode({ data }: { data: ProviderNodeData }) {
-  const { label, color, providerId, active, error, healthy, last } = data;
-  const GREEN = FLOW_EDGE_COLORS.active;
+  const { label, color, providerId, active, error, healthy, last, device } = data;
+  // Declared node/GPU (fleet inventory): the vendor colour stands in for the healthy green.
+  const GREEN = device ? color : FLOW_EDGE_COLORS.active;
   const RED = FLOW_EDGE_COLORS.error;
   const AMBER = FLOW_EDGE_COLORS.last;
   // "Last routed" is a traffic annotation, not a health state: the border keeps saying
@@ -208,6 +211,8 @@ type ProviderEntry = {
   status?: ProviderHealth;
   aliases?: string[];
   routeId?: string;
+  /** Vendor colour of a declared node/GPU entry (fleet inventory). */
+  color?: string;
 };
 
 function getHandles(angle: number, cx: number): { sourceHandle: string; targetHandle: string } {
@@ -293,13 +298,14 @@ function buildLayout(
         position: { x: cx - nodeW / 2, y: cy - nodeH / 2 },
         data: {
           label: resolveTopologyNodeLabel(p.name, config.name, p.provider),
-          color: config.color || "#6b7280",
+          color: p.color || config.color || "#6b7280",
           providerId: p.provider,
           active,
           error,
           healthy,
           last,
           routeId: p.routeId,
+          ...(p.color ? { device: true } : {}),
         } satisfies ProviderNodeData,
         draggable: false,
       });
@@ -392,6 +398,7 @@ function buildLegacyEntries(snapshot: TopologySceneSnapshot): ProviderEntry[] {
       status: healthToStatus(node.health),
       aliases: node.aliases,
       routeId: node.routeId,
+      ...(node.device ? { color: node.device.color } : {}),
     });
   }
   return entries;

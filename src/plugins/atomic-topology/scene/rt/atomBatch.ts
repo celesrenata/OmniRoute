@@ -169,6 +169,12 @@ export interface BatchAtomConfig {
    * Default: same as `neutral` (legacy behaviour).
    */
   absent?: boolean;
+  /**
+   * Vendor identity colour (hex) of a declared node/GPU atom: NVIDIA green, Intel
+   * blue, Apple rose-silver. Tints the rim and cloud edge; the nucleus keeps the
+   * observed model colours. Absent = provider atom (unchanged look).
+   */
+  vendorHue?: string;
 }
 
 export interface BatchAtomFrame {
@@ -238,7 +244,7 @@ interface AtomState {
 }
 
 function signatureOf(c: BatchAtomConfig): string {
-  return `${c.id}|${c.hub ? 1 : 0}|${c.neutral ? 1 : 0}|${c.absent ? 1 : 0}|${c.laneHue}|${(c.observedModelIds ?? []).join(",")}`;
+  return `${c.id}|${c.hub ? 1 : 0}|${c.neutral ? 1 : 0}|${c.absent ? 1 : 0}|${c.laneHue}|${c.vendorHue ?? ""}|${(c.observedModelIds ?? []).join(",")}`;
 }
 
 function buildAtomState(config: BatchAtomConfig): AtomState {
@@ -277,11 +283,20 @@ function buildAtomState(config: BatchAtomConfig): AtomState {
   const hub = config.hub;
   // Vivid cloud: attributed atoms, and healthy unattributed atoms (not tier 0).
   const vivid = known || (config.neutral && config.absent === false);
-  const hueSet: [number, number, number][] = hub
+  let hueSet: [number, number, number][] = hub
     ? HUB_HUES
     : vivid
       ? [mix3(lane, [0.55, 0.2, 1.0], 0.7), [0.8, 0.22, 0.95], [0.95, 0.32, 0.85]]
       : NEUTRAL_HUES;
+  // Vendor identity (fleet inventory): a vivid rim + a cloud edge pulled toward the vendor
+  // colour. Tier-0 (absent) atoms keep the grey treatment.
+  const vendor = config.vendorHue && config.absent !== true ? hexToLinear(config.vendorHue) : null;
+  if (vendor) {
+    // A fresh array: hueSet may be a shared palette constant (HUB_HUES / NEUTRAL_HUES).
+    hueSet = hueSet.map((h, i) =>
+      i === 0 ? mix3(h, vendor, 0.55) : i === 2 ? mix3(h, vendor, 0.35) : h
+    );
+  }
   const orient = new Matrix3().setFromMatrix4(
     new Matrix4().makeRotationFromQuaternion(
       new Quaternion()
@@ -310,7 +325,7 @@ function buildAtomState(config: BatchAtomConfig): AtomState {
     hueSet,
     inner: hub ? [0.52, 0.14, 1.0] : vivid ? [0.5, 0.14, 1.0] : [0.4, 0.5, 0.78],
     strandInner: hub ? [0.62, 0.16, 1.0] : vivid ? [0.62, 0.16, 1.0] : [0.45, 0.55, 0.8],
-    rim: hub || vivid ? [0.08, 0.85, 1.0] : [0.55, 0.72, 0.95],
+    rim: vendor ? vendor : hub || vivid ? [0.08, 0.85, 1.0] : [0.55, 0.72, 0.95],
     // Known atoms: the hot core/glow carries the MODEL colour (saturated mean of the
     // nucleon tints) so nuclei stay distinguishable at 40-80 px instead of every
     // core summing to the same pink-white.

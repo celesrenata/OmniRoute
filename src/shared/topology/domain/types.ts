@@ -142,6 +142,18 @@ export interface TopologySceneNode {
    * none. Drives the Atomic feeder-trace call rate (directive 40); the 2D renderer ignores it.
    */
   recentCalls?: Observed<number[]>;
+  /**
+   * Declared node/GPU this atom represents (operator fleet inventory). Present on
+   * device-grouped entries; renderers tint the atom with `device.color` (vendor).
+   */
+  device?: {
+    id: string;
+    node: string;
+    gpu: string;
+    vendor: "nvidia" | "intel" | "apple" | "amd" | "other";
+    color: string;
+    telemetry?: { hostname: string; gpuMatch?: string };
+  };
 }
 
 /**

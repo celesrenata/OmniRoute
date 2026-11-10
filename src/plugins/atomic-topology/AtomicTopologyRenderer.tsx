@@ -60,6 +60,7 @@ import type {
 import type { TopologySceneSnapshot } from "@/shared/topology/domain/types";
 import type {
   ReconciledProviderNode,
+  ReconciledGpuNode,
   ReconciledRuntimeNode,
 } from "@/shared/topology/telemetry/reconcile";
 import { deriveLaneForProvider } from "@/shared/topology/domain/lane";
@@ -344,6 +345,8 @@ export interface AtomVisualDescriptor {
    * Absent / null = no call-log observation.
    */
   recentCallTimes?: readonly number[] | null;
+  /** Vendor colour of a declared node/GPU atom (fleet inventory); absent otherwise. */
+  vendorColor?: string;
 }
 
 /**
@@ -441,6 +444,26 @@ export function resolveAtomDescriptors(
   if (reconciliation) {
     for (const pn of reconciliation.providerNodes) providerJoin.set(pn.providerId, pn);
   }
+
+  // Fleet-inventory device atoms absorb their own GPU's telemetry (matched by the
+  // Prometheus hostname), so the same GPU never shows twice (device atom + band atom).
+  const absorbedGpuByNode = new Map<string, ReconciledGpuNode>();
+  if (reconciliation) {
+    for (const n of snapshot.nodes) {
+      const tel = n.device?.telemetry;
+      if (!tel) continue;
+      const host = tel.hostname.toLowerCase();
+      const onHost = reconciliation.gpuNodes.filter((g) => g.hostId.toLowerCase() === host);
+      const match =
+        onHost.length === 1
+          ? onHost[0]
+          : tel.gpuMatch
+            ? onHost.find((g) => g.deviceUuid.toLowerCase().includes(tel.gpuMatch!.toLowerCase()))
+            : undefined;
+      if (match) absorbedGpuByNode.set(n.id, match);
+    }
+  }
+  const absorbedGpuIds = new Set([...absorbedGpuByNode.values()].map((g) => g.resourceId));
 
   // The hub routes every call: its call-log rate is the union of the providers' rows.
   const hubCallTimes = snapshot.nodes.flatMap((n) => n.recentCalls?.value ?? []);
@@ -571,6 +594,24 @@ export function resolveAtomDescriptors(
           }
         : {}),
       fleetSampledAt: reconciliation ? reconciliation.capturedAt : null,
+      ...(node.device ? { vendorColor: node.device.color } : {}),
+      ...(absorbedGpuByNode.has(node.id)
+        ? (() => {
+            const g = absorbedGpuByNode.get(node.id)!;
+            const v = (o: { value: number | null } | null | undefined): number | null =>
+              !g.stale && o && o.value != null ? o.value : null;
+            return {
+              deviceFacts: {
+                kind: "gpu" as const,
+                utilizationPercent: v(g.utilizationPercent),
+                vramUsedBytes: v(g.vramUsedBytes),
+                vramTotalBytes: v(g.vramTotalBytes),
+                temperatureC: v(g.temperatureC),
+                powerWatts: v(g.powerWatts),
+              },
+            };
+          })()
+        : {}),
     } satisfies AtomVisualDescriptor;
   });
 
@@ -623,7 +664,9 @@ export function resolveAtomDescriptors(
       else runtimesByGpu.set(gpuId, [rt]);
     }
     const bandNodes: Array<{ id: string; kind: "gpu" | "runtime" }> = [
-      ...reconciliation.gpuNodes.map((g) => ({ id: g.resourceId, kind: "gpu" as const })),
+      ...reconciliation.gpuNodes
+        .filter((g) => !absorbedGpuIds.has(g.resourceId))
+        .map((g) => ({ id: g.resourceId, kind: "gpu" as const })),
       ...reconciliation.runtimeNodes
         .filter((r) => !mergedRuntimeIds.has(r.resourceId))
         .map((r) => ({ id: r.resourceId, kind: "runtime" as const })),

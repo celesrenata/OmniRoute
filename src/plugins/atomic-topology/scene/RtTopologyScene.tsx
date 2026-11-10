@@ -345,6 +345,7 @@ export function RtTopologyContent({
         hub: d.kind === "hub",
         observedModelIds: d.kind === "hub" ? undefined : d.observedModelIds,
         laneHue: d.laneHue,
+        ...(d.vendorColor ? { vendorHue: d.vendorColor } : {}),
         neutral: isNeutralAtom(d),
         absent: d.energyTier === 0 || (d.energyTier == null && isNeutralAtom(d)),
       })),

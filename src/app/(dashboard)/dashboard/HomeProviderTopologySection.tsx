@@ -2,11 +2,13 @@
 
 import { useTranslations } from "next-intl";
 import dynamic from "next/dynamic";
+import { useMemo } from "react";
 
 import { Card } from "@/shared/components";
 import { useLiveRequests } from "@/hooks/useLiveDashboard";
 import { useRecentCallLogs } from "@/hooks/useRecentCallLogs";
 import { selectActiveRequests } from "../home/topologyUtils";
+import { groupEntriesByDevice } from "@/shared/topology/domain/fleetInventory";
 
 const ProviderTopology = dynamic(() => import("../home/ProviderTopology"), { ssr: false });
 
@@ -26,11 +28,17 @@ export function HomeProviderTopologySection({
   providers,
   lastProvider,
   errorProvider,
+  connections = null,
+  providerNodes = null,
   enabled = true,
 }: {
   providers: TopologyProvider[];
   lastProvider: string;
   errorProvider: string;
+  /** Provider connections (base URLs) used to group local endpoints by node + GPU. */
+  connections?: ReadonlyArray<Record<string, unknown>> | null;
+  /** Provider-node rows (base URLs) used to group local endpoints by node + GPU. */
+  providerNodes?: ReadonlyArray<Record<string, unknown>> | null;
   enabled?: boolean;
 }) {
   const t = useTranslations("home");
@@ -42,6 +50,34 @@ export function HomeProviderTopologySection({
   // Shared call-log poll (one poll for this and Recent Requests; no new socket).
   const { rows: recentCallLogs } = useRecentCallLogs(enabled);
   const activeRequests = selectActiveRequests(liveActiveRequests);
+  // Fleet inventory: one entry per node + GPU (Esnixi 5090, Gremlin-1 4070, Gremlin-1..4 Arc,
+  // Stabulous M5 Max) instead of one per provider type. Cloud providers stay as they are.
+  // The call-log poll replaces its rows every 3 s; only the (connection -> model) pairs
+  // matter here, so key the grouping on that set to avoid snapshot churn.
+  const servedPairs = useMemo(() => {
+    const pairs = new Set<string>();
+    for (const r of recentCallLogs ?? []) {
+      const row = r as { connectionId?: unknown; model?: unknown };
+      if (typeof row.connectionId === "string" && typeof row.model === "string") {
+        pairs.add(`${row.connectionId}\u0000${row.model}`);
+      }
+    }
+    return [...pairs].sort().join("\u0001");
+  }, [recentCallLogs]);
+  const groupedProviders = useMemo(
+    () =>
+      groupEntriesByDevice(providers, {
+        connections: connections as never,
+        providerNodes: providerNodes as never,
+        recentCallLogs: servedPairs
+          ? servedPairs.split("\u0001").map((p) => {
+              const [connectionId, model] = p.split("\u0000");
+              return { connectionId, model };
+            })
+          : [],
+      }),
+    [providers, connections, providerNodes, servedPairs]
+  );
   const activeProviderCount = new Set(activeRequests.map(({ provider }) => provider)).size;
 
   return (
@@ -69,7 +105,7 @@ export function HomeProviderTopologySection({
         </div>
       </div>
       <ProviderTopology
-        providers={providers}
+        providers={groupedProviders}
         activeRequests={activeRequests}
         lifecycleEvents={lifecycleEvents}
         recentCallLogs={recentCallLogs}

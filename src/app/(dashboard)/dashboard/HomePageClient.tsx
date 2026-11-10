@@ -1142,6 +1142,8 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
             providers={topologyProviders}
             lastProvider={lastProvider}
             errorProvider={errorProvider}
+            connections={providerConnections}
+            providerNodes={providerNodes as unknown as Array<Record<string, unknown>>}
             enabled={showProviderTopologyOnHome}
           />
           <HomeRecentRequests enabled={showProviderTopologyOnHome} />

@@ -38,6 +38,12 @@ import {
 } from "@/shared/topology/domain/recentModels";
 import type { ReconciliationResult } from "@/shared/topology/telemetry/reconcile";
 import { resolveTopologyNodeLabel } from "@/app/(dashboard)/home/topologyLabel";
+import {
+  memberClaims,
+  memberIsScoped,
+  type DeviceMember,
+  type DeviceTopologyInfo,
+} from "@/shared/topology/domain/fleetInventory";
 
 import { HUB_NODE_ID, providerNodeId, providerRouteLinkId } from "./layoutIdentity";
 import { deriveLaneForProvider } from "./lane";
@@ -62,6 +68,36 @@ export interface TopologyProviderEntry {
   status?: "active" | "error" | "idle";
   aliases?: string[];
   routeId?: string;
+  /** Declared node/GPU this entry represents (fleet inventory). */
+  device?: DeviceTopologyInfo;
+  /** Provider keys this device entry serves (replaces alias matching when present). */
+  members?: DeviceMember[];
+}
+
+/**
+ * True when the entry serves an observation (provider + optional model/connection).
+ * Device entries match through their members (model/connection scoped when a provider
+ * is shared by several GPUs); plain entries keep the legacy provider/alias match.
+ */
+function entryClaims(
+  entry: TopologyProviderEntry,
+  provider: unknown,
+  model?: unknown,
+  connectionId?: unknown
+): boolean {
+  if (entry.members && entry.members.length > 0) {
+    return memberClaims(entry.members, provider, model, connectionId);
+  }
+  const key = typeof provider === "string" ? provider.toLowerCase() : "";
+  return key ? isTopologyEntryInSet(entry, new Set([key])) : false;
+}
+
+/** last/error sets carry a provider id only: a model-scoped (shared) member cannot claim them. */
+function entryInProviderSet(entry: TopologyProviderEntry, set: Set<string>): boolean {
+  if (!entry.members || entry.members.length === 0) return isTopologyEntryInSet(entry, set);
+  return entry.members.some(
+    (m) => set.has(m.provider) && !memberIsScoped(entry.members!, m.provider)
+  );
 }
 
 // ── M4 — bounded live-request lifecycle stream ───────────────────────────
@@ -241,14 +277,12 @@ function buildActiveSet(activeRequests: Array<{ provider?: string }>): Set<strin
  * `0` when none — callers must only surface a non-zero observation.
  */
 function countActiveRequests(
-  entry: { provider: string; aliases?: string[] },
-  activeRequests: Array<{ provider?: string }>
+  entry: TopologyProviderEntry,
+  activeRequests: Array<{ provider?: string; model?: string }>
 ): number {
   let count = 0;
   for (const request of activeRequests) {
-    const key = request.provider?.toLowerCase();
-    if (!key) continue;
-    if (isTopologyEntryInSet(entry, new Set([key]))) count += 1;
+    if (entryClaims(entry, request.provider, request.model)) count += 1;
   }
   return count;
 }
@@ -261,14 +295,12 @@ function countActiveRequests(
  * entirely in that case (absence, not "unknown").
  */
 function collectInFlightModels(
-  entry: { provider: string; aliases?: string[] },
+  entry: TopologyProviderEntry,
   activeRequests: Array<{ provider?: string; model?: string }>
 ): string[] {
   const set = new Set<string>();
   for (const request of activeRequests) {
-    const key = request.provider?.toLowerCase();
-    if (!key) continue;
-    if (!isTopologyEntryInSet(entry, new Set([key]))) continue;
+    if (!entryClaims(entry, request.provider, request.model)) continue;
     const model = request.model?.trim();
     if (model) set.add(model);
   }
@@ -328,9 +360,16 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
 
     // Same state resolution the legacy view used (active > traffic-error >
     // last-used; connection health is the base state under that).
-    const active = isTopologyEntryInSet(entry, activeSet);
-    const trafficError = !active && isTopologyEntryInSet(entry, errorSet);
-    const last = !active && !trafficError && isTopologyEntryInSet(entry, lastSet);
+    const active = entry.members
+      ? activeRequests.some((r) => entryClaims(entry, r.provider, r.model))
+      : isTopologyEntryInSet(entry, activeSet);
+    const trafficError =
+      !active &&
+      (entry.members ? entryInProviderSet(entry, errorSet) : isTopologyEntryInSet(entry, errorSet));
+    const last =
+      !active &&
+      !trafficError &&
+      (entry.members ? entryInProviderSet(entry, lastSet) : isTopologyEntryInSet(entry, lastSet));
 
     // Connection health is the *base state* and is recorded independently of
     // traffic: a provider can be unhealthy while actively serving, and the 2D
@@ -356,6 +395,7 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
     };
     if (entry.routeId) node.routeId = entry.routeId;
     if (entry.aliases && entry.aliases.length > 0) node.aliases = entry.aliases;
+    if (entry.device) node.device = entry.device;
     if (active) {
       const count = countActiveRequests(entry, activeRequests);
       node.activeRequests = {
@@ -391,7 +431,19 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
         }
       }
     }
-    const recent = recentModelsForEntry(recentModelTallies, entry);
+    // Device entries: only the call-log rows this GPU actually served (by connection id
+    // or model when the provider is shared), tallied under the device's own key.
+    const deviceRows =
+      entry.members && input.recentCallLogs
+        ? input.recentCallLogs
+            .filter((r) => entryClaims(entry, r.provider, r.model, r.connectionId))
+            .map((r) => ({ ...r, provider: entry.provider }))
+        : null;
+    const recent = deviceRows
+      ? recentModelsForEntry(deriveRecentProviderModels(deviceRows, { now: capturedAt }), {
+          provider: entry.provider,
+        })
+      : recentModelsForEntry(recentModelTallies, entry);
     if (recent) {
       node.observedModels = {
         value: recent.models,
@@ -401,7 +453,11 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
         basis: RECENT_MODELS_BASIS,
       };
     }
-    const calls = recentCallsForEntry(recentCallTimes, entry);
+    const calls = deviceRows
+      ? recentCallsForEntry(deriveRecentCallTimes(deviceRows, { now: capturedAt }), {
+          provider: entry.provider,
+        })
+      : recentCallsForEntry(recentCallTimes, entry);
     if (calls) {
       node.recentCalls = {
         value: calls,
@@ -425,7 +481,21 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
 
   // Bounded lifecycle stream (M4): reduced, deduped, order-normalized and
   // frozen. `null` → the field stays absent (we did not observe a feed).
-  const lifecycle = normalizeLifecycleEvents(input.lifecycleEvents);
+  const reduced = normalizeLifecycleEvents(input.lifecycleEvents);
+  // Route each lifecycle event to the device that served it (exactly one claimant);
+  // pooled / ambiguous events keep their provider id (no atom guessed).
+  const deviceEntries = providers.filter((e) => e?.members && e.members.length > 0);
+  const lifecycle =
+    reduced && deviceEntries.length > 0
+      ? (Object.freeze(
+          reduced.map((ev) => {
+            const owners = deviceEntries.filter((e) => entryClaims(e, ev.provider, ev.model));
+            return owners.length === 1
+              ? Object.freeze({ ...ev, provider: owners[0].provider })
+              : ev;
+          })
+        ) as TopologyLifecycleEvent[])
+      : reduced;
 
   const snapshot: TopologySceneSnapshot = { schemaVersion: 1, capturedAt, nodes, links };
   if (lifecycle) snapshot.lifecycle = lifecycle;
