@@ -97,9 +97,11 @@ export function phaseComboSetup(ctx: ComboContext): ComboSetup {
   // ── Combo Agent Middleware (#399 + #401) ────────────────────────────────
   // Apply system_message override, tool_filter_regex.
   // Context cache pinning is handled above via session_model_history.
+  // Secure combos never inject operator context: drop the combo system_message override.
+  const secureCombo = (combo.config as { secure?: unknown } | null | undefined)?.secure === true;
   const { body: agentBody } = applyComboAgentMiddleware(
     ctx.body,
-    combo,
+    secureCombo ? { ...combo, system_message: null } : combo,
     "" // provider/model not yet known — resolved per-model in loop
   );
   ctx.body = agentBody;

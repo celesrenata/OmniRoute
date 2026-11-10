@@ -216,6 +216,9 @@ export const comboRuntimeConfigSchema = z
     // MAX_GLOBAL_ATTEMPTS_HARD_CAP (200) in comboPredicates.ts.
     maxGlobalAttempts: z.coerce.number().int().min(1).max(200).optional(),
     nestedComboMode: z.enum(["flatten", "execute"]).optional(),
+    // Strict isolation: no memory/skills/output-style/system-prompt/compression injection and no
+    // persistence of request or response content. Contagious across the whole combo tree.
+    secure: z.boolean().optional(),
     trackMetrics: z.boolean().optional(),
     reasoningTokenBufferEnabled: z.boolean().optional(),
     reasoningTransportFallback: z.enum(["skip", "drop"]).optional(),
@@ -369,6 +372,31 @@ function validateQuotaOnlyComboRefs(value: QuotaOnlyComboRefState, ctx: z.Refine
   }
 }
 
+/** Secure combos cannot carry operator context (system_message) or persist handoff summaries. */
+export function validateSecureCombo(
+  value: {
+    strategy?: string;
+    config?: { secure?: boolean; strategy?: string };
+    system_message?: string | null;
+  },
+  ctx: z.RefinementCtx
+): void {
+  if (value.config?.secure !== true) return;
+  if ((value.strategy ?? value.config?.strategy) === "context-relay") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Secure combos cannot use the context-relay strategy",
+      path: ["config", "secure"],
+    });
+  }
+  if (typeof value.system_message === "string" && value.system_message.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Secure combos cannot define a system_message",
+      path: ["system_message"],
+    });
+  }
+}
 export const createComboSchema = z
   .object({
     name: comboNameSchema,
@@ -396,7 +424,10 @@ export const createComboSchema = z
       .optional()
       .nullable(),
   })
-  .superRefine(validateQuotaOnlyComboRefs);
+  .superRefine((value, ctx) => {
+    validateQuotaOnlyComboRefs(value, ctx);
+    validateSecureCombo(value as Parameters<typeof validateSecureCombo>[0], ctx);
+  });
 
 export const updateComboDefaultsSchema = z
   .object({

@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  describeSecureCloudViolations,
+  findSecureCloudViolationsFromDb,
+} from "@/lib/combos/secureLeaves";
 import { getCombos, getCombosCount, createCombo, getComboByName } from "@/lib/db/combos";
 import { isCloudEnabled } from "@/lib/db/settings";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
@@ -115,6 +119,13 @@ export async function POST(request) {
       return NextResponse.json({ error: dagError.message }, { status: 400 });
     }
 
+    const cloudViolations = await findSecureCloudViolationsFromDb([...allCombos, tempCombo]);
+    if (cloudViolations.length > 0) {
+      return NextResponse.json(
+        { error: describeSecureCloudViolations(cloudViolations), violations: cloudViolations },
+        { status: 400 }
+      );
+    }
     const combo = await createCombo(comboInput);
 
     // Auto sync to Cloud if enabled

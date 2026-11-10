@@ -90,6 +90,7 @@ import {
   recordQuotaParkedSkip,
 } from "./quotaParkedSkipUsage";
 import { getCombos } from "@/lib/db/combos";
+import { isComboNameSecure } from "@/lib/combos/secure";
 import { resolveModelLockoutSettings } from "@/lib/resilience/modelLockoutSettings";
 import {
   ensureOpenAIStoreSessionFallback,
@@ -1962,7 +1963,10 @@ async function handleSingleModelChat(
         requestBody = connectionRouting.body;
       }
       let injectedHandoff = null;
+      // Secure combos never get server-side context injected (handoff summaries included).
+      const handoffAllowed = !isComboNameSecure(comboName, await getCombosCachedForChat());
       if (
+        handoffAllowed &&
         comboStrategy === "context-relay" &&
         comboName &&
         runtimeOptions.sessionId &&

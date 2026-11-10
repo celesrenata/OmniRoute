@@ -433,6 +433,9 @@ export function shouldSkipConnDisable(
     (result.response ? getTrustedLocalRateLimitResponse(result.response) !== null : false) ||
     result.errorCode === "plugin_block" ||
     result.errorType === "plugin_block" ||
+    // Secure-route refusal of a non-local target is our own policy, not a provider fault.
+    result.errorCode === "secure_block" ||
+    result.errorType === "secure_block" ||
     // #14815: translation fails locally on the client's body — no account is at fault.
     result.errorCode === TRANSLATION_FAILURE_CODE ||
     (is401 && hasExtraKeys) ||

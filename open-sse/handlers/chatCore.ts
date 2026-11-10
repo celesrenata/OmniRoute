@@ -88,6 +88,7 @@ import {
 } from "../config/codexTurnState.ts";
 import { trackDevice, extractIpFromHeaders } from "../services/deviceTracker.ts";
 import { getCombosCached } from "./chatCore/comboContextCache.ts";
+import { resolveSecureIsolation } from "./chatCore/secureIsolation.ts";
 export { clearCombosCache, clearUpstreamProxyConfigCache } from "./chatCore/comboContextCache.ts";
 import {
   resolveAccountSemaphoreKey,
@@ -529,8 +530,17 @@ async function handleChatCoreInner({
   fallbackAttempts = undefined,
   forcedConnectionId = null, // #14116: caller's pinned/requested connection, vs credentials.connectionId below
   previousResponseResumed = undefined, // rehydrated-continuation flag from chat.ts; noted below, no semantics.
+  // Strict isolation resolved by chat.ts for the whole combo tree (see src/lib/combos/secure.ts).
+  secureIsolation: secureIsolationRequested = false,
 }) {
   delete (body as Record<string, unknown>)._omniroutePreviousResponseResumed;
+  // Strict isolation: no memory/skills/output-style/system-prompt/compression injection and no
+  // persistence of request/response content. Headers can only tighten, never loosen.
+  const secureIsolation = await resolveSecureIsolation({
+    requested: secureIsolationRequested === true,
+    comboName,
+    headers: clientRawRequest?.headers ?? null,
+  });
   const {
     model: originModel,
     resolvedThinkingEffort,
@@ -545,6 +555,30 @@ async function handleChatCoreInner({
     defaultThinkingEffort,
   });
   let { provider, model, extendedContext } = modelInfo;
+  // Secure combos fail closed at dispatch: a non-local backend is never contacted, even if a
+  // connection was repointed after the combo was saved.
+  if (secureIsolation) {
+    const { classifyBaseUrl } = await import("@/lib/combos/secureLeaves");
+    const psdBaseUrl = (credentials?.providerSpecificData as { baseUrl?: unknown } | undefined)
+      ?.baseUrl;
+    const cloudReason = classifyBaseUrl(
+      provider,
+      typeof psdBaseUrl === "string" && psdBaseUrl.trim() ? psdBaseUrl.trim() : null
+    );
+    if (cloudReason) {
+      log?.warn?.("SECURE", `Refused non-local provider ${provider} (${cloudReason})`);
+      return {
+        ...createErrorResult(
+          HTTP_STATUS.FORBIDDEN,
+          "Secure route refused: target provider is not a local backend",
+          null,
+          "secure_block"
+        ),
+        errorType: "secure_block",
+        errorCode: "secure_block",
+      };
+    }
+  }
   const getExecutorClientHeaders = () =>
     buildExecutorClientHeaders(clientRawRequest?.headers, userAgent, { provider, body });
   // Keep the selected rule across format conversion, retries and refreshed credentials.
@@ -650,6 +684,7 @@ async function handleChatCoreInner({
   {
     const _s = cachedSettings ?? (await getCachedSettings());
     if (
+      !secureIsolation &&
       _s.customSystemPromptEnabled === true &&
       typeof _s.customSystemPrompt === "string" &&
       _s.customSystemPrompt
@@ -683,7 +718,7 @@ async function handleChatCoreInner({
       response: pluginGate.response,
     };
   }
-  if (pluginGate.body) {
+  if (pluginGate.body && !secureIsolation) {
     body = pluginGate.body;
   }
   // Per-API-key device/connection tracking (port of upstream 9router#931,
@@ -984,8 +1019,19 @@ async function handleChatCoreInner({
     })
     .filter(Boolean);
 
+  // Secure combos never run server-side web search/fetch on the client's behalf.
+  const noFallback = (b: Record<string, unknown>) => ({
+    body: b,
+    fallback: { enabled: false, toolName: null, convertedToolCount: 0 },
+  });
+  const searchPrep = (
+    secureIsolation ? noFallback : prepareWebSearchFallbackBody
+  ) as typeof prepareWebSearchFallbackBody;
+  const fetchPrep = (
+    secureIsolation ? noFallback : prepareWebFetchFallbackBody
+  ) as typeof prepareWebFetchFallbackBody;
   const { body: bodyWithWebSearchFallback, fallback: webSearchFallbackPlan } =
-    prepareWebSearchFallbackBody(body as Record<string, unknown>, {
+    searchPrep(body as Record<string, unknown>, {
       provider,
       sourceFormat,
       targetFormat,
@@ -1017,7 +1063,7 @@ async function handleChatCoreInner({
   // pattern as interceptSearch directly above.
   const interceptFetchOverride = resolveInterceptFetch(provider, effectiveModel);
   const { body: bodyWithWebFetchFallback, fallback: webFetchFallbackPlan } =
-    prepareWebFetchFallbackBody(body as Record<string, unknown>, {
+    fetchPrep(body as Record<string, unknown>, {
       provider,
       sourceFormat,
       targetFormat,
@@ -1031,7 +1077,7 @@ async function handleChatCoreInner({
       `Converted ${webFetchFallbackPlan.convertedToolCount} web_fetch tool(s) to OmniRoute fallback for ${provider}`
     );
   }
-  const noLogEnabled = apiKeyInfo?.noLog === true;
+  const noLogEnabled = apiKeyInfo?.noLog === true || secureIsolation;
   // Consolidate settings reads — fetch once, reuse throughout the request
   const settings = cachedSettings ?? (await getCachedSettings());
   // Opt-in tool-source diagnostics (#1825): summarize the request's tool definitions
@@ -1264,7 +1310,7 @@ async function handleChatCoreInner({
   });
   effectiveServiceTier = resolveEffectiveServiceTier(body);
   setGeminiThoughtSignatureMode(settings.antigravitySignatureCacheMode);
-  const semanticCacheEnabled = settings.semanticCacheEnabled !== false;
+  const semanticCacheEnabled = settings.semanticCacheEnabled !== false && !secureIsolation;
 
   const reqLogger = await createRequestLogger(sourceFormat, targetFormat, model, {
     enabled: detailedLoggingEnabled && !videoBridgeObserved,
@@ -1383,7 +1429,8 @@ async function handleChatCoreInner({
   // Per-request opt-out: clients that manage their own context send
   // `x-omniroute-no-memory: true` to skip memory+skills injection (a null owner
   // disables both branches in injectMemoryAndSkills). See PRD-2026-06-19-no-memory-header.
-  const memoryOwnerId = isNoMemoryRequested(clientRawRequest?.headers ?? null)
+  const memoryOwnerId =
+    secureIsolation || isNoMemoryRequested(clientRawRequest?.headers ?? null)
     ? null
     : resolveMemoryOwnerId(apiKeyInfo as Record<string, unknown> | null);
   const injectionResult = await injectMemoryAndSkills({
@@ -1472,14 +1519,13 @@ async function handleChatCoreInner({
     // compaction + combo overflow fail-fast below still bypass native passthrough —
     // intentionally left for follow-up. Operators who want byte-identical passthrough
     // can add `codex/*` to the exclusions list.
-    const compressionExcluded = isCompressionExcluded(
-      { provider, model: effectiveModel },
-      compressionSettings?.exclusions
-    );
+    const compressionExcluded =
+      secureIsolation ||
+      isCompressionExcluded({ provider, model: effectiveModel }, compressionSettings?.exclusions);
     // A per-key opt-out is a request-scoped hard kill for prompt compression. It
     // deliberately does not disable the independent reactive context-fit safety
     // passes, matching the existing x-omniroute-compression: off contract.
-    const apiKeyCompressionEnabled = apiKeyInfo?.compressionEnabled !== false;
+    const apiKeyCompressionEnabled = apiKeyInfo?.compressionEnabled !== false && !secureIsolation;
     let promptCompressionEnabled =
       compressionSettingsResult.enabled && !compressionExcluded && apiKeyCompressionEnabled;
     reactiveContextCompactionEnabled = compressionSettingsResult.enabled && !compressionExcluded;
@@ -2735,7 +2781,9 @@ async function handleChatCoreInner({
       // into the client body BEFORE translation so their user-merge /
       // relocation paths carry the global prompt (baseline coverage of the
       // removed pre-translation pass). The gate writes ONE carrier only.
-      translatedBody = injectSystemPromptPreTranslation(translatedBody, { targetFormat });
+      if (!secureIsolation) {
+        translatedBody = injectSystemPromptPreTranslation(translatedBody, { targetFormat });
+      }
       translatedBody = translateRequest(
         sourceFormat,
         targetFormat,
@@ -3253,7 +3301,9 @@ async function handleChatCoreInner({
       // `systemInstruction`, responses `instructions`. Carrier-less targets
       // (kiro user-fold, antigravity Cloud Code envelope) are covered by the
       // gated PRE-translation pass before translateRequest instead.
-      bodyToSend = injectSystemPromptPostTranslation(bodyToSend, { targetFormat });
+      if (!secureIsolation) {
+        bodyToSend = injectSystemPromptPostTranslation(bodyToSend, { targetFormat });
+      }
 
       updatePendingScope(pendingScope, {
         providerRequest: bodyToSend,

@@ -6,6 +6,7 @@
  * - [2026-07-24] [Composer] - Skip execute-mode units at concurrency cap before dispatch
  */
 import { errorResponse, errorResponseWithComboDiagnostics } from "../../utils/error.ts";
+import { isComboTreeSecure } from "../../../src/lib/combos/secure.ts";
 import type { ComboDiagnostics } from "../../utils/error.ts";
 import { recordComboRequest } from "../comboMetrics.ts";
 import { resolveDelayMs, requestScopedReplayKey } from "./comboPredicates.ts";
@@ -130,10 +131,16 @@ export async function executeComboRefUnit(args: {
     childComboName: childCombo.name,
   });
   if (childNesting instanceof Response) return childNesting;
+  // Secure is contagious: an inner combo executed under a secure parent runs as secure too,
+  // so its own setup (system_message etc.) is also suppressed.
+  const parentSecure = isComboTreeSecure(args.baseOptions.combo as never, args.allCombos as never);
+  const runnableChild = parentSecure
+    ? { ...childCombo, config: { ...(childCombo.config ?? {}), secure: true } }
+    : childCombo;
   return args.runCombo({
     ...args.baseOptions,
     body: args.body,
-    combo: childCombo,
+    combo: runnableChild,
     nesting: childNesting,
   });
 }

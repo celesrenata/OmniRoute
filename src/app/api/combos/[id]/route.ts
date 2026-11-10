@@ -8,7 +8,14 @@ import { normalizeComboModels } from "@/lib/combos/steps";
 import { validateComboDAG, clampComboDepth } from "@omniroute/open-sse/services/combo.ts";
 import { resolveCanonicalProviderModel } from "@omniroute/open-sse/services/model.ts";
 import { updateComboSchema } from "@/shared/validation/schemas";
-import { requiresQuotaOnlyComboRefExecute } from "@/shared/validation/schemas/combo";
+import {
+  requiresQuotaOnlyComboRefExecute,
+  validateSecureCombo,
+} from "@/shared/validation/schemas/combo";
+import {
+  describeSecureCloudViolations,
+  findSecureCloudViolationsFromDb,
+} from "@/lib/combos/secureLeaves";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { QUOTA_MODEL_PREFIX } from "@/lib/quota/quotaModelNaming";
@@ -194,6 +201,28 @@ export async function PUT(request, { params }) {
       );
     }
 
+    // Secure combos: re-check the merged state (partial updates bypass the schema refine).
+    const secureIssues: string[] = [];
+    validateSecureCombo(
+      nextComboState as never,
+      {
+        addIssue: (issue: { message?: string }) => secureIssues.push(String(issue.message)),
+      } as never
+    );
+    if (secureIssues.length > 0) {
+      return NextResponse.json({ error: secureIssues.join("; ") }, { status: 400 });
+    }
+    // Editing any combo can pull a cloud target into a secure tree, so check every secure tree.
+    const cloudViolations = await findSecureCloudViolationsFromDb([
+      ...allCombos.filter((c) => c.id !== id),
+      nextComboState as never,
+    ]);
+    if (cloudViolations.length > 0) {
+      return NextResponse.json(
+        { error: describeSecureCloudViolations(cloudViolations), violations: cloudViolations },
+        { status: 400 }
+      );
+    }
     // Check if name already exists (exclude current combo)
     if (body.name) {
       const existing = await getComboByName(body.name);

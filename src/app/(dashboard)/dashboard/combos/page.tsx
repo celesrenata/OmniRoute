@@ -4462,6 +4462,29 @@ function ComboFormModal({
                         </option>
                       </select>
                     </div>
+                    {/* Strict isolation: no memory/skills/output-style/system-prompt/compression
+                        injection and no persistence of request or response content. */}
+                    <div>
+                      <FieldLabelWithHelp
+                        label={getI18nOrFallback(t, "secureCombo", "Secure (strict isolation)")}
+                        help={getI18nOrFallback(
+                          t,
+                          "advancedHelp.secureCombo",
+                          "Never inject memory, skills, output styles or custom system prompts, never compress, and never persist request or response content. Applies to every combo this one references."
+                        )}
+                        showHelp={!isExpertMode}
+                      />
+                      <label className="flex items-center gap-2 text-xs py-1.5">
+                        <input
+                          type="checkbox"
+                          checked={config.secure === true}
+                          onChange={(e) =>
+                            setConfig({ ...config, secure: e.target.checked ? true : undefined })
+                          }
+                        />
+                        {getI18nOrFallback(t, "secureComboEnabled", "Enabled")}
+                      </label>
+                    </div>
                   </div>
                   {strategy === "context-relay" && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-black/5 dark:border-white/5">
