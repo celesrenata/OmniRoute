@@ -12,14 +12,15 @@
  * Bench = /dev/atomic-bench?atoms=N (the REAL AtomicTopologyRenderer on the
  * golden DEMO snapshot, labelled DEMO). Dashboard = /home (real host, real
  * data from this dev server). Results print as JSON lines; screenshots go to
- * OUT (default OR_ATOM_010_RAYTRACED/screenshots/gateB/live).
+ * OUT (default _tasks/research/atomic-topology/or-atom-010-raytraced/screenshots/gateB/live).
  */
 import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
 
 const BASE = process.env.BENCH_BASE ?? "http://localhost:20199";
-const OUT = process.env.OUT ?? "OR_ATOM_010_RAYTRACED/screenshots/gateB/live";
+const OUT =
+  process.env.OUT ?? "_tasks/research/atomic-topology/or-atom-010-raytraced/screenshots/gateB/live";
 fs.mkdirSync(OUT, { recursive: true });
 const [mode = "ladder", arg] = process.argv.slice(2);
 const UNCAPPED =

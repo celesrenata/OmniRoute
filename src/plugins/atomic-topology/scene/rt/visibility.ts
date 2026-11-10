@@ -105,7 +105,7 @@ export function marchStepsFor(maxSteps: number, radiusPx: number): number {
  * most atoms at the real `/home` default zoom render the full atom. The real dashboard panel
  * (1440x900 window) measures 39-78 css px per atom, so the literal 40 -> 110 band would put
  * every atom in the LOD; 16 -> 46 keeps only the farthest/smallest atoms in it (see
- * `OR_ATOM_010_RAYTRACED/PERFORMANCE.md` for the measured distribution per viewport).
+ * `_tasks/research/atomic-topology/or-atom-010-raytraced/PERFORMANCE.md` (private task notes) for the measured distribution per viewport).
  */
 export const SMALL_LOD_NEAR = 16;
 export const SMALL_LOD_SPAN = 30;

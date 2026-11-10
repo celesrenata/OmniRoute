@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Gate A: capture every required condition (headed Chrome, real GPU).
 cd "$(dirname "$0")/../.."
-OUT=OR_ATOM_010_RAYTRACED/screenshots/gateA
+OUT=_tasks/research/atomic-topology/or-atom-010-raytraced/screenshots/gateA
 B="paused=1&t=3"
 node scripts/ad-hoc/pw-atomic-gateA.mjs "$OUT" \
   "gateA-provider-default-1c=golden=provider&models=1&energy=excited&$B" \
