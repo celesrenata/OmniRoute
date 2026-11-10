@@ -94,7 +94,14 @@ describe("Intel Arc exporter gauges", () => {
     const arc = { hostname: "gremlin-2", uuid: "intel-arc" };
     const provider = createPrometheusProvider({
       config,
-      fetchImpl: fetchFor({ intel_gpu_busy_percent: [arc], intel_gpu_power_watts: [arc] }, "12.5"),
+      fetchImpl: fetchFor(
+        {
+          intel_gpu_busy_percent: [arc],
+          intel_gpu_power_watts: [arc],
+          intel_gpu_package_temp_celsius: [arc],
+        },
+        "12.5"
+      ),
       now: fixtureNow,
     });
     const r = reconcileSnapshot(await provider.snapshot({ windowMs: 60_000 }));
@@ -103,6 +110,8 @@ describe("Intel Arc exporter gauges", () => {
     assert.equal(g.deviceUuid, "intel-arc");
     assert.equal(g.utilizationPercent?.value, 12.5);
     assert.equal(g.powerWatts?.value, 12.5);
+    assert.equal(g.temperatureC?.value, 12.5);
+    assert.equal(g.temperatureC?.basis, "intel_gpu_package_temp_celsius");
     assert.equal(g.vramUsedBytes, undefined, "shared system RAM: no VRAM fabricated");
   });
 });

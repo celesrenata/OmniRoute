@@ -180,9 +180,11 @@ const ALLOWLISTED_METRIC_NAME_ENTRIES: readonly [string, MetricField][] = [
   ["macmon_gpu_power_watts", "gpu_power_w"],
   // Intel Arc (iGPU) gauges from the fleet's intel_gpu_top exporter
   // (`intel-gpu-exporter` DaemonSet): busiest engine % and GPU-domain power.
-  // The iGPU shares system RAM and exposes no temperature, so those stay absent.
+  // The iGPU shares system RAM (VRAM stays absent) and has no sensor of its own:
+  // temperature is the shared SoC package (coretemp), named as such in the basis.
   ["intel_gpu_busy_percent", "gpu_util"],
   ["intel_gpu_power_watts", "gpu_power_w"],
+  ["intel_gpu_package_temp_celsius", "gpu_temperature_c"],
 ];
 
 // Defense-in-depth: a duplicate upstream name in the table above used to fail

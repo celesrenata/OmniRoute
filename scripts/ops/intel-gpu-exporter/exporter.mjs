@@ -9,9 +9,13 @@
 //   intel_gpu_package_power_watts         package power domain
 //   intel_gpu_frequency_mhz{type}         actual / requested
 //   intel_gpu_rc6_percent                 idle residency
+//   intel_gpu_package_temp_celsius        SoC package temperature (coretemp "Package id 0").
+//                                         Meteor Lake's iGPU has no sensor of its own; it
+//                                         shares this die, so this is the closest real reading.
 //   intel_gpu_exporter_up                 1 while samples are fresh
 // A sample older than STALE_MS is never served (metrics disappear instead of lying).
 import { spawn } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import http from "node:http";
 
 const PORT = Number(process.env.PORT || 9496);
@@ -70,6 +74,25 @@ function startSampler() {
   });
 }
 
+/** coretemp "Package id 0" in degrees C, read from the host sysfs, or null. */
+function packageTempC() {
+  try {
+    for (const h of readdirSync("/host/sys/class/hwmon")) {
+      const dir = `/host/sys/class/hwmon/${h}`;
+      if (readFileSync(`${dir}/name`, "utf8").trim() !== "coretemp") continue;
+      for (const f of readdirSync(dir)) {
+        if (!/^temp\d+_label$/.test(f)) continue;
+        if (readFileSync(`${dir}/${f}`, "utf8").trim() !== "Package id 0") continue;
+        const milli = Number(readFileSync(`${dir}/${f.replace("_label", "_input")}`, "utf8"));
+        return Number.isFinite(milli) ? milli / 1000 : null;
+      }
+    }
+  } catch {
+    // no coretemp on this host: metric omitted
+  }
+  return null;
+}
+
 const num = (v) => {
   const n = typeof v === "string" ? Number(v) : v;
   return typeof n === "number" && Number.isFinite(n) ? n : null;
@@ -109,6 +132,12 @@ function render() {
   }
   const rc6 = num(s.rc6?.value);
   if (rc6 != null) out.push("# TYPE intel_gpu_rc6_percent gauge", `intel_gpu_rc6_percent ${rc6}`);
+  const pkgT = packageTempC();
+  if (pkgT != null)
+    out.push(
+      "# TYPE intel_gpu_package_temp_celsius gauge",
+      `intel_gpu_package_temp_celsius ${pkgT}`
+    );
   return out.join("\n") + "\n";
 }
 

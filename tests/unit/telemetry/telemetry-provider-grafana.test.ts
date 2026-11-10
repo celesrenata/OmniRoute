@@ -18,7 +18,7 @@
  *   - identity rules mirror the shared mapping (GPU needs host + device;
  *     runtime counter needs runtime identity; unknown → dropped, never
  *     fabricated);
- *   - exactly the 16 allowlisted metrics are queried (no user PromQL);
+ *   - exactly the 17 allowlisted metrics are queried (no user PromQL);
  *   - one failing metric never poisons the snapshot; an abort propagates
  *     (category "aborted").
  */
@@ -202,7 +202,7 @@ describe("grafana provider: probe", () => {
 });
 
 describe("grafana provider: snapshot — GPU gauges via ds/query", () => {
-  it("queries exactly the sixteen allowlisted metrics via POST /api/ds/query", async () => {
+  it("queries exactly the seventeen allowlisted metrics via POST /api/ds/query", async () => {
     const payloads = resultsFor({
       DCGM_FI_DEV_GPU_UTIL: [frame(GPU_LABELS, [T0_ISO], [73.5])],
     });
@@ -216,7 +216,7 @@ describe("grafana provider: snapshot — GPU gauges via ds/query", () => {
 
     await provider.snapshot(QUERY);
 
-    assert.equal(calls.length, 16);
+    assert.equal(calls.length, 17);
     assert.equal(calls[0].url, "http://127.0.0.1:3000/api/ds/query");
     assert.equal(calls[0].init?.method, "POST");
     const body = JSON.parse(calls[0].init?.body as string);
