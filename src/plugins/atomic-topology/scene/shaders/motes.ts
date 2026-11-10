@@ -94,7 +94,15 @@ export function createMotes(count = MOTE_COUNT, seed = 0x0b0c3): MoteLayer {
     // Circle of confusion (0 at the focus plane, saturating far away).
     const coc = smoothstep(0, 1, abs(d.sub(fd)).div(fd.mul(0.8)));
     const kind = fract(r.w.mul(7.31));
-    const sizePx = mix(float(1.6), float(3.2), kind).add(coc.mul(mix(float(10), float(28), r.x)));
+    // Polish (directive 33): the large defocused orbs crowded the upper half of the default
+    // /home frame. High in the volume, big orbs shrink and two in five fade out entirely; the
+    // dust and the lower / nearer orbs are unchanged.
+    const high = smoothstep(0.1, 0.8, c.y.sub((boundsC as any).y).div((boundsH as any).y));
+    const big = coc.mul(mix(float(10), float(28), r.x)).mul(float(1).sub(high.mul(0.45)));
+    const sizePx = mix(float(1.6), float(3.2), kind).add(big);
+    const thin = float(1).sub(
+      high.mul(step(fract(r.z.mul(13.7)), 0.4)).mul(smoothstep(0.15, 0.4, coc))
+    );
     const world = sizePx.mul(d).mul(pxScale as any);
     const material = new MeshBasicNodeMaterial();
     material.positionNode = c
@@ -103,6 +111,7 @@ export function createMotes(count = MOTE_COUNT, seed = 0x0b0c3): MoteLayer {
     const pV = varying(positionGeometry.xy);
     const cocV = varying(coc);
     const kindV = varying(kind);
+    const thinV = varying(thin);
     const sideV = varying(d.sub(fd));
     material.fragmentNode = Fn(() => {
       const p = pV;
@@ -125,7 +134,7 @@ export function createMotes(count = MOTE_COUNT, seed = 0x0b0c3): MoteLayer {
         select(kindV.lessThan(0.85), vec3(0.15, 0.78, 1.0), vec3(0.95, 0.3, 0.75))
       );
       const sideMask = nearSide ? step(sideV, 0) : step(0, sideV);
-      return vec4(col.mul(shape).mul(k).mul(0.3).mul(sideMask), 1);
+      return vec4(col.mul(shape).mul(k).mul(0.3).mul(sideMask).mul(thinV), 1);
     })();
     material.transparent = true;
     material.blending = AdditiveBlending;
