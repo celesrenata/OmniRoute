@@ -56,8 +56,12 @@ export function AtomicControls({ paused }: { paused: boolean }) {
     setFsAvailable(fullscreenSupported(host));
     const sync = (): void => setFs(isHostFullscreen(host));
     document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync); // iPad Safari (prefixed API)
     sync();
-    return () => document.removeEventListener("fullscreenchange", sync);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync);
+    };
   }, []);
   return (
     <div
