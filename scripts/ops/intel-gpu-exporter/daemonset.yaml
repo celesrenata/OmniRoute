@@ -1,0 +1,65 @@
+# Intel Arc (Meteor Lake iGPU) exporter for the Gremlin nodes.
+# Runs the HOST's intel_gpu_top (NixOS) through chroot; privileged is required
+# for i915 perf counters. No hostNetwork: the node firewall (NixOS) blocks
+# non-listed host ports, so Prometheus scrapes the pods over the pod network via
+# kubernetes_sd (job `intel-arc-gpu`, hostname = node name).
+# Apply: kubectl -n prometheus-service create configmap intel-gpu-exporter \
+#          --from-file=exporter.mjs --dry-run=client -o yaml | kubectl apply -f -
+#        kubectl apply -f daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: intel-gpu-exporter
+  namespace: prometheus-service
+  labels:
+    app: intel-gpu-exporter
+spec:
+  selector:
+    matchLabels:
+      app: intel-gpu-exporter
+  template:
+    metadata:
+      labels:
+        app: intel-gpu-exporter
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: exporter
+          image: node:22.21.1-alpine3.22
+          command: ["node", "/app/exporter.mjs"]
+          env:
+            - name: PORT
+              value: "9496"
+            - name: INTEL_GPU_DEVICE
+              value: "pci:slot=0000:00:02.0"
+          ports:
+            - name: metrics
+              containerPort: 9496
+          securityContext:
+            privileged: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9496
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: app
+              mountPath: /app
+              readOnly: true
+            - name: host
+              mountPath: /host
+              readOnly: true
+      volumes:
+        - name: app
+          configMap:
+            name: intel-gpu-exporter
+        - name: host
+          hostPath:
+            path: /

@@ -163,3 +163,67 @@ test("atomic descriptors carry the vendor colour", () => {
   const bedrock = resolveAtomDescriptors(snap).find((x) => x.providerId === "bedrock");
   assert.equal(bedrock?.vendorColor, undefined);
 });
+
+test("device atoms absorb their own GPU and its runtime from fleet telemetry", () => {
+  const obs = (value: number) => ({ value, source: "prometheus", sampledAt: 1 });
+  const reconciliation = {
+    capturedAt: 1,
+    providerCentricFallback: false,
+    gpuNodes: [
+      {
+        resourceId: "gpu:esnixi:GPU-5090",
+        hostId: "esnixi",
+        deviceUuid: "GPU-5090",
+        utilizationPercent: obs(42),
+        stale: false,
+      },
+      {
+        resourceId: "gpu:gremlin-1:GPU-4070",
+        hostId: "gremlin-1",
+        deviceUuid: "GPU-4070",
+        utilizationPercent: obs(7),
+        stale: false,
+      },
+      {
+        resourceId: "gpu:gremlin-1:intel-arc",
+        hostId: "gremlin-1",
+        deviceUuid: "intel-arc",
+        utilizationPercent: obs(3),
+        powerWatts: obs(1.5),
+        stale: false,
+      },
+    ],
+    runtimeNodes: [
+      {
+        resourceId: "runtime:192.168.133.3:q27",
+        hostId: "192.168.133.3",
+        runtimeId: "q27",
+        modelId: "qwen3.8-27b-nvfp4",
+        outputTokensPerSecond: obs(55),
+        queuedJobs: obs(2),
+        activeJobs: obs(1),
+        attributedGpuIds: ["gpu:esnixi:GPU-5090"],
+        stale: false,
+      },
+    ],
+    providerNodes: [],
+    edges: [],
+  };
+  const snap = normalizeTopology({
+    providers: grouped,
+    activeRequests: [],
+    capturedAt: 1,
+    reconciliation: reconciliation as never,
+  });
+  const ds = resolveAtomDescriptors(snap);
+  const at = (id: string) => ds.find((d) => d.id === `provider:${id}`)!;
+  assert.equal(at("gpu-esnixi-rtx5090").deviceFacts?.utilizationPercent, 42);
+  assert.equal(at("gpu-esnixi-rtx5090").measuredTps, 55);
+  assert.equal(at("gpu-esnixi-rtx5090").deviceFacts?.queuedJobs, 2);
+  assert.equal(at("gpu-esnixi-rtx5090").deviceFacts?.modelId, "qwen3.8-27b-nvfp4");
+  assert.equal(at("gpu-gremlin-1-rtx4070tis").deviceFacts?.utilizationPercent, 7);
+  assert.equal(at("gpu-gremlin-1-arc").deviceFacts?.utilizationPercent, 3);
+  assert.equal(at("gpu-gremlin-1-arc").deviceFacts?.powerWatts, 1.5);
+  // Nothing absorbed is drawn twice as a separate band atom.
+  assert.ok(!ds.some((d) => d.kind === "gpu" || d.kind === "runtime"));
+});

@@ -38,7 +38,11 @@ export interface FleetDevice {
   endpoints: string[];
   /** Models this GPU is known to serve (disambiguates providers shared by several GPUs). */
   models?: string[];
-  /** Fleet-telemetry identity (Prometheus `hostname` label + optional model-name substring). */
+  /**
+   * Fleet-telemetry identity: the Prometheus `hostname` label, plus a substring of the
+   * GPU device id (`uuid`) when the host reports several GPUs (DCGM ids start `GPU-`;
+   * the Intel Arc exporter reports `intel-arc`).
+   */
   telemetry?: { hostname: string; gpuMatch?: string };
 }
 
@@ -49,6 +53,7 @@ const arc = (n: number, ip: string): FleetDevice => ({
   gpu: "Intel Arc",
   vendor: "intel",
   endpoints: ARC_PORTS.map((p) => `${ip}:${p}`),
+  telemetry: { hostname: `gremlin-${n}`, gpuMatch: "intel-arc" },
 });
 
 /** The operator's fleet (declared hardware). */
@@ -60,7 +65,7 @@ export const FLEET_INVENTORY: readonly FleetDevice[] = Object.freeze([
     vendor: "nvidia",
     endpoints: ["192.168.133.3:2701"],
     models: ["qwen3.8-27b-nvfp4", "qwen3.5-9b-nvfp4-reader"],
-    telemetry: { hostname: "esnixi" },
+    telemetry: { hostname: "esnixi", gpuMatch: "gpu-" },
   },
   {
     id: "gremlin-1-rtx4070tis",
@@ -69,7 +74,7 @@ export const FLEET_INVENTORY: readonly FleetDevice[] = Object.freeze([
     vendor: "nvidia",
     endpoints: ["10.1.1.12:2701"],
     models: ["granite-4.2-8b"],
-    telemetry: { hostname: "gremlin-1", gpuMatch: "4070" },
+    telemetry: { hostname: "gremlin-1", gpuMatch: "gpu-" },
   },
   {
     id: "stabulous-m5max",

@@ -19,7 +19,7 @@
  *   - unit guards apply (percent outside [0,100] → unknown, row still emitted);
  *   - one failing or malformed metric never poisons the snapshot; an abort does
  *     propagate (category "aborted");
- *   - exactly the 14 allowlisted metrics are queried (version-controlled set:
+ *   - exactly the 16 allowlisted metrics are queried (version-controlled set:
  *     5 DCGM gauges + vLLM counter + 2 vLLM scheduler gauges + 3 macmon gauges
  *     + 3 q27 runtime-counter aliases).
  */
@@ -201,13 +201,13 @@ describe("prometheus provider: probe", () => {
 });
 
 describe("prometheus provider: snapshot — GPU gauges", () => {
-  it("queries exactly the fourteen allowlisted metrics, one bounded request each", async () => {
+  it("queries exactly the sixteen allowlisted metrics, one bounded request each", async () => {
     const { calls, fetchImpl } = makeFakeFetch(allMetrics());
     const provider = createPrometheusProvider({ config: config(), fetchImpl, now: fixtureNow });
 
     await provider.snapshot(QUERY);
 
-    assert.equal(calls.length, 14);
+    assert.equal(calls.length, 16);
     // Query shape: fixed path + encoded allowlisted metric (no user PromQL).
     assert.equal(
       calls[0].url,
@@ -226,6 +226,8 @@ describe("prometheus provider: snapshot — GPU gauges", () => {
       "DCGM_FI_DEV_GPU_TEMP",
       "DCGM_FI_DEV_GPU_UTIL",
       "DCGM_FI_DEV_POWER_USAGE",
+      "intel_gpu_busy_percent",
+      "intel_gpu_power_watts",
       "macmon_gpu_power_watts",
       "macmon_gpu_scaled_ratio",
       "macmon_gpu_temp_celsius",
@@ -634,18 +636,21 @@ describe("prometheus provider: snapshot — scheduler gauges + macmon (name-keye
     assert.equal(row.utilizationPercent?.basis, "macmon_gpu_scaled_ratio");
   });
 
-  it("allowlist is name-keyed: DCGM + macmon + q27 collisions survive (all 14 names resolve)", () => {
+  it("allowlist is name-keyed: DCGM + macmon + q27 collisions survive (all 16 names resolve)", () => {
     // Regression guard for the old field-keyed Map: the macmon entries shared
     // the gpu_util / gpu_temperature_c / gpu_power_w fields with DCGM, and a
     // field-keyed map silently dropped the DCGM names (5 of 11 never queried);
-    // the same guard now covers the 3 q27 runtime-counter aliases (14 total).
-    assert.equal(ALLOWLISTED_METRIC_NAMES.size, 14);
+    // the same guard now covers the 3 q27 runtime-counter aliases and the 2 Intel Arc
+    // gauges (16 total).
+    assert.equal(ALLOWLISTED_METRIC_NAMES.size, 16);
     assert.deepEqual([...ALLOWLISTED_METRIC_NAMES.keys()].sort(), [
       "DCGM_FI_DEV_FB_TOTAL",
       "DCGM_FI_DEV_FB_USED",
       "DCGM_FI_DEV_GPU_TEMP",
       "DCGM_FI_DEV_GPU_UTIL",
       "DCGM_FI_DEV_POWER_USAGE",
+      "intel_gpu_busy_percent",
+      "intel_gpu_power_watts",
       "macmon_gpu_power_watts",
       "macmon_gpu_scaled_ratio",
       "macmon_gpu_temp_celsius",

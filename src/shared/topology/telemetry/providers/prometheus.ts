@@ -297,9 +297,18 @@ function applyPrometheusSample(args: SampleApplyArgs): void {
         unit,
       });
     }
+    // Declared runtime -> GPU / model attribution (scrape relabels `gpu_uuid`,
+    // `gpu_host`, `model_id`): the operator states which GPU and model the runtime
+    // serves. Absent labels -> no attribution (never inferred).
+    const gpuUuid = sample.labels["gpu_uuid"]?.trim();
+    const gpuHost = sample.labels["gpu_host"]?.trim();
+    const modelId = sample.labels["model_id"]?.trim();
     upsert(args.rows, key, "runtime", id.hostId, {
       runtimeId: id.runtimeId,
       endpointPort,
+      ...(gpuUuid ? { deviceUuid: gpuUuid } : {}),
+      ...(gpuUuid && gpuHost ? { deviceHostId: gpuHost } : {}),
+      ...(modelId ? { modelId } : {}),
       field,
       obs,
     });
@@ -340,6 +349,8 @@ function upsert(
     runtimeId?: string;
     /** OR-ATOM-009.2 join fact: runtime metrics endpoint port. */
     endpointPort?: number;
+    deviceHostId?: string;
+    modelId?: string;
     field: keyof FleetResourceObservation;
     obs: Observed<number>;
   }
@@ -356,5 +367,7 @@ function upsert(
   if (patch.deviceUuid) row.deviceUuid = patch.deviceUuid;
   if (patch.runtimeId) row.runtimeId = patch.runtimeId;
   if (patch.endpointPort != null && row.endpointPort == null) row.endpointPort = patch.endpointPort;
+  if (patch.deviceHostId) row.deviceHostId = patch.deviceHostId;
+  if (patch.modelId) row.modelId = patch.modelId;
   (row as unknown as Record<string, Observed<number>>)[patch.field] = patch.obs;
 }

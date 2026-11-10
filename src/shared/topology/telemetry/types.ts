@@ -99,6 +99,12 @@ export interface FleetResourceObservation {
   runtimeId?: string;
   modelId?: string;
   /**
+   * Runtime -> GPU attribution host (runtime rows only): the GPU's host id when it
+   * differs from the runtime's own host id (e.g. the runtime is scraped over a VPN
+   * address while its GPU reports its machine name). Declared via scrape labels.
+   */
+  deviceHostId?: string;
+  /**
    * Provider JOIN FACTS (provider atoms only, OR-ATOM-009.2): the validated
    * upstream base URLs (http/https only) of EVERY connection row for this
    * provider key — a single provider key can front several endpoints (live

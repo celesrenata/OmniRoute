@@ -175,7 +175,7 @@ export function reconcileSnapshot(snapshot: FleetTelemetrySnapshot): Reconciliat
       // (only when the runtime metric itself attributes to a device).
       if (r.deviceUuid) {
         try {
-          const gpuId = buildCanonicalResourceId("gpu", r.deviceUuid, hostId);
+          const gpuId = buildCanonicalResourceId("gpu", r.deviceUuid, r.deviceHostId || hostId);
           if (!node.attributedGpuIds.includes(gpuId)) node.attributedGpuIds.push(gpuId);
         } catch {
           // invalid id → no attribution

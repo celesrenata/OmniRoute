@@ -454,16 +454,31 @@ export function resolveAtomDescriptors(
       if (!tel) continue;
       const host = tel.hostname.toLowerCase();
       const onHost = reconciliation.gpuNodes.filter((g) => g.hostId.toLowerCase() === host);
-      const match =
-        onHost.length === 1
-          ? onHost[0]
-          : tel.gpuMatch
-            ? onHost.find((g) => g.deviceUuid.toLowerCase().includes(tel.gpuMatch!.toLowerCase()))
-            : undefined;
+      const byUuid = tel.gpuMatch
+        ? onHost.filter((g) => g.deviceUuid.toLowerCase().includes(tel.gpuMatch!.toLowerCase()))
+        : onHost;
+      // Exactly one candidate, or never: two GPUs are never guessed onto one atom.
+      const match = byUuid.length === 1 ? byUuid[0] : undefined;
       if (match) absorbedGpuByNode.set(n.id, match);
     }
   }
   const absorbedGpuIds = new Set([...absorbedGpuByNode.values()].map((g) => g.resourceId));
+  // Runtimes proven to run on exactly one absorbed GPU are that device atom's own
+  // work (tok/s, scheduler queue, served model): they get no separate atom.
+  const absorbedRuntimesByGpu = new Map<string, ReconciledRuntimeNode[]>();
+  if (reconciliation) {
+    for (const rt of reconciliation.runtimeNodes) {
+      if (rt.attributedGpuIds.length !== 1) continue;
+      const gpuId = rt.attributedGpuIds[0];
+      if (!absorbedGpuIds.has(gpuId)) continue;
+      const list = absorbedRuntimesByGpu.get(gpuId) ?? [];
+      list.push(rt);
+      absorbedRuntimesByGpu.set(gpuId, list);
+    }
+  }
+  const absorbedRuntimeIds = new Set(
+    [...absorbedRuntimesByGpu.values()].flat().map((r) => r.resourceId)
+  );
 
   // The hub routes every call: its call-log rate is the union of the providers' rows.
   const hubCallTimes = snapshot.nodes.flatMap((n) => n.recentCalls?.value ?? []);
@@ -522,8 +537,33 @@ export function resolveAtomDescriptors(
       joinedProvider && !joinedProvider.stale && joinedProvider.queuedJobs?.value != null
         ? joinedProvider.queuedJobs.value
         : null;
-    const spin = spinRadiansPerSecond(reconciliation ? joinedTps : null, SPIN_REFERENCE_TPS);
-    const vibration = queueVibration(reconciliation ? joinedQueued : null);
+    // Device atom: its absorbed GPU's runtimes are its measured work (summed real
+    // measurements of distinct processes on this one GPU; never a split).
+    const absorbedGpu = absorbedGpuByNode.get(node.id);
+    const deviceRuntimes = absorbedGpu
+      ? (absorbedRuntimesByGpu.get(absorbedGpu.resourceId) ?? []).filter((r) => !r.stale)
+      : [];
+    const sumRt = (
+      pick: (r: ReconciledRuntimeNode) => { value: number | null; stale?: boolean } | undefined
+    ): number | null => {
+      let total = 0;
+      let any = false;
+      for (const r of deviceRuntimes) {
+        const o = pick(r);
+        if (o && o.value != null && !o.stale) {
+          total += o.value;
+          any = true;
+        }
+      }
+      return any ? total : null;
+    };
+    const deviceTps = deviceRuntimes.length ? sumRt((r) => r.outputTokensPerSecond) : null;
+    const deviceQueued = deviceRuntimes.length ? sumRt((r) => r.queuedJobs) : null;
+    const deviceActive = deviceRuntimes.length ? sumRt((r) => r.activeJobs) : null;
+    const spinTpsValue = deviceRuntimes.length ? deviceTps : joinedTps;
+    const queuedValue = deviceRuntimes.length ? deviceQueued : joinedQueued;
+    const spin = spinRadiansPerSecond(reconciliation ? spinTpsValue : null, SPIN_REFERENCE_TPS);
+    const vibration = queueVibration(reconciliation ? queuedValue : null);
     const visualState = resolveVisualState({
       health: node.health,
       traffic: node.traffic,
@@ -573,7 +613,7 @@ export function resolveAtomDescriptors(
       // S9.2 — the raw measured TPS behind `spin` (null when no reconciliation
       // or the joined sample is stale/absent): the nucleus smooths exactly
       // this value per frame; the hub (no providerId) stays null.
-      measuredTps: reconciliation ? joinedTps : null,
+      measuredTps: reconciliation ? spinTpsValue : null,
       visualState,
       activeRequests: node.activeRequests?.value ?? null,
       ringIndex,
@@ -608,6 +648,14 @@ export function resolveAtomDescriptors(
                 vramTotalBytes: v(g.vramTotalBytes),
                 temperatureC: v(g.temperatureC),
                 powerWatts: v(g.powerWatts),
+                ...(deviceRuntimes.length > 0
+                  ? {
+                      queuedJobs: deviceQueued,
+                      activeJobs: deviceActive,
+                      modelId: deviceRuntimes.find((r) => r.modelId)?.modelId ?? null,
+                      hostedRuntimeIds: deviceRuntimes.map((r) => r.resourceId).sort(),
+                    }
+                  : {}),
               },
             };
           })()
@@ -668,7 +716,7 @@ export function resolveAtomDescriptors(
         .filter((g) => !absorbedGpuIds.has(g.resourceId))
         .map((g) => ({ id: g.resourceId, kind: "gpu" as const })),
       ...reconciliation.runtimeNodes
-        .filter((r) => !mergedRuntimeIds.has(r.resourceId))
+        .filter((r) => !mergedRuntimeIds.has(r.resourceId) && !absorbedRuntimeIds.has(r.resourceId))
         .map((r) => ({ id: r.resourceId, kind: "runtime" as const })),
     ];
     const band = computeDeviceBandLayout(bandNodes, { startRingIndex: maxProviderRing + 1 });
