@@ -182,9 +182,14 @@ export function buildCallLogListRows({
   }
 
   const pendingIds = new Set(activeEntries.map((entry) => entry.id));
+  // Persisted rows use a fresh UUID key (see attemptLogging.ts), never the pending id, so the id
+  // check above cannot match a finished request. correlationId is stable across the attempts of
+  // one client request and is stored on both, so it pairs the in-memory entry with its row.
+  const persistedCorrelations = new Set(logs.map((log: any) => log.correlationId).filter(Boolean));
   const completedEntries: any[] = [];
   for (const detail of completedDetails) {
     if (persistedIds.has(detail.id) || pendingIds.has(detail.id)) continue;
+    if (detail.correlationId && persistedCorrelations.has(detail.correlationId)) continue;
     const completedAt = typeof detail.completedAt === "number" ? detail.completedAt : null;
     const duration =
       typeof detail.durationMs === "number" && Number.isFinite(detail.durationMs)

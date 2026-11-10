@@ -173,7 +173,10 @@ function rowCountsAsCall(row: RecentCallLogRow): boolean {
  * Completed, non-test call times (epoch ms of completion, newest first) per lowercased provider
  * inside the window. Pure: callers pass `now`.
  *
- * `/api/usage/call-logs` lists a just-finished request twice: the in-memory entry
+ * `/api/usage/call-logs` used to list a just-finished request twice (fixed server-side in
+ * `buildCallLogListRows`, which pairs the in-memory entry with its persisted row by correlationId).
+ * This collapse is kept as a DEFENSIVE guard for rows without a correlationId, and for older
+ * servers: the in-memory entry
  * (`detailState: "in-memory"`, timestamp = start, `duration`) and, once written, the persisted
  * row (timestamp = completion) under a different id. The pair is collapsed here: an in-memory
  * row whose start + duration lands within 250 ms of a persisted row of the same provider,

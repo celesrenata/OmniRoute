@@ -99,10 +99,16 @@ the x16 diff is black elsewhere. Side by side (before | after): `/Users/celes/so
 
 Only two frozen files differ, both for operator-authorised work:
 
-- `overlays/AtomicControls.tsx` (+60): the Fullscreen chip (directive 35) and the "Sync to display refresh rate" checkbox (directive 45, explicit exception to the no-new-controls freeze).
+- `overlays/AtomicControls.tsx` (+60): the Fullscreen chip (directive 35) and the "Sync to display refresh rate" checkbox (directive 45, explicit exception to the no-new-controls freeze). **Operator-approved frozen-file exception.**
 - `scene/SceneOrbitControls.tsx` (+5): `orbitDampingFor(delta)`. Directive 45 requires all motion to be time-based; OrbitControls damping decayed per `update()`
-  (per frame), so the glide length differed at 30 and 120 fps. The scale is 1.0 at the 60 fps reference, so the feel at 60 Hz is unchanged. It is not a camera/orbit/zoom/reset/auto-fit behaviour change at a fixed
-  frame rate; it is a direct consequence of the 30 fps default, but it is **not** listed in directive 45 as an exception, so it is recorded here for the operator to confirm or veto (revert is one line).
+  (per frame), so the glide length differed at 30 and 120 fps. The scale is 1.0 at the 60 fps reference, so the feel at 60 Hz is unchanged. **Operator-approved frozen-file exception (directive 46.2, confirmed).**
+
+**Operator decisions (directive 46):** bokeh trim stays OFF; cloud+strands hero stays a dev flag; the `/api/usage/call-logs` duplicate is fixed server-side (below).
+
+## /api/usage/call-logs duplicate: root cause and fix (Hard Rule #18, TDD)
+
+Root cause: `buildCallLogListRows` (`src/app/api/usage/call-logs/route.ts`) de-duplicated in-memory completed entries against persisted rows by `id` only. The persisted row's key is a fresh UUID from `saveCallLog`, never the pending id (`attemptLogging.ts`), so the ids never match and every finished request appeared twice until the in-memory entry expired. Fix: also drop a completed in-memory entry when a persisted row carries the same non-null `correlationId` (stable across attempts of one client request, stored on both). Active entries are never dropped. Test: `tests/unit/call-logs-completed-dedupe.test.ts` (failed before the fix). The feeder collapse in `recentModels.ts` is kept as a documented defensive guard.
+
 - Unchanged: `layout.ts`, `cameraFit.ts`, `AtomicLabels.tsx`, the 2D renderer, telemetry semantics, routing.
 
 ## Bokeh trim (directive 33) is now gated, off by default
