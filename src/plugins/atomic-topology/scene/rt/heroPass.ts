@@ -35,17 +35,32 @@ import { mirrorTargetSize } from "./mirrorPass";
 export const HERO_CLOUD_LAYER = 7;
 export const HERO_STRAND_LAYER = 8;
 
-/** Dev flag parser: `?herores=0.5` -> 0.5; absent / >= 1 / invalid / production -> null (off). */
+/** Default hero translucency scale (directive 45: cloud-only at 0.5 is the default). */
+export const DEFAULT_HERO_SCALE = 0.5;
+
+/**
+ * Hero scale for a `?herores=` value: 0.5 by default and always in production; dev override
+ * `?herores=1` = off (full-res march), `?herores=<0.25..0.99>` = another scale.
+ */
 export function resolveHeroScale(param: string | null, production: boolean): number | null {
-  if (production || param == null || param === "") return null;
+  if (production || param == null || param === "") return DEFAULT_HERO_SCALE;
   const v = Number(param);
-  if (!Number.isFinite(v) || v <= 0 || v >= 1) return null;
+  if (!Number.isFinite(v) || v <= 0) return DEFAULT_HERO_SCALE;
+  if (v >= 1) return null;
   return Math.max(0.25, v);
+}
+
+/**
+ * Strands in the low-res hero pass: OFF by default and always in production (hairline strands
+ * stay full res, directive 45); dev flag `?herostrands=1` = cloud + strands.
+ */
+export function resolveHeroStrands(param: string | null, production: boolean): boolean {
+  return !production && param === "1";
 }
 
 export interface HeroPass {
   scale: number;
-  /** Strands also go low-res (default); `?herostrands=0` keeps them at full res (cloud only). */
+  /** Strands also go low-res (dev flag `?herostrands=1`); default false = cloud only. */
   strands: boolean;
   /** Additive composite quad for the low-res strands (add to the scene once). */
   objects: Mesh[];
@@ -54,7 +69,7 @@ export interface HeroPass {
   dispose: () => void;
 }
 
-export function createHeroPass(scale: number, strands = true): HeroPass {
+export function createHeroPass(scale: number, strands = false): HeroPass {
   const rtCloud = new RenderTarget(1, 1, { type: FloatType, depthBuffer: false });
   rtCloud.texture.minFilter = NearestFilter;
   rtCloud.texture.magFilter = NearestFilter;

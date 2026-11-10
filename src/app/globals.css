@@ -1121,6 +1121,30 @@ html[dir="rtl"] :where(.material-symbols-outlined, .traffic-lights, .react-flow)
   font-size: 10px;
   line-height: 1;
 }
+/* Directive 45: "Sync to display refresh rate" checkbox, styled as a control chip. */
+.atomic-controls__check {
+  white-space: nowrap;
+}
+.atomic-controls__check input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: #38bdf8;
+  cursor: pointer;
+}
+.atomic-controls__check:focus-within {
+  background: rgba(30, 41, 59, 0.9);
+  color: #f1f5f9;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.5);
+}
+.atomic-controls__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 
 /* Paused: amber icon tint (state, not "liveness" — no green dot anymore). */
 .atomic-controls--paused .atomic-controls__icon {

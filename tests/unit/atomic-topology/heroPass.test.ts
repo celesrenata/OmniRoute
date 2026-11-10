@@ -10,8 +10,10 @@ import {
 import {
   HERO_CLOUD_LAYER,
   HERO_STRAND_LAYER,
+  DEFAULT_HERO_SCALE,
   createHeroPass,
   resolveHeroScale,
+  resolveHeroStrands,
 } from "../../../src/plugins/atomic-topology/scene/rt/heroPass";
 import {
   MIRROR_ADD_LAYER,
@@ -20,16 +22,25 @@ import {
 
 // Directive 44.2: reduced-resolution hero translucency (dev flag, off by default).
 
-test("resolveHeroScale: off by default and in production; dev flag clamps the scale", () => {
-  assert.equal(resolveHeroScale(null, false), null);
-  assert.equal(resolveHeroScale("", false), null);
+test("resolveHeroScale: cloud-only 0.5 by default and in production; ?herores=1 = off", () => {
+  assert.equal(DEFAULT_HERO_SCALE, 0.5);
+  assert.equal(resolveHeroScale(null, false), 0.5);
+  assert.equal(resolveHeroScale("", false), 0.5);
+  assert.equal(resolveHeroScale("abc", false), 0.5);
+  assert.equal(resolveHeroScale("0", false), 0.5);
   assert.equal(resolveHeroScale("1", false), null);
-  assert.equal(resolveHeroScale("abc", false), null);
-  assert.equal(resolveHeroScale("0", false), null);
-  assert.equal(resolveHeroScale("0.5", false), 0.5);
+  assert.equal(resolveHeroScale("2", false), null);
   assert.equal(resolveHeroScale("0.6", false), 0.6);
   assert.equal(resolveHeroScale("0.1", false), 0.25);
-  assert.equal(resolveHeroScale("0.5", true), null);
+  assert.equal(resolveHeroScale("1", true), 0.5);
+  assert.equal(resolveHeroScale(null, true), 0.5);
+});
+
+test("resolveHeroStrands: hairline strands stay full res unless the dev flag ?herostrands=1", () => {
+  assert.equal(resolveHeroStrands(null, false), false);
+  assert.equal(resolveHeroStrands("0", false), false);
+  assert.equal(resolveHeroStrands("1", false), true);
+  assert.equal(resolveHeroStrands("1", true), false);
 });
 
 test("packHeroCloud: the packed value is exact in fp32 and round-trips within 1/2047", () => {
@@ -68,7 +79,7 @@ test("hero layers are distinct from the main and mirror layers", () => {
 });
 
 test("createHeroPass: additive strand composite at the strands' order; none in cloud-only mode", () => {
-  const p = createHeroPass(0.5);
+  const p = createHeroPass(0.5, true);
   try {
     assert.equal(p.scale, 0.5);
     assert.equal(p.strands, true);
@@ -83,7 +94,7 @@ test("createHeroPass: additive strand composite at the strands' order; none in c
   } finally {
     p.dispose();
   }
-  const c = createHeroPass(0.5, false);
+  const c = createHeroPass(0.5);
   try {
     assert.equal(c.strands, false);
     assert.equal(c.objects.length, 0);

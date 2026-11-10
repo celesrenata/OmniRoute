@@ -1,3 +1,62 @@
+# PERFORMANCE: profile-and-optimize phase, round 3 (directive 45: 30 fps target)
+
+## What changed
+
+- **Render loop** (`scene/AtomicScene.tsx` `FrameDriver`, `scene/frameRate.ts`): R3F's own loop is off (`frameloop="never"`).
+  One rAF loop asks a deadline throttle on every tick and calls R3F `advance()` only when a frame is due.
+  - A tick that is not due returns at once: no `useFrame` subscriber runs, so there is no scene update and no GPU submit.
+  - The throttle advances its deadline by exactly 1/30 s (2 ms jitter tolerance) and re-anchors after a stall. That holds 30 fps on
+    60 Hz (every 2nd tick), 120 Hz (every 4th) and 144 Hz (5/4 alternating) displays (unit-tested).
+  - The R3F clock is driven with the rAF timestamp, so every `delta` is the real time between rendered frames.
+  - The hidden-tab / off-screen stop is folded into the same loop: it is cancelled, then restarted with a normal-length first frame.
+- **"Sync to display refresh rate"** checkbox in the existing Atomic controls cluster, next to Fullscreen, styled as a control chip.
+  - Unchecked (default) = 30 fps; checked = every rAF tick.
+  - Persisted in `localStorage["omniroute.atomic.syncRefresh"]` (SSR snapshot false, blocked storage safe) and read through `useSyncExternalStore`.
+  - Native checkbox in a label (keyboard: Space), with a tooltip and an `aria-describedby` hint on the GPU trade-off.
+- **Time-based motion audit.**
+  - Already time-based: scene clock (`advanceSceneTime`, delta clamp 0.1 s), electron and swirl clocks, flicker / bolt re-strike
+    (`flickerClock`), link strikes / packets / completion flash, feeder and replay-heat easing, DOF focus ease, energy smoothing,
+    fly-in / lens / drift (`exp(-k*dt)`, `driftMs`), orbit-pivot slide, replay transport (`setInterval` with measured dt), container clamp (stateless).
+  - **Fixed:** OrbitControls damping decayed per `update()`, i.e. per frame. `orbitDampingFor(delta)` scales it by elapsed time
+    (0.08 at the 60 fps reference, unchanged feel at 60 Hz), so the glide is the same length in seconds at 30 and 120 fps (unit-tested).
+- **Quality defaults:** half-res floor reflection (44.1) stays. **Cloud-only reduced-res hero translucency is now the default**
+  (`resolveHeroScale` 0.5, `resolveHeroStrands` false, always so in production). Dev overrides: `?herores=1` (off) and
+  `?herostrands=1` (cloud + strands, dev only). Evidence for cloud-only is round 2 (SSIM 0.997-0.9997).
+
+## Evidence (M5 Max, real /home Atomic, window on the built-in 120 Hz panel, normal vsync)
+
+Rendered-frame intervals come from `window.__atomicFrameTimes` (written only when a frame is actually rendered). GPU busy % is ioreg
+"Device Utilization" for the whole GPU. Power is `AppleSmartBattery SystemPowerIn` for the whole machine. Neither can be attributed
+to this page alone: the blank-page baseline was GPU 23 % mean (0-38 %) and 47.3 W, from a local inference server running in the background.
+SystemPowerIn updates only every few seconds, so the power column is coarse. Two interleaved rounds
+(`pw-atomic-framerate.mjs`, `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/framerate-30-vs-sync.json`):
+
+| state                               | 30 fps: fps / interval p5-p50-p95 ms / GPU busy mean % | synced 120 Hz: fps / interval p5-p50-p95 / GPU busy mean % |
+| ----------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------- |
+| rest, default view                  | 30.0 / 32.5-33.3-34.2 / 44.5, 44.1                     | 120.0 / 7.5-8.3-9.3 / 66.1, 64.5                           |
+| interacting (continuous orbit drag) | 30.0 / 32.6-33.3-34.2 / 46.3, 44.3                     | 120.0 / 7.6-8.3-9.1 / 64.9, 67.4                           |
+| replay playing (8x)                 | 30.0 / 32.5-33.3-34.2 / 46.3, 42.3                     | 120.0 / 7.4-8.3-9.3 / 66.6, 68.6                           |
+| fullscreen + OpenAI detail          | 30.0 / 32.5-33.3-34.4 / 39.1, 38.1                     | 120.0 / 7.6-8.3-9.1 / 65.5, 76.3                           |
+| system power (W, coarse)            | 47.3, 48.5 (round 1); 43.6 (round 2)                   | 56.4 (round 1); 41.4-41.9 (round 2)                        |
+
+- **Cadence:** every 30 fps interval lies in 32.5-34.4 ms (histograms in the JSON). That is exactly every 4th 8.33 ms vsync, with no 25 or
+  42 ms gaps, in all four states.
+- **GPU busy:** about 20 points lower at 30 fps (38-46 % vs 64-76 %, both including the ~23 % background). The power column is
+  dominated by the background load and its slow update, so it does not resolve the difference.
+- **Motion speed** (`pw-atomic-motion-speed.mjs`, `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/framerate/motion-speed.json`): electron orbit angular speed of 110 orbits,
+  unwrapped over 4 s, at 30 fps (rendered 30.0) vs synced (rendered 119.8). Speed ratio 1.0006-1.0009 (mean 1.0008, sampling quantisation).
+  Speeds are identical.
+- **Recording at 30 fps:** `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/framerate/home-30fps.webm` (12 s of the real /home).
+- **Backends** (`pw-atomic-backend-check.mjs`, bench detail view with the hero pass active): WebGPU 30.0 fps throttled, 120 synced;
+  WebGL2 30.0 throttled, 114.5 synced; no console errors. The first WebGL2 run after a backend switch rendered 6 fps for a few
+  seconds while shaders compiled, then settled at 30.
+- **Persistence** (`pw-atomic-framerate.mjs persist`, `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/framerate/persist.json`): default unchecked = "30". Space on the focused
+  checkbox -> checked, stored "1" -> reload -> still checked, loop "sync", 120 fps -> uncheck -> "30", 30 fps -> reload -> unchecked.
+  Chip: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/framerate/controls-chip.jpg`. In the real /home card (702 css px wide) the cluster spans x 434-838 px and does not overlap
+  the 2D/Atomic toggle (293-379) or the Live badge (925-978).
+
+---
+
 # PERFORMANCE: profile-and-optimize phase, round 2 (directive 44)
 
 Same machine and method as round 1 (below). Background load: a local model server (`ds4-server`) kept the GPU at 50-99 %

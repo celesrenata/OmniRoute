@@ -66,7 +66,7 @@ import { batchCapacityFor } from "./rt/atomData";
 import { createRtPost, type RtPost } from "./rt/rendererFactory";
 import { createRtRegistry } from "./rt/rtRegistry";
 import { createMirrorPass, resolveMirrorScale, type MirrorPass } from "./rt/mirrorPass";
-import { createHeroPass, resolveHeroScale, type HeroPass } from "./rt/heroPass";
+import { createHeroPass, resolveHeroScale, resolveHeroStrands, type HeroPass } from "./rt/heroPass";
 import { envTime, floorY, pxScale } from "./rt/sharedUniforms";
 import {
   FLOOR_OFFSET,
@@ -144,12 +144,12 @@ interface Gpu {
   post: RtPost;
   /** Reduced-resolution floor reflection (default half-res; `?mirrorres=1` = full-res inline). */
   mirror: MirrorPass | null;
-  /** Reduced-resolution hero translucency (dev flag `?herores=<scale>`, directive 44.2), or null. */
+  /** Reduced-resolution hero translucency (default cloud-only 0.5, directive 45), or null. */
   hero: HeroPass | null;
   dispose: () => void;
 }
 
-/** Hero translucency scale: off unless the dev flag `?herores=<scale>` is set (directive 44.2). */
+/** Hero translucency scale: cloud-only 0.5 by default (directive 45); `?herores=1` = off. */
 function heroResScale(): number | null {
   const param =
     typeof window === "undefined"
@@ -252,13 +252,16 @@ export function RtTopologyContent({
       root.add(...mirror.objects);
     }
     const hScale = heroResScale();
-    const heroStrandsLow =
-      typeof window === "undefined" ||
-      new URLSearchParams(window.location.search).get("herostrands") !== "0";
+    const heroStrandsLow = resolveHeroStrands(
+      typeof window === "undefined"
+        ? null
+        : new URLSearchParams(window.location.search).get("herostrands"),
+      process.env.NODE_ENV === "production"
+    );
     const hero = hScale != null ? createHeroPass(hScale, heroStrandsLow) : null;
     if (hero) {
       registry.add(hero);
-      root.add(...hero.objects);
+      if (hero.objects.length) root.add(...hero.objects);
     }
     // DOM labels and the R3F pointer layer never pick these meshes.
     root.traverse((o) => {

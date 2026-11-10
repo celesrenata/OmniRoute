@@ -91,6 +91,7 @@ import {
   useReducedMotionSync,
 } from "./sceneState";
 import { RtTopologyContent } from "./RtTopologyScene";
+import { TARGET_FPS, createFrameThrottle, getSyncRefresh, subscribeSyncRefresh } from "./frameRate";
 import { createRtCanvasRenderer } from "./rt/rendererFactory";
 import { AtomicSceneContext, type AtomicSceneContextValue } from "./sceneContext";
 
@@ -223,7 +224,7 @@ function RtAtomicScene({
 
   return (
     <CanvasErrorBoundary key={epoch} onError={onLost}>
-      <Canvas gl={glFactory} dpr={dpr} frameloop="always">
+      <Canvas gl={glFactory} dpr={dpr} frameloop="never">
         <AtomicSceneContext.Provider value={context}>
           <SceneClockDriver paused={effectivePaused} />
           <CanvasContextGuard />
@@ -235,7 +236,7 @@ function RtAtomicScene({
             }}
             onLost={onLost}
           />
-          <VisibilityGate />
+          <FrameDriver />
           <CameraRig context={context} />
           <CameraStateWriter context={context} />
           <DetailFlight context={context} />
@@ -254,24 +255,58 @@ function RtAtomicScene({
 }
 
 /**
- * Stops the render loop while nothing can be seen (directive 19): the tab is
- * hidden (`visibilitychange`) or the canvas is scrolled out of view / not
- * visible (`IntersectionObserver`). The loop resumes, and invalidates once, as
- * soon as it is visible again. Independent of (and in addition to) the pause
- * prop, which keeps freezing the clock while frames still render.
+ * The render loop (directives 19 + 45). R3F's own loop is off (`frameloop="never"`); this
+ * component runs one rAF loop and calls `advance()` only when a frame is due:
+ *   - default: the 30 fps throttle (`frameRate.ts`); a tick that is not due does nothing
+ *     (no useFrame subscriber runs, so no scene update and no GPU submit);
+ *   - "Sync to display refresh rate" (persisted): every rAF tick;
+ *   - hidden tab (`visibilitychange`) or canvas out of view (`IntersectionObserver`): the loop
+ *     stops entirely (0 fps) and restarts on return.
+ * The R3F clock is driven with the rAF timestamp, so every `useFrame` delta is the real elapsed
+ * time between rendered frames (motion speed is identical at 30 fps and at refresh rate).
  */
-function VisibilityGate() {
+function FrameDriver() {
   const gl = useThree((s) => s.gl);
+  const get = useThree((s) => s.get);
+  const advance = useThree((s) => s.advance);
   const setFrameloop = useThree((s) => s.setFrameloop);
-  const invalidate = useThree((s) => s.invalidate);
   useEffect(() => {
     const canvas = gl.domElement;
     if (!canvas) return;
+    setFrameloop("never");
+    const throttle = createFrameThrottle(TARGET_FPS);
+    let sync = getSyncRefresh();
     let inView = true;
+    let raf = 0;
+    let running = false;
+    const dev = process.env.NODE_ENV !== "production";
+    const tick = (now: number): void => {
+      raf = requestAnimationFrame(tick);
+      if (!sync && !throttle.due(now)) return;
+      advance(now / 1000, true);
+      if (dev) {
+        const w = window as unknown as { __atomicFrameTimes?: number[] };
+        const arr = (w.__atomicFrameTimes ??= []);
+        arr.push(now);
+        if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+      }
+    };
+    const start = (): void => {
+      if (running) return;
+      running = true;
+      throttle.reset();
+      // A resumed loop renders a normal-length first frame, not the time spent stopped.
+      const st = get();
+      st.clock.elapsedTime = performance.now() / 1000 - 1 / TARGET_FPS;
+      raf = requestAnimationFrame(tick);
+    };
+    const stop = (): void => {
+      running = false;
+      cancelAnimationFrame(raf);
+    };
     const apply = (): void => {
-      const run = inView && !document.hidden;
-      setFrameloop(run ? "always" : "never");
-      if (run) invalidate();
+      if (inView && !document.hidden) start();
+      else stop();
     };
     const io =
       typeof IntersectionObserver !== "undefined"
@@ -285,12 +320,22 @@ function VisibilityGate() {
         : null;
     io?.observe(canvas);
     document.addEventListener("visibilitychange", apply);
+    const unsub = subscribeSyncRefresh((v) => {
+      sync = v;
+      throttle.reset();
+    });
+    if (dev) {
+      (window as unknown as { __atomicFrameRate?: () => string }).__atomicFrameRate = () =>
+        sync ? "sync" : `${TARGET_FPS}`;
+    }
+    apply();
     return () => {
+      stop();
       io?.disconnect();
       document.removeEventListener("visibilitychange", apply);
-      setFrameloop("always");
+      unsub();
     };
-  }, [gl, setFrameloop, invalidate]);
+  }, [gl, get, advance, setFrameloop]);
   return null;
 }
 /** Set before a dev-forced `device.destroy()` so it counts as a real loss. */
