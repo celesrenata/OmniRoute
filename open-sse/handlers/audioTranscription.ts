@@ -27,6 +27,16 @@ import { errorResponse } from "../utils/error.ts";
 import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
 import { isJsonObject } from "../utils/kieTask.ts";
 import { handleOpenRouterTranscription } from "./openrouterTranscription.ts";
+import {
+  audioNodeCandidates,
+  audioNodeRoot,
+  estimateAudioDurationMs,
+  fetchWithResponseStartTimeout,
+  readAudioResponseWithinTimeout,
+  resolveAudioResponseStartTimeoutMs,
+  probeAudioNodeHealth,
+} from "../utils/audioNodeFailover.ts";
+import { log } from "../utils/logger.ts";
 
 type TranscriptionCredentials = {
   apiKey?: string;
@@ -870,11 +880,13 @@ export async function handleAudioTranscription({
   credentials,
   resolvedProvider = null,
   resolvedModel = null,
+  dynamicProviders = null,
 }: {
   formData: FormData;
   credentials?: TranscriptionCredentials | null;
   resolvedProvider?: AudioProvider | null;
   resolvedModel?: string | null;
+  dynamicProviders?: AudioProvider[] | null;
 }): Promise<Response> {
   const model = formData.get("model");
   if (typeof model !== "string" || !model) {
@@ -982,7 +994,21 @@ export async function handleAudioTranscription({
     return handleOpenRouterTranscription(providerConfig, file, modelId, token, formData);
   }
 
-  // Default: OpenAI/Groq/Qwen3-compatible multipart proxy
+  // Default: OpenAI/Groq/Qwen3-compatible multipart proxy.
+  //
+  // #arcforge-stt node failover — a dynamic provider (provider_node-backed,
+  // e.g. the ArcForge STT GPU fleet) is one prefix backed by N nodes. A single
+  // node can wedge at the GPU layer (process alive, zero bytes on the wire,
+  // even /healthz unresponsive) while a sibling is perfectly healthy. So when
+  // sibling nodes are known we:
+  //   1. pre-probe each candidate's /healthz (3s) and skip the dead ones;
+  //   2. bound every NON-last candidate's response-start to a duration-scaled
+  //      ceiling, so a node that passes the probe but stalls mid-upload fails
+  //      over instead of burning the route's 300s budget;
+  //   3. give the LAST candidate the full budget — a legitimately long
+  //      transcription on the only live node must not be cut short.
+  // A single-node provider (the usual case: OpenAI, Groq, …) gets no siblings
+  // and behaves exactly as before, except for the body-read guard below.
   const extraFields: Record<string, string> = {};
   for (const key of [
     "language",
@@ -997,31 +1023,114 @@ export async function handleAudioTranscription({
     }
   }
 
-  const { body: multipartBody, contentType: multipartCT } = await buildMultipartBody(file, {
-    model: modelId,
-    ...extraFields,
-  });
+  // The uploaded file is a one-shot Blob, and each fetch consumes its body —
+  // so cache the bytes once and rebuild the multipart body per candidate
+  // attempt (reusing the same body after a first request was aborted mid-
+  // transfer throws "Body is unusable: Body has already been read").
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  // Preserve the original filename + mime: a plain `new Blob([bytes])` drops
+  // `name` (falls back to "audio.wav") and the original Content-Type, which the
+  // multipart body encodes verbatim.
+  const originalName =
+    typeof (file as { name?: unknown }).name === "string"
+      ? ((file as { name?: string }).name as string)
+      : undefined;
+  const fileMime =
+    typeof (file as { type?: unknown }).type === "string" && (file as { type: string }).type
+      ? (file as { type: string }).type
+      : "application/octet-stream";
 
-  try {
-    const res = await fetch(providerConfig.baseUrl, {
-      method: "POST",
-      headers: { ...buildAuthHeaders(providerConfig, token), "Content-Type": multipartCT },
-      body: multipartBody,
-    });
+  const buildMultipart = () =>
+    buildMultipartBody(
+      Object.assign(
+        new Blob([fileBytes], { type: fileMime }),
+        originalName !== undefined ? { name: originalName } : {}
+      ),
+      { model: modelId, ...extraFields }
+    );
 
-    if (!res.ok) {
-      return upstreamErrorResponse(res, await res.text());
+  const candidates = dynamicProviders ? audioNodeCandidates(providerConfig, dynamicProviders) : [];
+  const isMultiNode = candidates.length > 1;
+  const startTimeoutMs = resolveAudioResponseStartTimeoutMs(
+    estimateAudioDurationMs(fileBytes.length)
+  );
+  const lastAttemptError: string[] = [];
+
+  for (let attempt = 0; attempt < (isMultiNode ? candidates.length : 1); attempt++) {
+    const target = isMultiNode ? candidates[attempt] : providerConfig;
+    const isLastCandidate = !isMultiNode || attempt === candidates.length - 1;
+
+    if (isMultiNode) {
+      const nodeRoot = audioNodeRoot(target);
+      if (nodeRoot) {
+        const health = await probeAudioNodeHealth(nodeRoot);
+        if (!health.alive) {
+          lastAttemptError.push(`Audio node ${target.id} unreachable (health probe timed out)`);
+          log.warn(`audio node ${target.id} failed health probe; failing over`, {
+            node: target.id,
+            baseUrl: target.baseUrl,
+          });
+          continue;
+        }
+      }
     }
 
-    const data = await res.text();
-    const respContentType = res.headers.get("content-type") || "application/json";
+    try {
+      const { body: multipartBody, contentType: multipartCT } = await buildMultipart();
+      const headers = {
+        ...buildAuthHeaders(providerConfig, token),
+        "Content-Type": multipartCT,
+      };
+      const res =
+        isMultiNode && !isLastCandidate
+          ? await fetchWithResponseStartTimeout(
+              target.baseUrl,
+              { method: "POST", headers, body: multipartBody },
+              startTimeoutMs,
+              target.id
+            )
+          : await fetch(target.baseUrl, { method: "POST", headers, body: multipartBody });
 
-    return new Response(data, {
-      status: 200,
-      headers: { "Content-Type": respContentType },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    return errorResponse(500, `Transcription request failed: ${error.message}`);
+      let finalRes = res;
+      if (isMultiNode && res.ok) {
+        // A wedged node can still send headers and then stream zero body
+        // bytes; buffer small responses so that stall surfaces as a failover
+        // instead of a client-side timeout mid-stream. `finalRes` is the
+        // (possibly buffered) response whose body is still readable.
+        finalRes = await readAudioResponseWithinTimeout(res, startTimeoutMs, target.id);
+      }
+
+      if (!res.ok) {
+        return upstreamErrorResponse(res, await res.text());
+      }
+
+      const data = await finalRes.text();
+      const respContentType = finalRes.headers.get("content-type") || "application/json";
+      if (isMultiNode && attempt > 0) {
+        log.warn(`audio transcription served by fallback node ${target.id}`, {
+          node: target.id,
+          attempt,
+        });
+      }
+      return new Response(data, {
+        status: 200,
+        headers: { "Content-Type": respContentType },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      lastAttemptError.push(`${target.id}: ${error.message}`);
+      if (isLastCandidate) {
+        return errorResponse(500, `Transcription request failed: ${error.message}`);
+      }
+      log.warn(`audio node ${target.id} attempt failed; trying next node`, {
+        node: target.id,
+        error: error.message,
+      });
+    }
   }
+
+  return errorResponse(
+    502,
+    `Transcription failed on all ${candidates.length} audio nodes: ${lastAttemptError.join("; ")}`
+  );
 }

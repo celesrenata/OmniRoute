@@ -632,6 +632,16 @@ export async function registerNodejs(): Promise<void> {
           console.warn("[STARTUP] Embed WS proxy failed to start (non-fatal):", msg);
         }),
 
+      // Realtime audio (streaming dictation) WebSocket proxy (port 20133):
+      // tunnels browser PCM streams to the arcforge-stt node with the same
+      // health-probe + node-failover contract as the batch transcription path.
+      import("@/lib/services/audioRealtimeProxy")
+        .then((m) => m.initRealtimeAudioProxyDaemon())
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn("[STARTUP] Realtime audio proxy failed to start (non-fatal):", msg);
+        }),
+
       import("@omniroute/open-sse/services/autoRefreshDaemon")
         .then((m) => m.autoRefreshDaemon.start())
         .catch((err: unknown) => {
