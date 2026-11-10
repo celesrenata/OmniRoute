@@ -202,6 +202,16 @@ export const AUDIO_TRANSCRIPTION_PROVIDERS: Record<string, AudioProvider> = {
     models: [{ id: "qwen3-asr", name: "Qwen3 ASR" }],
   },
 
+  // #arcforge-stt: the ArcForge STT fleet is NOT a hardcoded provider — it is a
+  // set of same-prefix `provider_nodes` (one row per GPU host, prefix
+  // `arcforge-stt`; see buildDynamicAudioProvider below and the least-loaded
+  // picker in src/shared/utils/leastLoadedNode.ts). An earlier single-host entry
+  // here (baseUrl http://10.1.1.12:10300) pinned every request to that one box
+  // because the routes check this registry BEFORE the dynamic nodes — the
+  // fleet's other hosts were invisible and idled while the first saturated. To
+  // reach a host: add a provider_node row and allowlist its host in
+  // OMNIROUTE_LOCAL_AUDIO_HOSTS.
+
   kie: {
     id: "kie",
     baseUrl: "https://api.kie.ai",

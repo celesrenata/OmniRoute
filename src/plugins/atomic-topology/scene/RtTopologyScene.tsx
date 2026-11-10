@@ -38,7 +38,14 @@ import {
   packetHeadProgress,
   packetPoolSize,
 } from "./filament";
-import { breathingScale, easeInOut, easeOutSharp, MAX_FRAME_DELTA, motionParams } from "./motion";
+import {
+  IDLE_SPIN_RAD_PER_SECOND,
+  breathingScale,
+  easeInOut,
+  easeOutSharp,
+  MAX_FRAME_DELTA,
+  motionParams,
+} from "./motion";
 import { createRotationSmoothing, tpsToRadiansPerSecond } from "./nucleusMotion";
 import { hexToLinear } from "./nucleonPack";
 import { bookTransition, oneShotIntensity, type OneShotEvent, type OneShotState } from "./oneShot";
@@ -659,16 +666,20 @@ export function RtTopologyContent({
         isVibrantTier(d.energyTier)
       );
       rt.phase = advanceAnimationPhase(rt.phase, dt, energy.speedMul, reduced);
-      if (!frozen) {
-        // Nucleus spin is bound strictly to measured output tok/s (null -> decays to 0).
-        const tps = rt.spin.step(d.measuredTps, dt);
-        rt.angle += tpsToRadiansPerSecond(tps) * dt;
-      }
       const motion = motionParams({
         reducedMotion: false,
         spinValue: d.spin.value,
         spinMode: d.spin.mode,
       });
+      if (!frozen) {
+        // Measured output tok/s drives the spin. With no measured positive rate
+        // (null / stale / measured-zero) the nucleus uses the static ambient
+        // baseline from #9 (a visual constant, not telemetry) instead of freezing.
+        const tps = rt.spin.step(d.measuredTps, dt);
+        rt.angle += motion.idleMotion
+          ? IDLE_SPIN_RAD_PER_SECOND * dt
+          : tpsToRadiansPerSecond(tps) * dt;
+      }
       const breath =
         frozen || !motion.breathActive
           ? 1

@@ -5,6 +5,11 @@ import {
   clearRecoveredProviderState,
 } from "@/sse/services/auth";
 import { parseSpeechModel, getSpeechProvider } from "@omniroute/open-sse/config/audioRegistry.ts";
+import {
+  acquireNodeLoad,
+  releaseNodeLoad,
+  pickLeastLoadedNode,
+} from "@/shared/utils/leastLoadedNode";
 import { resolveDynamicAudioProviders } from "@/app/api/v1/_shared/audioProviderNodes";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
@@ -84,9 +89,24 @@ async function postHandler(request, context) {
     );
   }
 
-  // Check provider config — hardcoded first, then dynamic
-  const providerConfig =
-    getSpeechProvider(provider) || dynamicProviders.find((dp) => dp.id === provider) || null;
+  // Check provider config — hardcoded first, then dynamic.
+  // #arcforge-audio: several provider_nodes can share the same prefix (one node
+  // per GPU host). Pick the least-loaded matching node instead of the first
+  // registered one — the old `.find()` swamped the first host while the rest
+  // idled. Load tracking is fleet-only (dynamic nodes), never hardcoded SaaS.
+  let trackedLoadKey: string | null = null;
+  let providerConfig = getSpeechProvider(provider) || null;
+  if (!providerConfig) {
+    const loadPick = pickLeastLoadedNode(
+      dynamicProviders,
+      (dp) => dp.baseUrl,
+      (dp) => dp.id === provider
+    );
+    if (loadPick) {
+      providerConfig = loadPick.raw;
+      trackedLoadKey = loadPick.key;
+    }
+  }
 
   // Get credentials — skip for local providers (authType: "none")
   let credentials = null;
@@ -106,6 +126,7 @@ async function postHandler(request, context) {
   const live = beginLiveRequest({ provider, model: resolvedModel || body.model });
   let response: Awaited<ReturnType<typeof handleAudioSpeech>>;
   try {
+    if (trackedLoadKey) acquireNodeLoad(trackedLoadKey);
     response = await handleAudioSpeech({
       body,
       credentials,
@@ -115,6 +136,8 @@ async function postHandler(request, context) {
   } catch (error) {
     live.finish({ status: 500, error: error instanceof Error ? error.message : String(error) });
     throw error;
+  } finally {
+    if (trackedLoadKey) releaseNodeLoad(trackedLoadKey, Date.now() - startTime);
   }
   if (!response) live.finish({ status: 502, error: "No response" });
 

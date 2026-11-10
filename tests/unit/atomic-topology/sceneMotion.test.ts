@@ -16,6 +16,7 @@ import {
   breathingScale,
   pulsePhase,
   motionParams,
+  IDLE_SPIN_RAD_PER_SECOND,
   MAX_FRAME_DELTA,
 } from "@/plugins/atomic-topology/scene/motion";
 
@@ -110,4 +111,41 @@ test("motionParams: motion only for a measured positive rate (no fabrication)", 
   );
   const p = motionParams({ reducedMotion: false, spinValue: 1.2, spinMode: "measured" });
   assert.ok(p.breathPeriod > 0, "breathing period must be positive when active");
+});
+
+test("motionParams: idleMotion is true when no measured positive rate (baseline ambient)", () => {
+  // unavailable (null telemetry) → idleMotion true (baseline ambient spin)
+  assert.equal(
+    motionParams({ reducedMotion: false, spinValue: 0.1, spinMode: "unavailable" }).idleMotion,
+    true,
+    "unavailable → baseline idle motion"
+  );
+  // measured-zero (observed quiet) → idleMotion true
+  assert.equal(
+    motionParams({ reducedMotion: false, spinValue: 0, spinMode: "measured-zero" }).idleMotion,
+    true,
+    "measured-zero → baseline idle motion"
+  );
+  // measured positive → idleMotion false (data-driven spin wins, no idle)
+  assert.equal(
+    motionParams({ reducedMotion: false, spinValue: 1.2, spinMode: "measured" }).idleMotion,
+    false,
+    "measured → data-driven spin, no idle"
+  );
+  // reduced-motion → idleMotion false (static frame)
+  assert.equal(
+    motionParams({ reducedMotion: true, spinValue: 1.2, spinMode: "measured" }).idleMotion,
+    false,
+    "reduced-motion → no idle motion"
+  );
+  assert.equal(
+    motionParams({ reducedMotion: true, spinValue: 0.1, spinMode: "unavailable" }).idleMotion,
+    false,
+    "reduced-motion → no idle motion (unavailable)"
+  );
+});
+
+test("IDLE_SPIN_RAD_PER_SECOND is the ambient baseline spin constant", () => {
+  assert.equal(IDLE_SPIN_RAD_PER_SECOND, 0.2, "ambient constant is 0.2 rad/s");
+  assert.ok(IDLE_SPIN_RAD_PER_SECOND > 0, "idle spin rate must be positive");
 });

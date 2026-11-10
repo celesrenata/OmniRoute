@@ -15,6 +15,11 @@ import {
   AUDIO_TRANSCRIPTION_PROVIDERS,
 } from "@omniroute/open-sse/config/audioRegistry.ts";
 import { resolveDynamicAudioProviders } from "@/app/api/v1/_shared/audioProviderNodes";
+import {
+  acquireNodeLoad,
+  releaseNodeLoad,
+  pickLeastLoadedNode,
+} from "@/shared/utils/leastLoadedNode";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
@@ -113,9 +118,27 @@ async function transcribeWithModel(
     );
   }
 
-  // Check provider config — hardcoded first, then dynamic
-  let providerConfig =
-    getTranscriptionProvider(provider) || dynamicProviders.find((dp) => dp.id === provider) || null;
+  // Check provider config — hardcoded first, then dynamic.
+  // #arcforge-audio: multiple provider_nodes can share the same prefix (one node
+  // per GPU host). Route the request to the least-loaded matching node instead of
+  // pinning to the first registered one — the old `.find()` swamped the first host
+  // while the rest idled, so a voice batch saturated one GPU until the caller
+  // timed out and reported "the provider is down" even though the others were
+  // idle. Load tracking applies only to dynamic nodes (our fleet), never to
+  // hardcoded remote providers.
+  let trackedLoadKey: string | null = null;
+  let providerConfig = getTranscriptionProvider(provider) || null;
+  if (!providerConfig) {
+    const loadPick = pickLeastLoadedNode(
+      dynamicProviders,
+      (dp) => dp.baseUrl,
+      (dp) => dp.id === provider
+    );
+    if (loadPick) {
+      providerConfig = loadPick.raw;
+      trackedLoadKey = loadPick.key;
+    }
+  }
 
   // Get credentials — skip for local providers (authType: "none").
   // A dynamic node is addressed by its prefix but stores connections under the node
@@ -146,6 +169,8 @@ async function transcribeWithModel(
           resolvedModel = alternate.model;
           providerConfig = alternate.config;
           credentials = alternateCredentials;
+          // The alternate is a hardcoded remote provider, not a tracked fleet node.
+          trackedLoadKey = null;
         }
       }
     }
@@ -168,6 +193,7 @@ async function transcribeWithModel(
   const live = beginLiveRequest({ provider, model: resolvedModel || modelStr });
   let response: Awaited<ReturnType<typeof handleAudioTranscription>>;
   try {
+    if (trackedLoadKey) acquireNodeLoad(trackedLoadKey);
     response = await handleAudioTranscription({
       formData,
       credentials,
@@ -177,6 +203,8 @@ async function transcribeWithModel(
   } catch (error) {
     live.finish({ status: 500, error: error instanceof Error ? error.message : String(error) });
     throw error;
+  } finally {
+    if (trackedLoadKey) releaseNodeLoad(trackedLoadKey, Date.now() - startTime);
   }
   if (!response) live.finish({ status: 502, error: "No response" });
 

@@ -10,6 +10,11 @@ import {
   getTranslationProvider,
 } from "@omniroute/open-sse/config/audioRegistry.ts";
 import { resolveDynamicAudioProviders } from "@/app/api/v1/_shared/audioProviderNodes";
+import {
+  acquireNodeLoad,
+  releaseNodeLoad,
+  pickLeastLoadedNode,
+} from "@/shared/utils/leastLoadedNode";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
@@ -79,9 +84,26 @@ async function translateWithModel(
     );
   }
 
-  // Check provider config — hardcoded first, then dynamic
-  const providerConfig =
-    getTranslationProvider(provider) || dynamicProviders.find((dp) => dp.id === provider) || null;
+  // Check provider config — hardcoded first, then dynamic.
+  // #arcforge-audio: several provider_nodes can share the same prefix (one node
+  // per GPU host) and a translation node is a transcription node (Whisper-style
+  // endpoints expose both). Pick the least-loaded matching node instead of the
+  // first registered one — the old `.find()` swamped the first host while the
+  // rest idled. Load tracking is fleet-only (dynamic nodes), never hardcoded
+  // remote providers.
+  let trackedLoadKey: string | null = null;
+  let providerConfig = getTranslationProvider(provider) || null;
+  if (!providerConfig) {
+    const loadPick = pickLeastLoadedNode(
+      dynamicProviders,
+      (dp) => dp.baseUrl,
+      (dp) => dp.id === provider
+    );
+    if (loadPick) {
+      providerConfig = loadPick.raw;
+      trackedLoadKey = loadPick.key;
+    }
+  }
 
   // Get credentials — skip for local providers (authType: "none")
   let credentials = null;
@@ -99,12 +121,18 @@ async function translateWithModel(
     }
   }
 
-  let response = await handleAudioTranslation({
-    formData,
-    credentials,
-    resolvedProvider: providerConfig,
-    resolvedModel,
-  });
+  let response: Awaited<ReturnType<typeof handleAudioTranslation>>;
+  try {
+    if (trackedLoadKey) acquireNodeLoad(trackedLoadKey);
+    response = await handleAudioTranslation({
+      formData,
+      credentials,
+      resolvedProvider: providerConfig,
+      resolvedModel,
+    });
+  } finally {
+    if (trackedLoadKey) releaseNodeLoad(trackedLoadKey, Date.now() - startTime);
+  }
 
   const connectionId = (credentials as { connectionId?: string } | null)?.connectionId || undefined;
   const logModel = `${provider}/${resolvedModel}`;
