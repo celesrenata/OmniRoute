@@ -253,7 +253,7 @@ export function buildDetailModel(d: AtomVisualDescriptor, ctx: DetailContext): D
         atomFeederSignal(d, {
           events: ctx.events ?? null,
           nowMs: ctx.now,
-          inFlightStale: ctx.inFlightStale ?? true,
+          inFlightStale: ctx.replayed ? false : (ctx.inFlightStale ?? true),
           callLog: !ctx.replayed,
         }),
         null

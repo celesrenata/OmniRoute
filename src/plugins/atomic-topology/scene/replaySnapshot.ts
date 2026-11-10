@@ -47,6 +47,15 @@ export const REPLAY_HEAT_TAU_MS = 20_000;
 /** Added to a link's steady filament intensity at full heat (idle base is 0.14..0.36). */
 export const REPLAY_HEAT_GAIN = 0.45;
 
+/**
+ * Link heat while recorded requests are IN FLIGHT at the playhead (directive 43): a floor under
+ * the start-event heat, rising with the replayed in-flight count (1 -> ~0.57, 3 -> ~0.92), so a
+ * replayed in-flight moment never reads like a quiet one. Recorded data only; 0 when none.
+ */
+export function inFlightHeat(inFlight: number | null | undefined): number {
+  if (inFlight == null || !Number.isFinite(inFlight) || inFlight <= 0) return 0;
+  return 1 - Math.exp(-inFlight / 1.2);
+}
 /** One recorded request: its start and (when recorded) its outcome. */
 export interface ReplayRequest {
   key: string;

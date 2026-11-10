@@ -1,0 +1,57 @@
+{
+  "provider": "llama-cpp",
+  "total": {
+    "start": 1794268287166,
+    "end": 1794271887166
+  },
+  "results": {
+    "inflight": {
+      "moment": {
+        "state": "in-flight",
+        "inFlight": 1
+      },
+      "clock": "16:37:03",
+      "link": {
+        "state": "active",
+        "proven": true,
+        "packets": 3
+      },
+      "feeder": {
+        "basis": "inflight",
+        "value": 1,
+        "target": 0.27023815442731974,
+        "level": 0.27023815438823034
+      },
+      "hubFeeder": {
+        "basis": "inflight",
+        "value": 1,
+        "level": 0.27023815438823034
+      },
+      "positionMs": 1794271023166
+    },
+    "quiet": {
+      "moment": {
+        "state": "quiet",
+        "inFlight": 0
+      },
+      "clock": "16:51:27",
+      "link": {
+        "state": "healthy",
+        "proven": true,
+        "packets": 0
+      },
+      "feeder": {
+        "basis": "calls",
+        "value": 0,
+        "target": 0,
+        "level": 0
+      },
+      "hubFeeder": {
+        "basis": "calls",
+        "value": 0,
+        "level": 0
+      },
+      "positionMs": 1794271887166
+    }
+  }
+}

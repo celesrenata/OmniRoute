@@ -1,3 +1,37 @@
+# Directive 43: replayed "in flight" vs "quiet" made visibly distinct
+
+**Method:** the real /home replay (60 min window) of this dev server's real recorded requests (the llama-cpp burst from directive 41).
+`pw-atomic-replay-distinct.mjs` scans the playhead for llama-cpp's own in-flight moment (its route link "active") and a quiet
+moment. At each moment it waits 7 s, then records the link packet state (dev `__atomicLinkDbg`), the feeder level and a still.
+
+**Changes (recorded data only):**
+
+- **Feeders during replay:** the replayed in-flight count is the recorded truth, so it is never treated as stale. The feeders now
+  follow the replayed request count (basis "inflight"). Before, `inFlightStale` was true on the dev origin, the in-flight signal
+  was ignored, and the replayed feeders stayed at 0.
+- **Live data excluded:** live call-log rows are never used in replay (`callLog: false`).
+- **Paused replay:** a paused replay snaps feeders and link heat to the replayed moment instead of keeping the previous moment's
+  eased level.
+- **Link heat floor:** `inFlightHeat(n)` raises a provider's route-link heat while recorded requests are in flight
+  (1 request -> 0.57, 3 -> 0.92; 0 when none). The link glows for the whole recorded span, not only right after the start event.
+- **Debug record:** the dev feeder record now carries the current eased level.
+
+**Result** (`/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/replay-distinct/replay-distinct.json`):
+
+| moment              | replay chip           | llama-cpp link | packets | llama-cpp feeder (basis, value, level) | hub feeder         |
+| ------------------- | --------------------- | -------------- | ------- | -------------------------------------- | ------------------ |
+| 16:37:03, in flight | "fleet · 1 in flight" | active         | 3       | inflight, 1, 0.270                     | inflight, 1, 0.270 |
+| 16:51:27, quiet     | "fleet · quiet"       | healthy        | 0       | calls, 0, 0                            | 0                  |
+
+**Stills** (card, same camera):
+
+- Whole card: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/replay-distinct/replay-quiet-vs-inflight.jpg` (quiet | in flight).
+- Link region, 2x: `/Users/celes/sources/celesrenata/OmniRoute/.claude/worktrees/atomic-raytraced-renderer/OR_ATOM_010_RAYTRACED/screenshots/perf/replay-distinct/replay-link-crop-v2.jpg`. In flight shows the bright hub to llama-cpp filament with travelling
+  packets, a hotter hub halo and the ACTIVE chips. Quiet has none of these.
+
+Tests: `replaySnapshot.test.ts` covers `inFlightHeat`, and `feederCallLog.test.ts` covers replay excluding live rows.
+---
+
 # Directive 41: usage-driven feeder traces verified on REAL data
 
 **Method:** real requests through the dev server's own `/v1/chat/completions`, sent to the local model `llama-cpp/deepseek-v4.1-flash-1017`

@@ -54,7 +54,7 @@ import {
   stepFeeder,
   type FeederState,
 } from "./feederUsage";
-import { REPLAY_HEAT_GAIN, trafficHeat } from "./replaySnapshot";
+import { REPLAY_HEAT_GAIN, inFlightHeat, trafficHeat } from "./replaySnapshot";
 import { fnv1a } from "./cloudShells";
 import {
   createAtomBatchSet,
@@ -434,7 +434,9 @@ export function RtTopologyContent({
       const fctx = {
         events: p ? p.events() : null,
         nowMs: wall,
-        inFlightStale: stale ?? true,
+        // Replay: the replayed snapshot's in-flight count IS the recorded truth (never stale), so
+        // the feeders follow the replayed request count (directive 43); live rows are excluded.
+        inFlightStale: replayAt != null ? false : (stale ?? true),
         callLog: replayAt == null,
       };
       const targets = feederTargets.current;
@@ -444,7 +446,13 @@ export function RtTopologyContent({
         const sig = atomFeederSignal(d, fctx);
         targets.set(d.id, feederTarget(sig));
         if (replayAt != null)
-          heat.set(d.id, trafficHeat(p ? p.events() : null, d.providerId, wall));
+          heat.set(
+            d.id,
+            Math.max(
+              trafficHeat(p ? p.events() : null, d.providerId, wall),
+              inFlightHeat(d.activeRequests)
+            )
+          );
         dbg[d.id] = {
           ...sig,
           target: targets.get(d.id),
@@ -466,9 +474,18 @@ export function RtTopologyContent({
         st = createFeederState();
         states.set(id, st);
       }
-      stepFeeder(st, target, dt, reduced);
+      // A paused replay is a still of one recorded moment: snap to it instead of freezing the
+      // previous moment's eased level (directive 43).
+      stepFeeder(st, target, dt, reduced || (replayAt != null && !(dt > 0)));
     }
     for (const id of states.keys()) if (!feederTargets.current.has(id)) states.delete(id);
+    if (process.env.NODE_ENV !== "production") {
+      // Dev evidence: the debug record carries the CURRENT eased level, not the one at the last
+      // 4 Hz target refresh (a paused replay never refreshes the targets).
+      const dbg = (window as unknown as { __atomicFeeders?: Record<string, { level?: number }> })
+        .__atomicFeeders;
+      if (dbg) for (const [id, st] of states) if (dbg[id]) dbg[id].level = st.level;
+    }
     gpu.env.updateFeeders((id) => states.get(id)?.level ?? 0, dt, reduced ? 0 : 1);
   };
 
@@ -543,6 +560,11 @@ export function RtTopologyContent({
       const lane = state === "error" ? FAILURE_RGB : hexToLinear(link.laneHue);
       const active = state === "active" && link.visualState.style.animated;
       const pool = packetPoolSize(MAX_PACKET_POOL, active && link.proven, reduced);
+      if (process.env.NODE_ENV !== "production") {
+        // Dev-only evidence: per-link packet state (replay / live verification scripts).
+        const w = window as unknown as { __atomicLinkDbg?: Record<string, unknown> };
+        (w.__atomicLinkDbg ??= {})[link.target] = { state, proven: link.proven, packets: pool };
+      }
       const heads = [-1, -1, -1];
       for (let p = 0; p < pool; p += 1) {
         const prog = packetHeadProgress(t, PULSE_PERIOD_S, p, pool);
@@ -570,9 +592,10 @@ export function RtTopologyContent({
       // Replay traffic heat: a decaying glow trail on the link (recorded events only).
       const heatGoal = heatTargets.current.get(link.target) ?? 0;
       const heatPrev = heatLevels.current.get(link.target) ?? 0;
-      const heatNow = reduced
-        ? heatGoal
-        : heatPrev + (heatGoal - heatPrev) * (1 - Math.exp(-dt / 0.25));
+      const heatNow =
+        reduced || (feedLive.current.replayNowRef?.value != null && !(dt > 0))
+          ? heatGoal
+          : heatPrev + (heatGoal - heatPrev) * (1 - Math.exp(-dt / 0.25));
       heatLevels.current.set(link.target, heatNow);
       const base =
         linkBaseIntensity(state, link.visualState.style.opacity) + REPLAY_HEAT_GAIN * heatNow;

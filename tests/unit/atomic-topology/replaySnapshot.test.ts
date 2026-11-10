@@ -261,3 +261,19 @@ test("trafficHeat: zero without records, decays with age, saturates, ignores the
   assert.ok(trafficHeat(many, "openai", T0) <= 1);
   assert.equal(trafficHeat(ev, "OpenAI", T0 + 1000), h1, "provider join is case-insensitive");
 });
+
+test("inFlightHeat (directive 43): zero without recorded in-flight requests, rising, bounded", async () => {
+  const { inFlightHeat } =
+    await import("../../../src/plugins/atomic-topology/scene/replaySnapshot");
+  assert.equal(inFlightHeat(null), 0);
+  assert.equal(inFlightHeat(undefined), 0);
+  assert.equal(inFlightHeat(0), 0);
+  assert.equal(inFlightHeat(Number.NaN), 0);
+  let prev = 0;
+  for (const n of [1, 2, 3, 5, 10]) {
+    const h = inFlightHeat(n);
+    assert.ok(h > prev && h < 1, `n=${n}`);
+    prev = h;
+  }
+  assert.ok(inFlightHeat(1) > 0.5);
+});
