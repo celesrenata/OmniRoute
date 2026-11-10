@@ -114,4 +114,19 @@ test.describe("call-logs rowMatchesFilter unit tests", () => {
     );
     assert.equal(rowMatchesFilter(inFlight, { combo: "1" }), false);
   });
+
+  test("since / until bound the row timestamp inclusively (replay window)", () => {
+    const row = { ...baseRow, timestamp: "2026-01-01T00:10:00.000Z" };
+    assert.equal(rowMatchesFilter(row, { since: "2026-01-01T00:10:00.000Z" }), true);
+    assert.equal(rowMatchesFilter(row, { since: "2026-01-01T00:10:01.000Z" }), false);
+    assert.equal(rowMatchesFilter(row, { until: "2026-01-01T00:10:00.000Z" }), true);
+    assert.equal(rowMatchesFilter(row, { until: "2026-01-01T00:09:59.000Z" }), false);
+    assert.equal(
+      rowMatchesFilter(row, {
+        since: "2026-01-01T00:00:00.000Z",
+        until: "2026-01-01T01:00:00.000Z",
+      }),
+      true
+    );
+  });
 });

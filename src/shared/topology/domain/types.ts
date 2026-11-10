@@ -129,6 +129,19 @@ export interface TopologySceneNode {
    * the nucleus by *observed* model identity — never fabricated.
    */
   inFlightModels?: Observed<string[]>;
+  /**
+   * Model ids recently served successfully by this provider, from call-log
+   * rows (`source: "call-log"`, windowed). Optional and **omitted** when no
+   * qualifying row exists in the window — never a fabricated model. The 2D
+   * renderer ignores it.
+   */
+  observedModels?: Observed<string[]>;
+  /**
+   * Timestamps (epoch ms, newest first) of this provider's completed real calls in the last
+   * minute, from call-log rows (`source: "call-log"`). Optional and **omitted** when there are
+   * none. Drives the Atomic feeder-trace call rate (directive 40); the 2D renderer ignores it.
+   */
+  recentCalls?: Observed<number[]>;
 }
 
 /**

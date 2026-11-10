@@ -64,6 +64,17 @@ function obsStale<T>(value: T, source: Observed<T>["source"]): Observed<T> {
  */
 export interface GoldenSnapshotOptions {
   /**
+   * DEMO failure cycle (Gate B): `"recovered"` renders the error provider as
+   * active (no error), so flipping back to the default `"error"` is a real
+   * state transition that books the failure discharge. Omitted -> `"error"`.
+   */
+  errorPhase?: "error" | "recovered" | "completed";
+  /**
+   * DEMO idle topology (Gate B): every provider idle, no in-flight requests and
+   * no fleet reconciliation (nothing measured -> lower energy state).
+   */
+  allIdle?: boolean;
+  /**
    * Target TOTAL atom count (hub + providers), e.g. 8 / 16 / 32 — the
    * `?atoms=N` perf ladder the quality budget targets. `normalizeTopology`
    * emits only hub + provider nodes (GPU/runtime observations drive
@@ -84,6 +95,8 @@ const ANCHOR_ATOMS = 6;
  * runtime observations are constant — only the provider pool scales.
  */
 function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
+  const tpsOr = (golden: number): number =>
+    options.uniformTps != null && Number.isFinite(options.uniformTps) ? options.uniformTps : golden;
   const target = options.atomCount ?? ANCHOR_ATOMS;
   const scaledCount = Math.max(0, target - ANCHOR_ATOMS);
 
@@ -101,7 +114,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
       kind: "provider",
       providerId: name,
       utilizationPercent: obs(util, "omniroute-live"),
-      outputTokensPerSecond: obs(tps, "omniroute-call-log"),
+      outputTokensPerSecond: obs(tpsOr(tps), "omniroute-call-log"),
       activeJobs: obs(jobs, "omniroute-live"),
     });
   }
@@ -121,7 +134,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         vramTotalBytes: obs(24_000_000_000, "omniroute-live"),
         temperatureC: obs(62, "omniroute-live"),
         powerWatts: obs(280, "omniroute-live"),
-        outputTokensPerSecond: obs(42, "omniroute-live"),
+        outputTokensPerSecond: obs(tpsOr(42), "omniroute-live"),
       },
       // ── GPU B (lighter load) ──
       {
@@ -134,7 +147,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         vramTotalBytes: obs(24_000_000_000, "omniroute-live"),
         temperatureC: obs(48, "omniroute-live"),
         powerWatts: obs(120, "omniroute-live"),
-        outputTokensPerSecond: obs(18, "omniroute-live"),
+        outputTokensPerSecond: obs(tpsOr(18), "omniroute-live"),
       },
       // ── Runtime A → GPU A (busy, queued) ──
       {
@@ -144,7 +157,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         runtimeId: "bench-rt-a",
         modelId: "bench/llama-70b",
         deviceUuid: "bench-gpu-a",
-        outputTokensPerSecond: obs(42, "runtime"),
+        outputTokensPerSecond: obs(tpsOr(42), "runtime"),
         queuedJobs: obs(3, "runtime"),
         activeJobs: obs(4, "runtime"),
       },
@@ -156,7 +169,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         runtimeId: "bench-rt-b",
         modelId: "bench/mixtral-8x7b",
         deviceUuid: "bench-gpu-b",
-        outputTokensPerSecond: obs(18, "runtime"),
+        outputTokensPerSecond: obs(tpsOr(18), "runtime"),
         queuedJobs: obs(0, "runtime"),
         activeJobs: obs(1, "runtime"),
       },
@@ -165,7 +178,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         resourceId: buildCanonicalResourceId("provider", "bench-primary"),
         kind: "provider",
         providerId: "bench-primary",
-        outputTokensPerSecond: obs(60, "omniroute-call-log"),
+        outputTokensPerSecond: obs(tpsOr(60), "omniroute-call-log"),
         activeJobs: obs(5, "omniroute-live"),
         queuedJobs: obs(2, "omniroute-live"),
       },
@@ -174,7 +187,7 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
         resourceId: buildCanonicalResourceId("provider", "bench-secondary"),
         kind: "provider",
         providerId: "bench-secondary",
-        outputTokensPerSecond: obs(12, "omniroute-call-log"),
+        outputTokensPerSecond: obs(tpsOr(12), "omniroute-call-log"),
         activeJobs: obs(1, "omniroute-live"),
       },
       // ── Provider: stale (old sample → grey, no spin) ──
@@ -196,7 +209,12 @@ function buildFleet(options: GoldenSnapshotOptions): FleetTelemetrySnapshot {
  */
 export function buildGoldenSnapshot(options: GoldenSnapshotOptions = {}): TopologySceneSnapshot {
   const fleet = buildFleet(options);
-  const reconciliation = reconcileSnapshot(fleet);
+  const reconciliation = options.allIdle ? undefined : reconcileSnapshot(fleet);
+  // `completed`: the error provider just finished a request (last-used, not failing): the
+  // transition into it books the completion discharge; back to `error` books the failure strike.
+  const completed = options.errorPhase === "completed";
+  const recovered = options.errorPhase === "recovered" || completed;
+  const idleAll = !!options.allIdle;
 
   // Scaled providers: the first 4 get one in-flight model each (KNOWN lane,
   // distinct model → distinct model color); the rest stay idle so the ring
@@ -207,7 +225,7 @@ export function buildGoldenSnapshot(options: GoldenSnapshotOptions = {}): Topolo
     scaledProviders.push({
       provider: `bench-perf-${i}`,
       name: `Perf ${i}`,
-      status: i <= 4 ? ("active" as const) : ("idle" as const),
+      status: i <= 4 && !idleAll ? ("active" as const) : ("idle" as const),
     });
   }
   const scaledRequests = scaledProviders
@@ -219,36 +237,45 @@ export function buildGoldenSnapshot(options: GoldenSnapshotOptions = {}): Topolo
 
   return normalizeTopology({
     providers: [
-      { provider: "bench-primary", name: "Primary", status: "active" },
-      { provider: "bench-secondary", name: "Secondary", status: "active" },
+      { provider: "bench-primary", name: "Primary", status: idleAll ? "idle" : "active" },
+      { provider: "bench-secondary", name: "Secondary", status: idleAll ? "idle" : "active" },
       { provider: "bench-unknown", name: "Unknown Model", status: "idle" },
       { provider: "bench-stale", name: "Stale", status: "idle" },
-      { provider: "bench-error", name: "Error", status: "error" },
+      {
+        provider: "bench-error",
+        name: "Error",
+        status: idleAll ? "idle" : recovered ? "active" : "error",
+      },
       ...scaledProviders,
     ],
-    activeRequests: [
-      // bench-primary: 3 distinct models → 3 model colors
-      { provider: "bench-primary", model: "bench/llama-70b" },
-      { provider: "bench-primary", model: "bench/mixtral-8x7b" },
-      { provider: "bench-primary", model: "bench/claude-sonnet-4" },
-      // bench-secondary: 1 model → 1 model color
-      { provider: "bench-secondary", model: "bench/llama-70b" },
-      // bench-unknown: no active requests → no model colors
-      // bench-stale: no active requests → no model colors
-      // bench-error: no active requests (error state)
-      ...scaledRequests,
-    ],
-    lastProvider: "bench-primary",
-    errorProvider: "bench-error",
-    lifecycleEvents: [
-      {
-        phase: "failed",
-        requestId: "bench-req-err-1",
-        provider: "bench-error",
-        model: "bench/llama-70b",
-        observedAt: NOW,
-      },
-    ],
+    activeRequests: idleAll
+      ? []
+      : [
+          // bench-primary: 3 distinct models → 3 model colors
+          { provider: "bench-primary", model: "bench/llama-70b" },
+          { provider: "bench-primary", model: "bench/mixtral-8x7b" },
+          { provider: "bench-primary", model: "bench/claude-sonnet-4" },
+          // bench-secondary: 1 model → 1 model color
+          { provider: "bench-secondary", model: "bench/llama-70b" },
+          // bench-unknown: no active requests → no model colors
+          // bench-stale: no active requests → no model colors
+          // bench-error: no active requests (error state)
+          ...scaledRequests,
+        ],
+    lastProvider: idleAll ? undefined : completed ? "bench-error" : "bench-primary",
+    errorProvider: idleAll || recovered ? undefined : "bench-error",
+    lifecycleEvents:
+      idleAll || recovered
+        ? []
+        : [
+            {
+              phase: "failed",
+              requestId: "bench-req-err-1",
+              provider: "bench-error",
+              model: "bench/llama-70b",
+              observedAt: NOW,
+            },
+          ],
     reconciliation,
     capturedAt: NOW,
   });

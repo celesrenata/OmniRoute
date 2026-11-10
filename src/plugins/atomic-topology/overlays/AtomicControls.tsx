@@ -26,6 +26,13 @@
  * Pure React + CSS only (no `three`, no `@react-three/*`) — safe under jsdom.
  */
 
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { fullscreenSupported, isHostFullscreen, toggleHostFullscreen } from "./fullscreen";
+import { getSyncRefresh, subscribeSyncRefresh, writeSyncRefresh } from "../scene/frameRate";
+
+const SYNC_TOOLTIP =
+  "Render at the display refresh rate (60/120 Hz). Smoother, but uses about 2-4x more GPU, " +
+  "which competes with local inference. Off = a steady 30 fps.";
 const TOGGLE_PAUSE_EVENT = "atomic:toggle-pause";
 const RESET_VIEW_EVENT = "atomic:reset-view";
 
@@ -36,8 +43,26 @@ const RESET_VIEW_EVENT = "atomic:reset-view";
  *   `setPaused`); drives the pause button's icon, label, and `aria-pressed`.
  */
 export function AtomicControls({ paused }: { paused: boolean }) {
+  const groupRef = useRef<HTMLDivElement | null>(null);
+  // Fullscreen (operator directive 35): hidden until mounted, and wherever the API is absent.
+  const [fsAvailable, setFsAvailable] = useState(false);
+  const [fs, setFs] = useState(false);
+  // Frame-rate policy (operator directive 45): unchecked = 30 fps (default), checked = every
+  // display refresh. SSR snapshot = false; persisted by writeSyncRefresh.
+  const sync = useSyncExternalStore(subscribeSyncRefresh, getSyncRefresh, () => false);
+  const hintId = useId();
+  useEffect(() => {
+    const host = groupRef.current?.closest<HTMLElement>("[data-atomic-host]") ?? null;
+    setFsAvailable(fullscreenSupported(host));
+    const sync = (): void => setFs(isHostFullscreen(host));
+    document.addEventListener("fullscreenchange", sync);
+    sync();
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
   return (
     <div
+      ref={groupRef}
+      style={{ pointerEvents: "auto" }}
       className="atomic-controls"
       data-atomic-controls="true"
       role="group"
@@ -79,6 +104,41 @@ export function AtomicControls({ paused }: { paused: boolean }) {
         </span>
         <span className="atomic-controls__label">Reset</span>
       </button>
+      {fsAvailable ? (
+        <button
+          type="button"
+          className="atomic-controls__btn"
+          data-atomic-control="fullscreen"
+          aria-pressed={fs}
+          aria-label={fs ? "Exit fullscreen" : "Enter fullscreen"}
+          title={fs ? "Exit fullscreen (Esc)" : "Enter fullscreen"}
+          onClick={() => {
+            const host = groupRef.current?.closest<HTMLElement>("[data-atomic-host]") ?? null;
+            void toggleHostFullscreen(host);
+          }}
+        >
+          <span className="atomic-controls__icon" aria-hidden="true">
+            {fs ? "⤡" : "⤢"}
+          </span>
+          <span className="atomic-controls__label">{fs ? "Exit full" : "Fullscreen"}</span>
+        </button>
+      ) : null}
+      <label
+        className="atomic-controls__btn atomic-controls__check"
+        data-atomic-control="sync-refresh"
+        title={SYNC_TOOLTIP}
+      >
+        <input
+          type="checkbox"
+          checked={sync}
+          aria-describedby={hintId}
+          onChange={(e) => writeSyncRefresh(e.currentTarget.checked)}
+        />
+        <span className="atomic-controls__label">Sync to display refresh rate</span>
+        <span id={hintId} className="atomic-controls__sr">
+          {SYNC_TOOLTIP}
+        </span>
+      </label>
     </div>
   );
 }

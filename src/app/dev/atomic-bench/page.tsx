@@ -22,14 +22,10 @@
  *                   zoom" framing).
  *   - `paused=1|0`  default `1` → frozen frame loop (stable captures).
  *   - `badge=0`     hide the DEMO provenance badge (clean material-only frame).
- *   - `quality=high|medium|low`  force a tier (iteration-e: makes headless
- *                   captures comparable across machines — the resolved tier
- *                   would otherwise follow the probe's hardware signals).
- *   - `bloom=…`    dev-only bloom override (iteration-e washout isolation):
- *                   `off` → direct render path (isolates the material/
- *                   OutputPass pipeline from bloom), `current` → the shipped
- *                   tier budget, or a named sweep candidate (`strict`, `s110`,
- *                   `s130`, `s160`, `s45130`, `t20`, `t25`, `t30`, `soft16`).
+ *   - `bloom=0`     disable the HDR bloom pass (dev A/B only).
+ *   - `backend=webgl`  force the WebGL2 backend; `restore-fail=1` fails every
+ *                   renderer rebuild (drives the 2D fallback); `atoms=N`, `idle=1`,
+ *                   `failure=cycle` shape the DEMO data.
  *
  * Provenance (T10.8): every frame captured here is synthetic DEMO data — the
  * `data-provenance="DEMO"` attribute and badge say so; it is never a live
@@ -42,10 +38,16 @@ import {
   createAtomicEventPool,
   mapLifecycleToAtomicEvents,
 } from "@/plugins/atomic-topology/eventPool";
-import { AtomicTopologyRenderer } from "@/plugins/atomic-topology/AtomicTopologyRenderer";
-import type { AtomicSceneQuality, BloomBudget } from "@/plugins/atomic-topology/quality";
+import {
+  AtomicTopologyRenderer,
+  createAtomicTopologyInstance,
+} from "@/plugins/atomic-topology/AtomicTopologyRenderer";
 
 import { buildGoldenSnapshot } from "./goldenSnapshot";
+import {
+  GoldenAtomBench,
+  type GoldenBenchParams,
+} from "@/plugins/atomic-topology/dev/GoldenAtomBench";
 
 /** Bench viewport (matches the scorecard capture size). */
 export const BENCH_WIDTH = 1600;
@@ -57,57 +59,63 @@ export const BENCH_HEIGHT = 1000;
  * same deterministic discharge clock the production renderer uses.
  */
 /**
- * Parse the `?atoms=N` perf-ladder param (OR-ATOM-010 T10.6). Only the three
- * budget targets (8 / 16 / 32) are accepted; anything else falls back to the
+ * Parse the `?atoms=N` perf-ladder param (OR-ATOM-010 T10.6). Only the
+ * budget targets (8 / 16 / 20 / 32) are accepted; anything else falls back to the
  * golden default so a malformed URL never produces a bogus topology.
  */
 function parseAtomCount(raw: string | null): number | undefined {
   if (!raw) return undefined;
   const n = Number(raw);
-  return n === 8 || n === 16 || n === 32 ? n : undefined;
+  return n === 8 || n === 16 || n === 20 || n === 32 ? n : undefined;
 }
 
-/**
- * Dev-only `?quality=` override (iteration-e): a forced tier so headless
- * captures are comparable. Anything else → the resolved tier.
- */
-function parseQualityOverride(raw: string | null): AtomicSceneQuality | undefined {
-  return raw === "high" || raw === "medium" || raw === "low" ? raw : undefined;
-}
-
-/**
- * Dev-only `?bloom=` override (iteration-e washout isolation). `current`
- * returns the tier's own budget (a no-op); anything else → the tier budget.
- */
-function parseBloomOverride(raw: string | null): BloomBudget | undefined {
-  if (raw === "off") return { enabled: false, strength: 0, radius: 0, threshold: 1 };
-  // iteration-e washout candidates. Strength is the dominant brightness lever;
-  // the linear-radiance threshold sets how much of the scene is the bloom
-  // SOURCE (ACES pushes true emissives above 1.0, so a low threshold blooms
-  // everything; a high one locks the halo to the neon cores). These sweep the
-  // threshold at a fixed low strength.
-  if (raw === "strict") return { enabled: true, strength: 0.35, radius: 0.4, threshold: 0.9 };
-  if (raw === "s110") return { enabled: true, strength: 0.35, radius: 0.4, threshold: 1.1 };
-  if (raw === "s130") return { enabled: true, strength: 0.35, radius: 0.35, threshold: 1.3 };
-  if (raw === "s160") return { enabled: true, strength: 0.35, radius: 0.3, threshold: 1.6 };
-  if (raw === "s45130") return { enabled: true, strength: 0.45, radius: 0.35, threshold: 1.3 };
-  if (raw === "t20") return { enabled: true, strength: 0.35, radius: 0.3, threshold: 2.0 };
-  if (raw === "t25") return { enabled: true, strength: 0.35, radius: 0.3, threshold: 2.5 };
-  if (raw === "t30") return { enabled: true, strength: 0.35, radius: 0.3, threshold: 3.0 };
-  if (raw === "soft16") return { enabled: true, strength: 0.25, radius: 0.3, threshold: 1.6 };
-  return undefined;
-}
-
-function useBenchScene(atomCount: number | undefined) {
+function useBenchScene(
+  atomCount: number | undefined,
+  opts: {
+    allIdle?: boolean;
+    errorPhase?: "error" | "recovered" | "completed";
+    /** DEMO `?tps=N`: uniform fresh measured output tok/s (feeder-trace evidence). */
+    uniformTps?: number;
+  } = {}
+) {
+  const { allIdle, errorPhase, uniformTps } = opts;
   return useMemo(() => {
-    const snapshot = buildGoldenSnapshot(atomCount ? { atomCount } : {});
+    const snapshot = buildGoldenSnapshot({
+      ...(atomCount ? { atomCount } : {}),
+      allIdle,
+      errorPhase,
+      ...(uniformTps != null ? { uniformTps } : {}),
+    });
     const capturedAt = Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0;
     const eventPool = createAtomicEventPool();
     for (const event of mapLifecycleToAtomicEvents(snapshot)) {
       eventPool.ingest(event, capturedAt);
     }
     return { snapshot, eventPool };
-  }, [atomCount]);
+  }, [atomCount, allIdle, errorPhase, uniformTps]);
+}
+/** `?tps=N` (DEMO): a finite non-negative uniform measured output tok/s, else undefined. */
+function parseTps(raw: string | null): number | undefined {
+  if (raw == null || raw === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 10_000 ? n : undefined;
+}
+
+/**
+ * `?failure=cycle` (DEMO): the error provider recovers for 3 s, then fails
+ * again, every 6 s, so the scene shows the real failure transition (red
+ * branching bolt + nucleus flash) instead of a static error.
+ */
+function useFailureCycle(mode: "off" | "cycle" | "strike"): "error" | "recovered" | "completed" {
+  const enabled = mode !== "off";
+  const [phase, setPhase] = useState<"error" | "recovered" | "completed">("error");
+  useEffect(() => {
+    if (!enabled) return;
+    const other = mode === "strike" ? "completed" : "recovered";
+    const id = setInterval(() => setPhase((p) => (p === "error" ? other : "error")), 3000);
+    return () => clearInterval(id);
+  }, [enabled, mode]);
+  return phase;
 }
 
 export default function AtomicBenchPage() {
@@ -131,21 +139,126 @@ export default function AtomicBenchPage() {
         </div>
       }
     >
-      <BenchBody />
+      <BenchRouter />
     </Suspense>
   );
 }
 
+/** `?atomic-fx=rt` routes to the isolated ray-traced golden-atom bench (Gate A). */
+function BenchRouter() {
+  const sp = useSearchParams();
+  const pick = <T extends string>(k: string, allowed: readonly T[], d: T): T => {
+    const v = sp.get(k);
+    return allowed.includes(v as T) ? (v as T) : d;
+  };
+  const params = useMemo<GoldenBenchParams | null>(() => {
+    if (sp.get("atomic-fx") !== "rt") return null;
+    const t = sp.get("t");
+    return {
+      golden: pick("golden", ["provider", "gpu", "hub"] as const, "provider"),
+      dist: pick("dist", ["default", "close"] as const, "default"),
+      models: pick("models", ["1", "3", "unknown", "stale"] as const, "3"),
+      energy: pick("energy", ["idle", "excited", "both"] as const, "excited"),
+      az: Number(sp.get("az") ?? 0) || 0,
+      t: t != null && Number.isFinite(Number(t)) ? Number(t) : null,
+      paused: sp.get("paused") === "1",
+      backend: sp.get("backend") === "webgl" ? "webgl" : "webgpu",
+      bloom: sp.get("bloom") !== "0",
+      reduced: sp.get("reduced") === "1",
+      badge: sp.get("badge") !== "0",
+      width: Number(sp.get("w")) || 1672,
+      height: Number(sp.get("h")) || 941,
+      count: Math.min(32, Math.max(1, Math.floor(Number(sp.get("count")) || 1))),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp]);
+  if (params) return <GoldenAtomBench params={params} />;
+  // `?instance=1` mounts the REAL imperative renderer instance (the dashboard's
+  // contract), so window-event controls (Reset view, pause) are testable live.
+  return sp.get("instance") === "1" ? <InstanceBench /> : <BenchBody />;
+}
+/**
+ * The bench driven through `createAtomicTopologyInstance`, exactly as the
+ * dashboard host does: the instance owns focus / detail / reset state and
+ * listens for the `atomic:reset-view` and `atomic:toggle-pause` window events.
+ * Dev-only: `window.__benchInstance` exposes the instance for live checks.
+ */
+function InstanceBench() {
+  const sp = useSearchParams();
+  const atomCount = parseAtomCount(sp.get("atoms"));
+  const { snapshot } = useBenchScene(atomCount, {
+    allIdle: sp.get("idle") === "1",
+    uniformTps: parseTps(sp.get("tps")),
+  });
+  const hostRef = useRef<HTMLElement | null>(null);
+  const [ready, setReady] = useState(false);
+  const nodeParam = sp.get("node");
+  const paused = sp.get("paused") !== "0";
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const inst = createAtomicTopologyInstance(host, snapshot, {
+      emptyStateLabel: "Atomic bench: WebGL2 unavailable",
+    });
+    inst.resize(BENCH_WIDTH, BENCH_HEIGHT);
+    inst.setPaused(paused);
+    if (nodeParam) inst.focusNode(nodeParam);
+    (window as unknown as { __benchInstance?: unknown }).__benchInstance = inst;
+    const check = () => {
+      if (host.querySelector("canvas")) setReady(true);
+    };
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(host, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      delete (window as unknown as { __benchInstance?: unknown }).__benchInstance;
+      // Deferred: a synchronous root unmount during React's own render/cleanup is illegal.
+      setTimeout(() => inst.dispose(), 0);
+    };
+  }, [snapshot, paused, nodeParam]);
+  return (
+    <main
+      data-atomic-bench="true"
+      data-provenance="DEMO"
+      data-bench-mode="instance"
+      data-ready={ready ? "true" : "false"}
+      ref={hostRef}
+      style={{
+        position: "relative",
+        width: BENCH_WIDTH,
+        height: BENCH_HEIGHT,
+        background: "#05060f",
+        overflow: "hidden",
+      }}
+    />
+  );
+}
 function BenchBody() {
   const searchParams = useSearchParams();
-  const focusNodeId = searchParams.get("node");
+  const nodeParam = searchParams.get("node");
+  // `?detail=1` opens the opt-in detail view on `?node=` at load (Step 11
+  // captures); otherwise the tooltip's "Open detail view" button drives it.
+  const [detailId, setDetailId] = useState<string | null>(
+    searchParams.get("detail") === "1" ? nodeParam : null
+  );
+  // A label click (the production focus affordance) focuses an atom on the bench too.
+  const [clickedId, setClickedId] = useState<string | null>(null);
+  const focusNodeId = detailId ?? clickedId ?? nodeParam;
   const paused = searchParams.get("paused") !== "0";
   const showBadge = searchParams.get("badge") !== "0";
   const atomCount = parseAtomCount(searchParams.get("atoms"));
-  const qualityOverride = parseQualityOverride(searchParams.get("quality"));
-  const bloomOverride = parseBloomOverride(searchParams.get("bloom"));
 
-  const { snapshot, eventPool } = useBenchScene(atomCount);
+  const failureMode = searchParams.get("failure");
+  const errorPhase = useFailureCycle(
+    failureMode === "strike" ? "strike" : failureMode === "cycle" ? "cycle" : "off"
+  );
+  const allIdle = searchParams.get("idle") === "1";
+  const { snapshot, eventPool } = useBenchScene(atomCount, {
+    allIdle,
+    errorPhase,
+    uniformTps: parseTps(searchParams.get("tps")),
+  });
   const [ready, setReady] = useState(false);
   const hostRef = useRef<HTMLElement | null>(null);
 
@@ -188,8 +301,13 @@ function BenchBody() {
         focusNodeId={focusNodeId}
         eventPool={eventPool}
         options={{ emptyStateLabel: "Atomic bench: WebGL2 unavailable" }}
-        qualityOverride={qualityOverride}
-        bloomOverride={bloomOverride}
+        onFocusRequest={(id) => {
+          setClickedId(id);
+          setDetailId(null);
+        }}
+        detailAtomId={detailId}
+        onDetailRequest={setDetailId}
+        onDetailExit={() => setDetailId(null)}
       />
       {showBadge && (
         <div
@@ -210,6 +328,8 @@ function BenchBody() {
           }}
         >
           DEMO · golden snapshot · {focusNodeId ? `focus ${focusNodeId}` : "default zoom"}
+          {allIdle ? " · all idle (no measured activity)" : ""}
+          {searchParams.get("failure") === "cycle" ? ` · failure cycle (${errorPhase})` : ""}
           {" · "}
           {paused ? "paused" : "live"}
         </div>

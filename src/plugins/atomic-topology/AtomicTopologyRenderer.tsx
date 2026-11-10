@@ -64,7 +64,7 @@ import type {
 } from "@/shared/topology/telemetry/reconcile";
 import { deriveLaneForProvider } from "@/shared/topology/domain/lane";
 
-import { detectTopologyCapabilities, webgl2Available } from "./capabilities";
+import { detectTopologyCapabilities, gpuRenderingAvailable } from "./capabilities";
 import { computeAtomicLayout, computeDeviceBandLayout, type AtomicLayoutNode } from "./layout";
 import { computeFitRadiusFromPositions } from "./cameraFit";
 import {
@@ -86,6 +86,24 @@ import { AtomicControls } from "./overlays/AtomicControls";
 import { AtomicLegend } from "./overlays/AtomicLegend";
 import { AtomicLabels } from "./overlays/AtomicLabels";
 import { AtomicTooltip } from "./overlays/AtomicTooltip";
+import { AtomicDetailPanel } from "./overlays/AtomicDetailPanel";
+import { AtomicReplayPanel } from "./overlays/AtomicReplayPanel";
+import { AtomicReplayCover } from "./overlays/AtomicReplayCover";
+import {
+  createReplayController,
+  timelineCounts,
+  type ReplayController,
+} from "./scene/replayController";
+import { fetchTraceHistory } from "@/shared/topology/telemetry/traceHistoryFetch";
+import { detailLabelCss } from "./overlays/detailLabelCss";
+import { deviceVisualStateInput } from "./overlays/activityVocabulary";
+import {
+  DETAIL_CLOSED,
+  buildDetailModel,
+  closeDetail,
+  openDetail,
+  type DetailState,
+} from "./scene/detailState";
 import { AtomicTelemetryStatus, type AtomicTelemetryState } from "./overlays/AtomicTelemetryStatus";
 import {
   createAtomicEventPool,
@@ -94,12 +112,6 @@ import {
   type AtomicEventKind,
 } from "./eventPool";
 import {
-  resolveSceneQuality,
-  type AtomicSceneQuality,
-  type BloomBudget,
-  type QualityProbe,
-} from "./quality";
-import {
   admitPulseEvents,
   canonicalRouteLinkId,
   computeProvenRouteLinks,
@@ -107,6 +119,7 @@ import {
   type ProvenPulseGate,
 } from "./scene/provenPulse";
 import { createAtomicCameraState, type AtomicSceneContextValue } from "./scene/sceneContext";
+import { TIER2_DECAY_MS } from "./scene/energyState";
 
 // Re-export the pure visual-encoding types so the scene/overlay subtree has a
 // single import point (this adapter) rather than reaching into `visualEncoding`
@@ -127,6 +140,23 @@ declare global {
       providerId: string,
       kind?: "request-started" | "request-completed" | "request-failed"
     ) => { ok: boolean; reason: string; linkId?: string };
+    /** Dev-only: focus an atom and open its detail view (live verification of providers whose label click navigates away). */
+    __atomicOpenDetail?: (atomId: string) => boolean;
+    /** Dev-only: drive and inspect the Step 12 request replay (live verification). */
+    __atomicReplay?: {
+      open: (windowMs?: number) => Promise<void>;
+      close: () => void;
+      play: () => void;
+      pause: () => void;
+      seek: (positionMs: number) => void;
+      setSpeed: (speed: number) => void;
+      stepNext: () => void;
+      stepPrev: () => void;
+      tick: (dtMs: number) => void;
+      view: () => unknown;
+      injected: () => unknown;
+      timeline: () => unknown;
+    };
   }
 }
 
@@ -196,11 +226,23 @@ export interface AtomVisualDescriptor {
   /**
    * Observed in-flight model ids (S8.3 nucleus model identity). Present on
    * device atoms (GPU / runtime) from the PROVEN runtime model residency
-   * (OR-ATOM-009 S9.1/W2 — canonicalized, deduped, ≤3); absent on hub/provider
-   * atoms, where the snapshot still exposes no per-node model ids → the
-   * nucleus renders the honest neutral two-tone.
+   * (OR-ATOM-009 S9.1/W2 — canonicalized, deduped, ≤3). Provider atoms get
+   * in-flight ids first, then recent call-log ids (canonicalized, deduped, ≤3);
+   * absent when nothing was observed (and on the hub) → the nucleus renders
+   * the honest neutral two-tone.
    */
   observedModelIds?: string[];
+  /**
+   * Provenance of provider `observedModelIds`: which ids came from the live
+   * in-flight set and which from recent call-log rows (with the window/basis).
+   * Absent when `observedModelIds` is absent or not provider-derived.
+   */
+  observedModelSources?: {
+    inFlight: string[];
+    callLog: string[];
+    callLogWindowMs?: number;
+    callLogBasis?: string;
+  };
   /** World-space position (from {@link computeAtomicLayout}; hub = origin). */
   position: { x: number; y: number; z: number };
   /**
@@ -270,6 +312,13 @@ export interface AtomVisualDescriptor {
      * no model is proven — never a guess.
      */
     modelId?: string | null;
+    /**
+     * Runtime atoms merged into this GPU atom (OR-ATOM-010 directive 16): every
+     * runtime PROVEN (runtime_device edge) to run on exactly this one GPU. They
+     * have no atom of their own; the GPU atom is their atom. Sorted, GPU atoms
+     * only. Runtimes with no proof (or proven on several GPUs) stay separate.
+     */
+    hostedRuntimeIds?: string[];
   };
   /**
    * Fleet-telemetry sample anchor (OR-ATOM-005 — T5.4): the reconciliation's
@@ -278,6 +327,23 @@ export interface AtomVisualDescriptor {
    * atoms); absent without one.
    */
   fleetSampledAt?: number | null;
+  /**
+   * Energy tier (operator directive 30), derived ONLY from real data:
+   *  0 absent (unknown health / stale device telemetry): the only tier that greys;
+   *  1 idle but healthy / connected: full colour, alive;
+   *  2 recently active (call-log / live timestamps within the afterglow window);
+   *  3 active (in-flight traffic or measured work).
+   * Decorative vitality is never presented as live work (the tooltip says so).
+   */
+  energyTier: 0 | 1 | 2 | 3;
+  /** Epoch ms of the last REAL activity (newest successful call-log row / live), or null. */
+  lastActivityAt: number | null;
+  /**
+   * Real completed-call timestamps (epoch ms) of the last minute from call-log rows
+   * (directive 40/41 feeder call rate). Provider: its own rows; hub: every provider's.
+   * Absent / null = no call-log observation.
+   */
+  recentCallTimes?: readonly number[] | null;
 }
 
 /**
@@ -339,6 +405,17 @@ export const SPIN_REFERENCE_TPS = 24;
  * the honest M1 "unavailable" baseline; without a reconciliation the
  * descriptors are byte-identical to the pre-telemetry behavior.
  */
+/** trim + lowercase, drop empties, dedupe (first occurrence wins), cap at 3. */
+function canonicalModelIds(ids: readonly string[] | null | undefined): string[] {
+  const out: string[] = [];
+  for (const id of ids ?? []) {
+    const canon = typeof id === "string" ? id.trim().toLowerCase() : "";
+    if (canon && !out.includes(canon)) out.push(canon);
+    if (out.length === 3) break;
+  }
+  return out;
+}
+
 export function resolveAtomDescriptors(
   snapshot: TopologySceneSnapshot,
   options?: { radiusScale?: number }
@@ -365,6 +442,8 @@ export function resolveAtomDescriptors(
     for (const pn of reconciliation.providerNodes) providerJoin.set(pn.providerId, pn);
   }
 
+  // The hub routes every call: its call-log rate is the union of the providers' rows.
+  const hubCallTimes = snapshot.nodes.flatMap((n) => n.recentCalls?.value ?? []);
   const descriptors: AtomVisualDescriptor[] = snapshot.nodes.map((node) => {
     const isHub = node.id === "hub";
     const placement = placementById.get(node.id);
@@ -389,11 +468,17 @@ export function resolveAtomDescriptors(
     // Honest model-color composition (OR-ATOM-002 item 4): colors come ONLY
     // from observed in-flight model ids — never from a provider-hash guess.
     // At most 3 distinct model colors are rendered; the remainder is neutral.
-    const inFlightModelIds = node.inFlightModels?.value;
-    const modelColors =
-      inFlightModelIds && inFlightModelIds.length > 0
-        ? inFlightModelIds.slice(0, 3).map((m) => modelColor(m))
-        : [];
+    // Providers: in-flight ids first (live WS), then recent call-log ids
+    // (successful rows, windowed). One list drives BOTH the nucleus ids and
+    // the descriptor colors so they can never disagree. Hub: never.
+    const inFlightIds = isHub ? [] : canonicalModelIds(node.inFlightModels?.value);
+    const callLogIds = isHub ? [] : canonicalModelIds(node.observedModels?.value);
+    const providerModelIds = canonicalModelIds([...inFlightIds, ...callLogIds]);
+    // Provenance lists are filtered to the FINAL (capped) nucleus list so the
+    // tooltip can never name a model the nucleus does not render.
+    const shownInFlightIds = inFlightIds.filter((id) => providerModelIds.includes(id));
+    const shownCallLogIds = callLogIds.filter((id) => providerModelIds.includes(id));
+    const modelColors = providerModelIds.map((m) => modelColor(m));
     const color = modelColors.length > 0 ? modelColors[0] : UNKNOWN_ATOM_COLOR;
 
     // Spin + queue vibration (OR-ATOM-002 item 2 baseline, OR-ATOM-005 T5.4
@@ -422,11 +507,40 @@ export function resolveAtomDescriptors(
       latestErrorAt: node.latestErrorAt ?? null,
     });
 
+    // Energy tier (directive 30) from real data only. The newest successful call-log row
+    // (`observedModels.sampledAt`) is the real "last activity" timestamp; a node the
+    // snapshot marks `recent` without a row falls back to the snapshot capture time.
+    const rowAt = node.observedModels?.sampledAt ?? null;
+    const lastActivityAt =
+      node.traffic === "active"
+        ? snapshot.capturedAt
+        : rowAt != null
+          ? rowAt
+          : node.traffic === "recent"
+            ? snapshot.capturedAt
+            : null;
+    const recentAge = lastActivityAt != null ? snapshot.capturedAt - lastActivityAt : null;
+    const energyTier: 0 | 1 | 2 | 3 =
+      node.traffic === "active"
+        ? 3
+        : node.traffic === "recent" ||
+            (recentAge != null && recentAge >= 0 && recentAge < TIER2_DECAY_MS)
+          ? 2
+          : isHub || node.health === "healthy" || node.health === "unhealthy"
+            ? 1
+            : 0;
     return {
       id: node.id,
       kind: node.kind,
       label: node.label,
       providerId: node.providerId,
+      energyTier,
+      lastActivityAt,
+      recentCallTimes: isHub
+        ? hubCallTimes.length
+          ? hubCallTimes
+          : null
+        : (node.recentCalls?.value ?? null),
       position,
       color,
       lane,
@@ -441,6 +555,21 @@ export function resolveAtomDescriptors(
       activeRequests: node.activeRequests?.value ?? null,
       ringIndex,
       modelColors,
+      ...(providerModelIds.length > 0
+        ? {
+            observedModelIds: providerModelIds,
+            observedModelSources: {
+              inFlight: shownInFlightIds,
+              callLog: shownCallLogIds,
+              ...(shownCallLogIds.length > 0
+                ? {
+                    callLogWindowMs: node.observedModels?.windowMs,
+                    callLogBasis: node.observedModels?.basis,
+                  }
+                : {}),
+            },
+          }
+        : {}),
       fleetSampledAt: reconciliation ? reconciliation.capturedAt : null,
     } satisfies AtomVisualDescriptor;
   });
@@ -451,34 +580,22 @@ export function resolveAtomDescriptors(
   // de-duplicated, hash-sorted — never to array order.
   if (reconciliation) {
     const maxProviderRing = layout.placements.reduce((max, p) => Math.max(max, p.ringIndex), 0);
-    const bandNodes: Array<{ id: string; kind: "gpu" | "runtime" }> = [
-      ...reconciliation.gpuNodes.map((g) => ({ id: g.resourceId, kind: "gpu" as const })),
-      ...reconciliation.runtimeNodes.map((r) => ({
-        id: r.resourceId,
-        kind: "runtime" as const,
-      })),
-    ];
-    const band = computeDeviceBandLayout(bandNodes, { startRingIndex: maxProviderRing + 1 });
     const gpuById = new Map(reconciliation.gpuNodes.map((g) => [g.resourceId, g]));
     const runtimeById = new Map(reconciliation.runtimeNodes.map((r) => [r.resourceId, r]));
     const providerById = new Map(reconciliation.providerNodes.map((p) => [p.resourceId, p]));
 
     // Proven-relationship indexes, built ONLY from `reconciliation.edges`
     // (never from display labels / name joins — S9.1 provenance rule).
-    //   runtime_device    : runtime canonical id -> [runtime nodes on that GPU]
     //   provider_runtime  : runtime canonical id -> [proven provider nodes]
-    // A runtime's own observed model comes from its reconciled `modelId` (the
-    // reconciler sets it only from a proven sample), so no separate runtime→model
-    // index is needed — a GPU's models are the union of its attributed runtimes'.
-    const runtimesByGpu = new Map<string, ReconciledRuntimeNode[]>();
+    //   runtime_device    : runtime id -> distinct known GPUs it is proven on
     const providersByRuntime = new Map<string, ReconciledProviderNode[]>();
+    const gpusByRuntime = new Map<string, Set<string>>();
     for (const edge of reconciliation.edges) {
       if (edge.relation === "runtime_device") {
-        const rt = runtimeById.get(edge.source);
-        if (rt) {
-          const list = runtimesByGpu.get(edge.target);
-          if (list) list.push(rt);
-          else runtimesByGpu.set(edge.target, [rt]);
+        if (runtimeById.has(edge.source) && gpuById.has(edge.target)) {
+          const set = gpusByRuntime.get(edge.source) ?? new Set<string>();
+          set.add(edge.target);
+          gpusByRuntime.set(edge.source, set);
         }
       } else if (edge.relation === "provider_runtime") {
         const provider = providerById.get(edge.source);
@@ -489,6 +606,29 @@ export function resolveAtomDescriptors(
         }
       }
     }
+    // GPU + runtime merge (directive 16): a runtime proven on EXACTLY ONE known
+    // GPU has no atom of its own; the GPU atom is its atom. A runtime with no
+    // proof, or proven on several GPUs, stays its own atom (honest fallback:
+    // never guess a device, never double-count its throughput).
+    const runtimesByGpu = new Map<string, ReconciledRuntimeNode[]>();
+    const mergedRuntimeIds = new Set<string>();
+    for (const [rtId, gpus] of gpusByRuntime) {
+      if (gpus.size !== 1) continue;
+      const rt = runtimeById.get(rtId);
+      if (!rt) continue;
+      const gpuId = [...gpus][0];
+      mergedRuntimeIds.add(rtId);
+      const list = runtimesByGpu.get(gpuId);
+      if (list) list.push(rt);
+      else runtimesByGpu.set(gpuId, [rt]);
+    }
+    const bandNodes: Array<{ id: string; kind: "gpu" | "runtime" }> = [
+      ...reconciliation.gpuNodes.map((g) => ({ id: g.resourceId, kind: "gpu" as const })),
+      ...reconciliation.runtimeNodes
+        .filter((r) => !mergedRuntimeIds.has(r.resourceId))
+        .map((r) => ({ id: r.resourceId, kind: "runtime" as const })),
+    ];
+    const band = computeDeviceBandLayout(bandNodes, { startRingIndex: maxProviderRing + 1 });
 
     for (const placement of band.placements) {
       const gpu = placement.kind === "gpu" ? gpuById.get(placement.id) : undefined;
@@ -508,15 +648,29 @@ export function resolveAtomDescriptors(
         : runtime
           ? [runtime]
           : [];
-      const singleRuntime = attributedRuntimes.length === 1 ? attributedRuntimes[0] : undefined;
-      // Facts ATTRIBUTED from the single proven on-GPU runtime must also
-      // respect that runtime's own staleness — the same rule as the
-      // spin/vibration attribution above (S9.1: a decayed value is never
-      // shown on the GPU).
-      const attributedValue = (
-        o: { value: number | null; stale?: boolean } | null | undefined
-      ): number | null =>
-        !deviceStale && !singleRuntime?.stale && o && o.value != null ? o.value : null;
+      // Merged runtimes are the GPU atom's own signals. Stale runtimes (decayed
+      // upstream) contribute nothing (S9.1: a decayed value is never shown).
+      const freshRuntimes = attributedRuntimes.filter((r) => !r.stale);
+      // Sum of the fresh hosted runtimes' values of one field; null when none has
+      // a measurement. Each runtime is a distinct proven process on this GPU, so
+      // the sum is an aggregate of real measurements, never a split of one.
+      const sumRuntime = (
+        pick: (
+          r: ReconciledRuntimeNode
+        ) => { value: number | null; stale?: boolean } | null | undefined
+      ): number | null => {
+        if (deviceStale) return null;
+        let total = 0;
+        let any = false;
+        for (const r of freshRuntimes) {
+          const o = pick(r);
+          if (o && o.value != null && !o.stale) {
+            total += o.value;
+            any = true;
+          }
+        }
+        return any ? total : null;
+      };
 
       // Observed model ids — ONLY from proven runtime→(gpu) residency (S9.3).
       // Canonicalized (trim + lowercase), deduped, capped at 3 so the descriptor's
@@ -547,10 +701,7 @@ export function resolveAtomDescriptors(
       if (isGpu) {
         const own = gpu?.outputTokensPerSecond;
         if (own && own.value != null && !own.stale) spinTps = own.value;
-        else if (singleRuntime && !singleRuntime.stale) {
-          const t = singleRuntime.outputTokensPerSecond;
-          if (t && t.value != null && !t.stale) spinTps = t.value;
-        }
+        else spinTps = sumRuntime((r) => r.outputTokensPerSecond);
       } else {
         const t = runtime?.outputTokensPerSecond;
         if (t && t.value != null) spinTps = t.value;
@@ -562,8 +713,7 @@ export function resolveAtomDescriptors(
       // runtime vibrates from its own queue.
       let vibQueue: number | null = null;
       if (isGpu) {
-        const q = singleRuntime?.queuedJobs;
-        if (q && q.value != null && !q.stale && !singleRuntime.stale) vibQueue = q.value;
+        vibQueue = sumRuntime((r) => r.queuedJobs);
       } else {
         const q = runtime?.queuedJobs;
         if (q && q.value != null) vibQueue = q.value;
@@ -573,10 +723,28 @@ export function resolveAtomDescriptors(
       // Proven provider linkage (S9.1): a runtime carries its proven
       // provider_runtime edge; a GPU stays provider-unattached (its link to a
       // provider is only transitive through its runtime — never drawn directly).
+      // A merged GPU carries its provider only when every hosted runtime is
+      // proven to exactly one and the same provider.
+      const hostedProviders = new Set<string>();
+      if (isGpu) {
+        for (const rt of attributedRuntimes) {
+          for (const pn of providersByRuntime.get(rt.resourceId) ?? [])
+            hostedProviders.add(pn.providerId);
+        }
+      }
       const providerId = isGpu
-        ? undefined
+        ? hostedProviders.size === 1
+          ? [...hostedProviders][0]
+          : undefined
         : (providersByRuntime.get(placement.id)?.[0]?.providerId ?? undefined);
 
+      // Directive 30: fresh telemetry = healthy/connected (tier 1, tier 3 while it
+      // reports work); stale / decayed telemetry = absent (tier 0, the only grey tier).
+      const deviceEnergyTier: 0 | 1 | 2 | 3 = deviceStale
+        ? 0
+        : (spinTps ?? 0) > 0 || (sumRuntime((r) => r.activeJobs) ?? 0) > 0
+          ? 3
+          : 1;
       descriptors.push({
         id: placement.id,
         kind: placement.kind,
@@ -594,9 +762,12 @@ export function resolveAtomDescriptors(
         // the spin itself (a decayed sample spins the nucleus down, never
         // holds a fake speed; multi-runtime GPUs carry null — no split).
         measuredTps: deviceStale ? null : spinTps,
-        // Device atoms are telemetry evidence, not route traffic: no route
-        // link connects them, so they render as idle/unknown (neutral).
-        visualState: resolveVisualState({ health: "unknown", traffic: "idle" }),
+        // Device atoms are telemetry evidence, not route traffic: no route link
+        // connects them. Their chip state is derived from the energy tier so the
+        // label, tooltip and detail panel share one vocabulary (directive 34.3).
+        visualState: resolveVisualState(deviceVisualStateInput(deviceEnergyTier)),
+        energyTier: deviceEnergyTier,
+        lastActivityAt: null,
         activeRequests: null,
         ringIndex: placement.ringIndex,
         deviceFacts: {
@@ -606,21 +777,16 @@ export function resolveAtomDescriptors(
           vramTotalBytes: obsValue(gpu?.vramTotalBytes),
           temperatureC: obsValue(gpu?.temperatureC),
           powerWatts: obsValue(gpu?.powerWatts),
-          queuedJobs: isGpu
-            ? singleRuntime
-              ? attributedValue(singleRuntime.queuedJobs)
-              : null
-            : obsValue(runtime?.queuedJobs),
-          activeJobs: isGpu
-            ? singleRuntime
-              ? attributedValue(singleRuntime.activeJobs)
-              : null
-            : obsValue(runtime?.activeJobs),
+          queuedJobs: isGpu ? sumRuntime((r) => r.queuedJobs) : obsValue(runtime?.queuedJobs),
+          activeJobs: isGpu ? sumRuntime((r) => r.activeJobs) : obsValue(runtime?.activeJobs),
           modelId: isGpu
             ? (observedModelIds[0] ?? null)
             : deviceStale
               ? null
               : (runtime?.modelId ?? null),
+          ...(isGpu && attributedRuntimes.length > 0
+            ? { hostedRuntimeIds: attributedRuntimes.map((r) => r.resourceId).sort() }
+            : {}),
         },
         fleetSampledAt: reconciliation.capturedAt,
       });
@@ -692,11 +858,11 @@ export interface AtomicSceneProps {
    */
   sceneContext: AtomicSceneContextValue;
   /**
-   * Dev-probe override for the tier's bloom budget (OR-ATOM-010 iteration-e
-   * washout isolation). `undefined` → the resolved quality budget. Only the
-   * dev-only bench page wires it; the production host never passes it.
+   * The GPU renderer could not be restored after a device / context loss
+   * (two failed rebuilds). The instance then hands the panel back to the 2D
+   * renderer through the host's existing update-failure fallback.
    */
-  bloomOverride?: BloomBudget;
+  onRendererFatal?: () => void;
 }
 
 /** Props for the client-only scene host component. */
@@ -728,20 +894,27 @@ export interface AtomicTopologyRendererProps {
    * tree. Wired by the imperative instance to update its own focus state.
    */
   onFocusRequest?: (nodeId: string) => void;
+  /** See {@link AtomicSceneProps.onRendererFatal}. */
+  onRendererFatal?: () => void;
   /**
-   * Dev-probe override for the per-tier bloom budget (OR-ATOM-010
-   * iteration-e washout isolation). `undefined` → the resolved quality
-   * budget (the production path); a full budget (or `{ enabled: false }`)
-   * → a tuned / bloom-free capture. Only the dev-only bench page wires it;
-   * the production host never passes it, so the render path is unchanged.
+   * Opt-in detail view (Step 11): the inspected atom id, or `null`/absent for
+   * the default view. When absent AND no `onDetailRequest` is wired the
+   * renderer behaves exactly as before.
    */
-  bloomOverride?: BloomBudget;
+  detailAtomId?: string | null;
+  /** The viewer chose "Open detail view" on the tooltip. */
+  onDetailRequest?: (atomId: string) => void;
+  /** The viewer left the detail view (Escape / Back button). */
+  onDetailExit?: () => void;
   /**
-   * Dev-probe override for the resolved scene quality tier (iteration-e:
-   * forces a tier so headless captures are comparable regardless of the
-   * probe's hardware signals). `undefined` → the resolved tier.
+   * Request replay (Step 12). `replay` is the active session (mounts the REPLAY marker + controls);
+   * `replaying` is true while the snapshot/pool props already ARE the replay-derived ones.
+   * `onReplayRequest` shows the detail panel's "Replay recorded requests" action.
    */
-  qualityOverride?: AtomicSceneQuality;
+  replay?: ReplayController | null;
+  replaying?: boolean;
+  onReplayRequest?: () => void;
+  onReplayExit?: () => void;
 }
 
 /**
@@ -764,8 +937,14 @@ export function AtomicTopologyRenderer({
   onFocusRequest,
   eventPool,
   size,
-  bloomOverride,
-  qualityOverride,
+  onRendererFatal,
+  detailAtomId,
+  onDetailRequest,
+  onDetailExit,
+  replay,
+  replaying = false,
+  onReplayRequest,
+  onReplayExit,
 }: AtomicTopologyRendererProps) {
   const [sceneModule, setSceneModule] = useState<AtomicSceneModule | null>(null);
 
@@ -794,6 +973,13 @@ export function AtomicTopologyRenderer({
     ? (descriptors.find((d) => d.id === focusNodeId) ?? null)
     : null;
 
+  // Opt-in detail view (Step 11): the inspected atom (null = default view, or the
+  // atom left the snapshot). The overlay model is a pure function of the
+  // descriptor + the real lifecycle events; nothing is synthesised.
+  const detailDescriptor = detailAtomId
+    ? (descriptors.find((d) => d.id === detailAtomId) ?? null)
+    : null;
+
   // Environment signals are stable for the lifetime of this host, so probe
   // them once (the WebGL2 probe creates a real context — not free to repeat on
   // every render).
@@ -805,24 +991,11 @@ export function AtomicTopologyRenderer({
   // allocates at most ONCE per page load (cached module state) and releases the
   // probe context via `WEBGL_lose_context`; the mount gate has already
   // populated that cache, so this `useMemo` is a cached read.
-  const webgl2Ok = useMemo(() => webgl2Available(), []);
-  const { reducedMotion, quality } = useMemo(() => {
-    const caps = detectTopologyCapabilities();
-    const probe: QualityProbe = {
-      webgl2: caps.webgl2,
-      devicePixelRatio: typeof window !== "undefined" ? window.devicePixelRatio : undefined,
-      hardwareConcurrency:
-        typeof navigator !== "undefined" ? navigator.hardwareConcurrency : undefined,
-      deviceMemoryGiB:
-        typeof navigator !== "undefined"
-          ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory
-          : undefined,
-    };
-    return {
-      reducedMotion: caps.reducedMotion,
-      quality: qualityOverride ?? resolveSceneQuality(probe),
-    };
-  }, [qualityOverride]);
+  // GPU gate (Gate B C4): WebGPU OR WebGL2 mounts the 3D scene (the
+  // WebGPURenderer falls back to its WebGL2 backend); neither -> empty state
+  // here, and the host's 2D renderer via the mount gate. Probed once.
+  const gpuOk = useMemo(() => gpuRenderingAvailable(), []);
+  const reducedMotion = useMemo(() => detectTopologyCapabilities().reducedMotion, []);
 
   // The stable per-frame camera snapshot the DOM label overlay reads
   // (UX correction — projected labels). Created once; the scene writes to it
@@ -860,24 +1033,6 @@ export function AtomicTopologyRenderer({
   // dimensions are 0 → fall back to the square default (aspect 1).
   const cameraAspect = size.width > 0 && size.height > 0 ? size.width / size.height : 1;
 
-  // The host-owned ambient scene state (M4/M6): the instance's stable event
-  // pool, the focused atom's world position, and the shared camera framing.
-  // Carried into the scene via the `AtomicSceneContext` provider.
-  const sceneContext: AtomicSceneContextValue = {
-    pool: eventPool ?? null,
-    focusTarget: focusedDescriptor ? focusedDescriptor.position : null,
-    reducedMotion,
-    quality,
-    cameraFovDeg: 50,
-    cameraAspect,
-    // Deterministic discharge clock for render-time (reduced-motion) reads:
-    // the snapshot's own capture time, so renders never touch the wall clock.
-    nowMs: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
-    cameraState,
-    fitRadius,
-    resetToken,
-  };
-
   // Feed-freshness state for the telemetry badge (M6): `unavailable` when the
   // snapshot has no usable `capturedAt`, `stale` when the feed was older than
   // the freshness window *when it arrived*, `available` otherwise. The
@@ -904,6 +1059,29 @@ export function AtomicTopologyRenderer({
     return () => clearTimeout(id);
   }, [capturedAt]);
 
+  // The host-owned ambient scene state (M4/M6): the instance's stable event
+  // pool, the focused atom's world position, and the shared camera framing.
+  // Carried into the scene via the `AtomicSceneContext` provider.
+  const sceneContext: AtomicSceneContextValue = {
+    pool: eventPool ?? null,
+    focusTarget: focusedDescriptor ? focusedDescriptor.position : null,
+    reducedMotion,
+    cameraFovDeg: 50,
+    cameraAspect,
+    // Deterministic discharge clock for render-time (reduced-motion) reads:
+    // the snapshot's own capture time, so renders never touch the wall clock.
+    nowMs: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
+    cameraState,
+    fitRadius,
+    resetToken,
+    detailAtomId: detailDescriptor ? detailDescriptor.id : null,
+    // Feeder traces (directive 40): a live in-flight count only drives them while fresh.
+    // Replay derives its in-flight counts from recorded rows, so they are never "stale".
+    telemetryStale: replaying ? false : telemetryState !== "available",
+    // Replay: the scene reads the playhead from this ref (null = live clock + live pool).
+    replayNowRef: replaying && replay ? replay.nowRef : null,
+  };
+
   const handleProviderClick = useCallback(
     (providerId: string) => {
       options.onProviderClick?.(providerId);
@@ -920,7 +1098,7 @@ export function AtomicTopologyRenderer({
     >
       {/* 3D canvas layer (client-only, WebGL-gated) */}
       <div className="atomic-scene-canvas" style={{ position: "absolute", inset: 0 }}>
-        {sceneModule && descriptors.length > 1 && webgl2Ok ? (
+        {sceneModule && descriptors.length > 1 && gpuOk ? (
           <sceneModule.AtomicScene
             descriptors={descriptors}
             linkDescriptors={linkDescriptors}
@@ -928,7 +1106,7 @@ export function AtomicTopologyRenderer({
             focusNodeId={focusNodeId}
             emptyStateLabel={options.emptyStateLabel}
             sceneContext={sceneContext}
-            bloomOverride={bloomOverride}
+            onRendererFatal={onRendererFatal}
           />
         ) : (
           <div
@@ -954,7 +1132,7 @@ export function AtomicTopologyRenderer({
         className="atomic-overlays"
         style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
       >
-        <AtomicTelemetryStatus state={telemetryState} capturedAt={capturedAt} />
+        {replay ? null : <AtomicTelemetryStatus state={telemetryState} capturedAt={capturedAt} />}
         <AtomicLegend descriptors={descriptors} />
         <AtomicControls paused={paused} />
         <AtomicLabels
@@ -964,7 +1142,35 @@ export function AtomicTopologyRenderer({
           onFocusRequest={onFocusRequest}
           cameraState={cameraState}
         />
-        <AtomicTooltip descriptor={focusedDescriptor} capturedAt={capturedAt} />
+        {detailDescriptor ? (
+          <style data-atomic-detail-labels="true">{detailLabelCss(detailDescriptor.id)}</style>
+        ) : null}
+        {detailDescriptor ? (
+          <AtomicDetailPanel
+            model={buildDetailModel(detailDescriptor, {
+              now: Number.isFinite(snapshot.capturedAt) ? snapshot.capturedAt : 0,
+              events: eventPool ? eventPool.events() : undefined,
+              inFlightStale: replaying ? false : telemetryState !== "available",
+              replayed: replaying,
+            })}
+            onClose={() => onDetailExit?.()}
+            onReplay={replay ? undefined : onReplayRequest}
+          />
+        ) : (
+          <AtomicTooltip
+            descriptor={focusedDescriptor}
+            capturedAt={capturedAt}
+            onOpenDetail={onDetailRequest}
+          />
+        )}
+        {replay ? <AtomicReplayCover controller={replay} /> : null}
+        {replay ? (
+          <AtomicReplayPanel
+            controller={replay}
+            onExit={() => onReplayExit?.()}
+            reservedRight={detailDescriptor ? 344 : 0}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -988,6 +1194,10 @@ interface AtomicInstanceState {
   options: TopologyRendererOptions;
   /** Monotonic "reset view" token (OR-ATOM-003, V7) — bumped on reset requests. */
   resetToken: number;
+  /** The GPU renderer could not be restored; the next `update` hands back to 2D. */
+  fatal: boolean;
+  /** Opt-in detail view (Step 11): which atom is inspected + the focus to restore. */
+  detail: DetailState;
 }
 
 /**
@@ -1034,6 +1244,8 @@ export function createAtomicTopologyInstance(
     focusNodeId: null,
     options,
     resetToken: 0,
+    fatal: false,
+    detail: DETAIL_CLOSED,
   };
 
   let disposed = false;
@@ -1053,6 +1265,7 @@ export function createAtomicTopologyInstance(
         ? (event.detail as { pause?: unknown }).pause
         : !state.paused;
     state.paused = detail === true;
+    replay.setHostPaused(state.paused);
     render();
   };
   const onResetView = (): void => {
@@ -1060,6 +1273,12 @@ export function createAtomicTopologyInstance(
     // Monotonic: the scene's `CameraRig` re-applies the base fit when this
     // changes, even while an atom is focused (reset frames the whole scene).
     state.resetToken += 1;
+    // Reset frames the whole scene: it also leaves the opt-in detail view.
+    if (state.detail.atomId !== null) {
+      const exit = closeDetail(state.detail);
+      state.detail = exit.state;
+      state.focusNodeId = exit.restoreFocusId;
+    }
     render();
   };
   window.addEventListener("atomic:toggle-pause", onTogglePause);
@@ -1070,6 +1289,16 @@ export function createAtomicTopologyInstance(
   // on `update`, and cleared on `dispose`. The scene reads it per-frame
   // (inside `useFrame`) for transient discharges — never React state.
   const pool = createAtomicEventPool();
+
+  // Request replay (Step 12): one session at a time, opened only from the detail panel. The
+  // controller holds its own pool + derived snapshot; the live pool/snapshot keep ingesting
+  // underneath so leaving replay returns to the current live state immediately.
+  const replay: ReplayController = createReplayController({
+    getBaseSnapshot: () => state.snapshot,
+    fetchHistory: (windowMs, signal) => fetchTraceHistory({ windowMs, nowMs: Date.now(), signal }),
+    onSnapshot: () => render(),
+    reducedMotion: detectTopologyCapabilities().reducedMotion,
+  });
 
   // Proven pulse gate (OR-ATOM-009 S9.4): a fresh gate per ingest (event-rate
   // surface — the per-frame packet loop reads `descriptor.proven`, NOT the
@@ -1112,6 +1341,20 @@ export function createAtomicTopologyInstance(
         kind?: AtomicEventKind
       ) => { ok: boolean; reason: string; linkId?: string })
     | null = null;
+  const openDetailDev = (atomId: string): boolean => {
+    if (disposed) return false;
+    const next = openDetail(
+      state.detail,
+      atomId,
+      resolveAtomDescriptors(state.snapshot),
+      state.focusNodeId
+    );
+    if (next === state.detail) return false;
+    state.detail = next;
+    state.focusNodeId = atomId;
+    render();
+    return true;
+  };
   if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
     pulseTrigger = (providerId: string, kind?: AtomicEventKind) => {
       if (disposed || typeof providerId !== "string" || providerId.length === 0) {
@@ -1136,6 +1379,35 @@ export function createAtomicTopologyInstance(
       return { ok: admission.ok, reason: admission.reason, linkId };
     };
     window.__atomicPulse = pulseTrigger;
+    window.__atomicOpenDetail = openDetailDev;
+    window.__atomicReplay = {
+      open: (windowMs) => {
+        const p = replay.open(windowMs);
+        render();
+        return p;
+      },
+      close: () => replay.close(),
+      play: () => replay.play(),
+      pause: () => replay.pause(),
+      seek: (positionMs) => replay.seek(positionMs),
+      setSpeed: (speed) => replay.setSpeed(speed),
+      stepNext: () => replay.stepNext(),
+      stepPrev: () => replay.stepPrev(),
+      tick: (dtMs) => replay.tick(dtMs),
+      view: () => replay.getView(),
+      injected: () => replay.injectedCounts(),
+      timeline: () => {
+        const tl = replay.getTimeline();
+        return tl
+          ? {
+              sinceMs: tl.sinceMs,
+              untilMs: tl.untilMs,
+              rows: tl.rowCount,
+              counts: timelineCounts(tl),
+            }
+          : null;
+      },
+    };
   }
 
   const render = (): void => {
@@ -1143,19 +1415,57 @@ export function createAtomicTopologyInstance(
     // `root.render` is a batched, idempotent React commit — calling it with the
     // same props is a no-op re-render, so every imperative method below is
     // safe to repeat.
+    const replaySnapshot = replay.getSnapshot();
     root.render(
       <AtomicTopologyRenderer
-        snapshot={state.snapshot}
+        snapshot={replaySnapshot ?? state.snapshot}
         size={state.size}
         paused={state.paused}
         resetToken={state.resetToken}
         focusNodeId={state.focusNodeId}
         options={state.options}
-        eventPool={pool}
+        eventPool={replaySnapshot ? replay.pool : pool}
+        replay={replay.isActive() ? replay : null}
+        replaying={replaySnapshot != null}
+        onReplayRequest={() => {
+          if (disposed) return;
+          void replay.open();
+          render();
+        }}
+        onReplayExit={() => {
+          if (disposed) return;
+          replay.close();
+        }}
         onFocusRequest={(nodeId: string) => {
           if (disposed) return;
           state.focusNodeId = nodeId;
+          state.detail = DETAIL_CLOSED; // choosing another atom leaves the detail view
           render();
+        }}
+        detailAtomId={state.detail.atomId}
+        onDetailRequest={(atomId: string) => {
+          if (disposed) return;
+          const next = openDetail(
+            state.detail,
+            atomId,
+            resolveAtomDescriptors(state.snapshot),
+            state.focusNodeId
+          );
+          if (next === state.detail) return;
+          state.detail = next;
+          state.focusNodeId = atomId;
+          render();
+        }}
+        onDetailExit={() => {
+          if (disposed) return;
+          const exit = closeDetail(state.detail);
+          state.detail = exit.state;
+          state.focusNodeId = exit.restoreFocusId;
+          if (exit.resetView) state.resetToken += 1;
+          render();
+        }}
+        onRendererFatal={() => {
+          state.fatal = true;
         }}
       />
     );
@@ -1168,8 +1478,23 @@ export function createAtomicTopologyInstance(
   return {
     update(snapshot: TopologySceneSnapshot): void {
       if (disposed) return;
+      // Unrecoverable GPU loss: throw so the host's existing update-failure
+      // path disposes this instance and falls back to the 2D renderer.
+      if (state.fatal) throw new AtomicWebGLUnsupportedError();
       state.snapshot = snapshot;
+      // The inspected atom left the snapshot: leave the detail view cleanly.
+      if (
+        state.detail.atomId !== null &&
+        !resolveAtomDescriptors(snapshot).some((d) => d.id === state.detail.atomId)
+      ) {
+        const exit = closeDetail(state.detail);
+        state.detail = exit.state;
+        state.focusNodeId = exit.restoreFocusId;
+        if (exit.resetView) state.resetToken += 1;
+      }
       ingestSnapshot(snapshot);
+      // The live structure changed under an open replay: rebuild the derived snapshot.
+      if (replay.isActive()) replay.invalidate();
       render();
     },
     resize(width: number, height: number): void {
@@ -1180,11 +1505,13 @@ export function createAtomicTopologyInstance(
     setPaused(paused: boolean): void {
       if (disposed) return;
       state.paused = paused;
+      replay.setHostPaused(paused);
       render();
     },
     focusNode(nodeId: string): void {
       if (disposed) return;
       state.focusNodeId = nodeId;
+      state.detail = DETAIL_CLOSED;
       render();
     },
     dispose(): void {
@@ -1198,6 +1525,9 @@ export function createAtomicTopologyInstance(
       // from an earlier StrictMode mount must not delete a newer instance's
       // trigger from the shared window surface.
       if (window.__atomicPulse === pulseTrigger) delete window.__atomicPulse;
+      if (window.__atomicOpenDetail === openDetailDev) delete window.__atomicOpenDetail;
+      replay.dispose();
+      delete window.__atomicReplay;
       // Release the event pool so no pooled events survive the teardown.
       pool.clear();
       try {
@@ -1232,7 +1562,6 @@ export function mountAtomicTopologyRenderer(
   initial: TopologySceneSnapshot,
   options: TopologyRendererOptions
 ): TopologyRendererInstance {
-  const { webgl2 } = detectTopologyCapabilities();
-  if (!webgl2) throw new AtomicWebGLUnsupportedError();
+  if (!gpuRenderingAvailable()) throw new AtomicWebGLUnsupportedError();
   return createAtomicTopologyInstance(container, initial, options);
 }

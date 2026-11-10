@@ -94,6 +94,16 @@ export function __resetWebgl2CacheForTests(): void {
 }
 
 /**
+ * GPU rendering gate for the ray-traced scene (Gate B C4): WebGPU
+ * (`navigator.gpu`) OR a real WebGL2 context. The scene's `WebGPURenderer`
+ * uses WebGPU when present and its WebGL2 backend otherwise; with neither the
+ * host keeps the 2D renderer. SSR-safe (false without a browser).
+ */
+export function gpuRenderingAvailable(): boolean {
+  return detectWebgpu() || webgl2Available();
+}
+
+/**
  * Probe for a WebGL2 context on a detached canvas. A `null` context result (or
  * a probe that throws) means "unavailable". The canvas is never attached to the
  * document, so there is nothing to dispose.
@@ -107,8 +117,8 @@ function detectWebgl2(): boolean {
 }
 
 /**
- * Probe for the WebGPU API (`navigator.gpu`). Treated as an *optional*
- * capability: the Atomic renderer requires only WebGL2.
+ * Probe for the WebGPU API (`navigator.gpu`). Either WebGPU or WebGL2 is
+ * enough for the Atomic renderer (see {@link gpuRenderingAvailable}).
  */
 function detectWebgpu(): boolean {
   if (typeof navigator === "undefined") return false;

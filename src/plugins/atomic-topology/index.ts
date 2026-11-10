@@ -150,8 +150,9 @@ export function buildAtomicTopologyPlugin(): TopologyRendererPlugin {
     name: atomicManifest.name,
     version: atomicManifest.version,
     supported(): boolean {
-      const { webgl2 } = detectTopologyCapabilities();
-      return webgl2;
+      // WebGPU or WebGL2 (the ray-traced scene runs on either backend).
+      const { webgl2, webgpu } = detectTopologyCapabilities();
+      return webgl2 || webgpu;
     },
     mount(
       container: HTMLElement,

@@ -22,6 +22,7 @@
  */
 import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
+import { ORBIT_DAMPING_60, orbitDampingFor } from "./frameRate";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 import { useAtomicSceneContext, resolveOrbitTarget } from "./sceneContext";
@@ -66,7 +67,7 @@ export function SceneOrbitControls({ enabled = true }: { enabled?: boolean }) {
     const controls = new OrbitControls(camera, dom);
     controls.target.set(0, 0, 0); // orbit around the nucleus (origin)
     controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
+    controls.dampingFactor = ORBIT_DAMPING_60;
     controls.minDistance = 200;
     controls.maxDistance = 3000;
     controls.enabled = enabled;
@@ -99,6 +100,8 @@ export function SceneOrbitControls({ enabled = true }: { enabled?: boolean }) {
         const k = reducedMotion ? 1 : 1 - Math.exp(-12 * Math.min(delta, 0.1));
         target.set(target.x + dx * k, target.y + dy * k, target.z + dz * k);
       }
+      // Damping per elapsed time, not per frame (30 fps default vs refresh rate, directive 45).
+      controls.dampingFactor = orbitDampingFor(delta);
       controls.update();
       // eslint-disable-next-line react-hooks/immutability -- per-frame orbit-target write to the shared mutable bridge (mutation is the contract)
       cameraState.target[0] = controls.target.x;

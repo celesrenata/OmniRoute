@@ -19,7 +19,6 @@
 import { createContext, useContext } from "react";
 
 import type { AtomicEventPool } from "../eventPool";
-import type { AtomicSceneQuality } from "../quality";
 
 /** A world-space position (the focused atom / orbit target). */
 export interface SceneWorldPosition {
@@ -110,8 +109,6 @@ export interface AtomicSceneContextValue {
   focusTarget: SceneWorldPosition | null;
   /** Reduced motion: minimize continuous animation (settle-on-update). */
   reducedMotion: boolean;
-  /** Coarse render quality (drives geometry/segment/DPR budgets). */
-  quality: AtomicSceneQuality;
   /** Camera vertical FOV (deg) — shared so fit/focus math matches the rig. */
   cameraFovDeg: number;
   /** Camera viewport aspect (width/height) — 1 when unknown. */
@@ -146,6 +143,23 @@ export interface AtomicSceneContextValue {
    * the focused framing). `0` until the first reset request.
    */
   resetToken: number;
+  /**
+   * Opt-in detail view (Step 11): the inspected atom id while the detail view
+   * is open, else `null`/absent. Only the camera fly-in and the DOM overlay
+   * read it; the default view never sets it.
+   */
+  detailAtomId?: string | null;
+  /**
+   * The measured feed is stale / unavailable (the telemetry badge): live in-flight counts
+   * then no longer drive the usage feeder traces (directive 40). Absent = treated as stale.
+   */
+  telemetryStale?: boolean;
+  /**
+   * Replay (Step 12): the playhead (epoch ms) the scene reads per frame, mutated in place by the
+   * replay controller. `value === null` (or the ref absent) means live: wall clock + live pool.
+   * While non-null, `pool` already holds the replay pool and live telemetry-driven effects are off.
+   */
+  replayNowRef?: { value: number | null } | null;
 }
 
 /**
@@ -161,13 +175,13 @@ export function useAtomicSceneContext(): AtomicSceneContextValue {
       pool: null,
       focusTarget: null,
       reducedMotion: false,
-      quality: "high",
       cameraFovDeg: 50,
       cameraAspect: 1,
       nowMs: 0,
       cameraState: createAtomicCameraState(),
       fitRadius: 1010,
       resetToken: 0,
+      detailAtomId: null,
     }
   );
 }

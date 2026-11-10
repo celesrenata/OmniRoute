@@ -26,13 +26,16 @@
  * tooltip (it does not follow the cursor). That is the bounded scope: hover
  * would need 3D ray-picking, which is out of scope for M3 Phase B.
  */
+import { Fragment } from "react";
 import type { AtomVisualDescriptor } from "../AtomicTopologyRenderer";
+import { activityCopy, activityLine } from "./activityVocabulary";
 
 /**
  * Human copy for the spin row, by provenance. "measured-zero" is a *real*
  * observed 0 (quiet upstream) and must not read as missing; "unavailable"
  * means no telemetry was sampled at all (no fabricated rate).
  */
+export { activityCopy };
 function spinCopy(descriptor: AtomVisualDescriptor): string {
   const { value, mode } = descriptor.spin;
   switch (mode) {
@@ -55,8 +58,42 @@ function spinCopy(descriptor: AtomVisualDescriptor): string {
  * queue of their own, so the row (always "unavailable" for them) uses the
  * rate-limiter label as the closest fleet concept.
  */
-export function queueRowLabel(kind: AtomVisualDescriptor["kind"]): string {
-  return kind === "runtime" ? "Sched. queue" : "Rate-limit queue";
+export function queueRowLabel(
+  kind: AtomVisualDescriptor["kind"],
+  hostedRuntimeIds?: readonly string[]
+): string {
+  // A GPU atom that hosts merged runtimes carries their scheduler queue.
+  const scheduler = kind === "runtime" || (kind === "gpu" && (hostedRuntimeIds?.length ?? 0) > 0);
+  return scheduler ? "Sched. queue" : "Rate-limit queue";
+}
+
+/**
+ * Observed-model rows with their provenance basis. One row per origin so a
+ * model id is never shown without saying where it was observed:
+ * "live in-flight" (WS), "call-log, last N min" (recent successful rows) or
+ * "fleet residency" (proven runtime residency on device atoms). Empty when
+ * nothing was observed (never a placeholder model).
+ */
+export function modelProvenanceRows(
+  descriptor: AtomVisualDescriptor
+): Array<{ label: string; value: string }> {
+  const ids = descriptor.observedModelIds;
+  if (!ids || ids.length === 0) return [];
+  const sources = descriptor.observedModelSources;
+  if (!sources) return [{ label: "Models (fleet residency)", value: ids.join(", ") }];
+  const rows: Array<{ label: string; value: string }> = [];
+  if (sources.inFlight.length > 0) {
+    rows.push({ label: "Models (live in-flight)", value: sources.inFlight.join(", ") });
+  }
+  const fromLog = sources.callLog.filter((id) => !sources.inFlight.includes(id));
+  if (fromLog.length > 0) {
+    const minutes = sources.callLogWindowMs ? Math.round(sources.callLogWindowMs / 60_000) : null;
+    rows.push({
+      label: `Models (call-log${minutes ? `, last ${minutes} min` : ""})`,
+      value: fromLog.join(", "),
+    });
+  }
+  return rows;
 }
 
 /**
@@ -87,9 +124,12 @@ function queueCopy(descriptor: AtomVisualDescriptor): string {
 export function AtomicTooltip({
   descriptor,
   capturedAt,
+  onOpenDetail,
 }: {
   descriptor: AtomVisualDescriptor | null;
   capturedAt?: number | null;
+  /** Opt-in detail view (Step 11): shows the "Open detail view" action when provided. */
+  onOpenDetail?: (atomId: string) => void;
 }) {
   if (!descriptor) return null;
 
@@ -139,12 +179,27 @@ export function AtomicTooltip({
         <dd>{descriptor.lane}</dd>
         <dt>State</dt>
         <dd>{state}</dd>
+        <dt>Activity</dt>
+        <dd>
+          {activityLine(
+            state,
+            descriptor.energyTier,
+            descriptor.lastActivityAt,
+            capturedAt ?? descriptor.lastActivityAt ?? 0
+          )}
+        </dd>
         <dt>Spin</dt>
         <dd>{spinCopy(descriptor)}</dd>
-        <dt>{queueRowLabel(descriptor.kind)}</dt>
+        <dt>{queueRowLabel(descriptor.kind, descriptor.deviceFacts?.hostedRuntimeIds)}</dt>
         <dd>{queueCopy(descriptor)}</dd>
         <dt>In flight</dt>
         <dd>{activeRequests}</dd>
+        {modelProvenanceRows(descriptor).map((row) => (
+          <Fragment key={row.label}>
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+          </Fragment>
+        ))}
         <dt>Captured</dt>
         <dd>{capturedLabel}</dd>
         {facts ? (
@@ -163,6 +218,14 @@ export function AtomicTooltip({
                 <dd>{numOrNoData(facts.temperatureC, (n) => `${n.toFixed(1)} °C`)}</dd>
                 <dt>Power</dt>
                 <dd>{numOrNoData(facts.powerWatts, (n) => `${n.toFixed(1)} W`)}</dd>
+                {facts.hostedRuntimeIds && facts.hostedRuntimeIds.length > 0 ? (
+                  <>
+                    <dt>Hosted runtimes</dt>
+                    <dd>{facts.hostedRuntimeIds.join(", ")} (proven runtime_device)</dd>
+                    <dt>Active jobs</dt>
+                    <dd>{numOrNoData(facts.activeJobs)}</dd>
+                  </>
+                ) : null}
               </>
             ) : (
               <>
@@ -179,6 +242,26 @@ export function AtomicTooltip({
         <dt>Fleet sample</dt>
         <dd>{fleetSampleLabel}</dd>
       </dl>
+      {onOpenDetail ? (
+        <button
+          type="button"
+          data-atomic-open-detail="true"
+          onClick={() => onOpenDetail(descriptor.id)}
+          style={{
+            marginTop: 8,
+            width: "100%",
+            padding: "4px 8px",
+            borderRadius: 6,
+            border: "1px solid rgba(34, 211, 238, 0.45)",
+            background: "rgba(8, 47, 73, 0.6)",
+            color: "#e0f2fe",
+            cursor: "pointer",
+            font: "600 11px system-ui, sans-serif",
+          }}
+        >
+          Open detail view
+        </button>
+      ) : null}
     </div>
   );
 }

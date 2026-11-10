@@ -31,11 +31,9 @@
  *     cluster renders the honest neutral two-tone palette — never labeled as
  *     observed models.
  *
- * The topology snapshot does NOT expose per-node model ids today (the lane
- * derivation consumes them internally in `normalizeTopology`), so the scene
- * currently passes none and every nucleus renders neutral. The builder is
- * fully general and unit-tested so the model-color groups activate the moment
- * a descriptor carries `observedModelIds` — no scene change needed.
+ * Descriptors carry `observedModelIds` from real observations (provider
+ * atoms: live in-flight models then recent call-log models; device atoms:
+ * proven runtime residency). With none observed the nucleus stays neutral.
  */
 import { modelColor } from "../visualEncoding";
 import { fnv1a } from "./cloudShells";

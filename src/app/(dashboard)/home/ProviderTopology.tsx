@@ -61,6 +61,11 @@ import {
   type TopologyLifecycleInput,
   type TopologyProviderEntry,
 } from "@/shared/topology/domain/normalizeTopology";
+import {
+  recentCallsSignature,
+  recentModelsSignature,
+  type RecentCallLogRow,
+} from "@/shared/topology/domain/recentModels";
 import { useFleetTelemetry } from "@/shared/topology/telemetry/useFleetTelemetry";
 import { buildAtomSignals, mergeDemoSignals } from "@/shared/topology/telemetry/atomSignals";
 import {
@@ -85,6 +90,12 @@ type Props = {
    * the 2D renderer ignores it. Absent → no lifecycle on the snapshot.
    */
   lifecycleEvents?: TopologyLifecycleInput[] | null;
+  /**
+   * Recent call-log rows from the shared poll. Only used to record real,
+   * recently served model ids per provider (`observedModels`); the 2D
+   * renderer ignores them. Absent → no `observedModels` on the snapshot.
+   */
+  recentCallLogs?: readonly RecentCallLogRow[] | null;
   lastProvider?: string;
   errorProvider?: string;
   /**
@@ -124,6 +135,7 @@ export default function ProviderTopology({
   providers = [],
   activeRequests = [],
   lifecycleEvents = null,
+  recentCallLogs: recentCallLogRows = null,
   lastProvider = "",
   errorProvider = "",
   enabled = true,
@@ -214,18 +226,53 @@ export default function ProviderTopology({
   // live state the panel is observing (no second subscription). The fleet
   // reconciliation (when present) is carried verbatim on
   // `snapshot.fleetTelemetry` (absent → field stays absent — 2D unchanged).
-  const snapshot = useMemo(
-    () =>
-      normalizeTopology({
-        providers,
-        activeRequests,
-        lastProvider,
-        errorProvider,
-        lifecycleEvents,
-        reconciliation: fleetReconciliation,
-      }),
-    [providers, activeRequests, lifecycleEvents, lastProvider, errorProvider, fleetReconciliation]
+  // The poll replaces the rows array every 3 s; keep the previous reference
+  // while the derived model set is unchanged so the snapshot does not churn.
+  // A slow tick re-evaluates the 15-min window even when polling is paused
+  // (hidden tab / failing poll), so aged-out models leave the nucleus.
+  const [windowTick, setWindowTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setWindowTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const recentSignature = useMemo(
+    // Models (15 min) + real call times (60 s, Atomic feeder traces): the snapshot refreshes
+    // when a real call arrives, never on an unchanged poll.
+    () => `${recentModelsSignature(recentCallLogRows)}|${recentCallsSignature(recentCallLogRows)}`,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- windowTick re-reads the clock
+    [recentCallLogRows, windowTick]
   );
+  const [stableRecent, setStableRecent] = useState<{
+    signature: string;
+    rows: readonly RecentCallLogRow[] | null;
+  }>({ signature: recentSignature, rows: recentCallLogRows });
+  if (stableRecent.signature !== recentSignature) {
+    setStableRecent({ signature: recentSignature, rows: recentCallLogRows });
+  }
+  const recentCallLogs = stableRecent.rows;
+  const snapshot = useMemo(() => {
+    // Re-derive when the windowed model set changes (clock-driven), even if
+    // the rows array reference did not.
+    void recentSignature;
+    return normalizeTopology({
+      providers,
+      activeRequests,
+      lastProvider,
+      errorProvider,
+      lifecycleEvents,
+      recentCallLogs,
+      reconciliation: fleetReconciliation,
+    });
+  }, [
+    providers,
+    activeRequests,
+    lifecycleEvents,
+    recentCallLogs,
+    recentSignature,
+    lastProvider,
+    errorProvider,
+    fleetReconciliation,
+  ]);
 
   // Per-route-link provenance rows for the diagnostics panel (OR-ATOM-009 S9.5):
   // which visible links are proven and on what basis. Built ONLY while the
@@ -334,6 +381,18 @@ export default function ProviderTopology({
     }
   }, [snapshot, rendererId]);
 
+  // View-mode toggle styling only. In Atomic mode it uses fixed dark glass that matches the
+  // Pause/Reset/Fullscreen cluster (theme-independent; the light theme's white `bg-bg` washed
+  // it out over the 3D canvas). slate-300 on slate-900/80 over the dark scene is > 4.5:1.
+  const atomicMode = rendererId === atomicRendererId;
+  const toggleSegmentClass = (active: boolean): string =>
+    atomicMode
+      ? active
+        ? "bg-slate-700/90 px-2 py-0.5 font-medium text-white"
+        : "px-2 py-0.5 text-slate-300 hover:text-white"
+      : active
+        ? "bg-white/10 px-2 py-0.5 font-medium text-white"
+        : "px-2 py-0.5 text-white/60 hover:text-white";
   return (
     <div className="relative h-[300px] w-full min-w-0 sm:h-[420px]">
       <div ref={containerRef} className="h-full w-full min-w-0" />
@@ -341,17 +400,17 @@ export default function ProviderTopology({
         <div
           role="group"
           aria-label="Topology view mode"
-          className="flex overflow-hidden rounded-md border border-white/10 bg-bg/90 text-[11px] shadow-sm"
+          className={
+            atomicMode
+              ? "flex overflow-hidden rounded-md border border-slate-400/25 bg-slate-900/80 text-[11px] text-slate-200 shadow-sm backdrop-blur-sm"
+              : "flex overflow-hidden rounded-md border border-white/10 bg-bg/90 text-[11px] shadow-sm"
+          }
         >
           <button
             type="button"
             aria-pressed={rendererId === DEFAULT_TOPOLOGY_RENDERER_ID}
             onClick={() => switchRenderer(DEFAULT_TOPOLOGY_RENDERER_ID)}
-            className={
-              rendererId === DEFAULT_TOPOLOGY_RENDERER_ID
-                ? "bg-white/10 px-2 py-0.5 font-medium text-white"
-                : "px-2 py-0.5 text-white/60 hover:text-white"
-            }
+            className={toggleSegmentClass(rendererId === DEFAULT_TOPOLOGY_RENDERER_ID)}
           >
             2D
           </button>
@@ -359,11 +418,7 @@ export default function ProviderTopology({
             type="button"
             aria-pressed={rendererId === atomicRendererId}
             onClick={() => switchRenderer(atomicRendererId)}
-            className={
-              rendererId === atomicRendererId
-                ? "bg-white/10 px-2 py-0.5 font-medium text-white"
-                : "px-2 py-0.5 text-white/60 hover:text-white"
-            }
+            className={toggleSegmentClass(rendererId === atomicRendererId)}
           >
             Atomic
           </button>

@@ -25,6 +25,17 @@ import {
   isTopologyEntryInSet,
   type TopologyActiveRequest,
 } from "@/app/(dashboard)/home/topologyUtils";
+import {
+  RECENT_MODELS_BASIS,
+  RECENT_CALLS_BASIS,
+  RECENT_CALLS_WINDOW_MS,
+  deriveRecentCallTimes,
+  recentCallsForEntry,
+  RECENT_MODELS_WINDOW_MS,
+  deriveRecentProviderModels,
+  recentModelsForEntry,
+  type RecentCallLogRow,
+} from "@/shared/topology/domain/recentModels";
 import type { ReconciliationResult } from "@/shared/topology/telemetry/reconcile";
 import { resolveTopologyNodeLabel } from "@/app/(dashboard)/home/topologyLabel";
 
@@ -205,6 +216,12 @@ export interface TopologyNormalizeInput {
    * atomic renderer consumes it to place GPU / runtime atoms.
    */
   reconciliation?: ReconciliationResult | null;
+  /**
+   * Optional recent call-log rows (the shared `/api/usage/call-logs` poll).
+   * Used only to record real, recently served model ids per provider as
+   * `observedModels`. Absent / empty → the field stays absent.
+   */
+  recentCallLogs?: readonly RecentCallLogRow[] | null;
   /** Snapshot timestamp; defaults to `Date.now()`. */
   capturedAt?: number;
 }
@@ -276,6 +293,11 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
   const activeSet = buildActiveSet(activeRequests);
   const lastSet = new Set<string>(lastProvider ? [lastProvider.toLowerCase()] : []);
   const errorSet = new Set<string>(errorProvider ? [errorProvider.toLowerCase()] : []);
+
+  const recentModelTallies = deriveRecentProviderModels(input.recentCallLogs, {
+    now: capturedAt,
+  });
+  const recentCallTimes = deriveRecentCallTimes(input.recentCallLogs, { now: capturedAt });
 
   const nodes: TopologySceneNode[] = [];
   const links: TopologySceneLink[] = [];
@@ -368,6 +390,26 @@ export function normalizeTopology(input: TopologyNormalizeInput): TopologySceneS
           };
         }
       }
+    }
+    const recent = recentModelsForEntry(recentModelTallies, entry);
+    if (recent) {
+      node.observedModels = {
+        value: recent.models,
+        source: "call-log",
+        sampledAt: recent.newestAt,
+        windowMs: RECENT_MODELS_WINDOW_MS,
+        basis: RECENT_MODELS_BASIS,
+      };
+    }
+    const calls = recentCallsForEntry(recentCallTimes, entry);
+    if (calls) {
+      node.recentCalls = {
+        value: calls,
+        source: "call-log",
+        sampledAt: calls[0],
+        windowMs: RECENT_CALLS_WINDOW_MS,
+        basis: RECENT_CALLS_BASIS,
+      };
     }
     nodes.push(node);
 

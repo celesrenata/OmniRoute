@@ -129,6 +129,32 @@ describe("BuiltinReactFlowRenderer (OR-ATOM-001 v2, M1)", () => {
     expect(container.childElementCount).toBe(1);
   });
 
+  it("a superseded instance's late dispose never unmounts the adopting mount (StrictMode)", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    let first: TopologyRendererInstance | null = null;
+    act(() => {
+      first = builtinReactFlowRenderer.mount(container, EMPTY_SNAPSHOT, {
+        emptyStateLabel: "FIRST",
+      });
+    });
+    act(() => {
+      instance = builtinReactFlowRenderer.mount(container, EMPTY_SNAPSHOT, {
+        emptyStateLabel: "SECOND",
+      });
+    });
+    // The first instance's deferred cleanup runs after the re-mount.
+    act(() => {
+      first?.dispose();
+      first?.update(makeSnapshot([HUB_NODE]));
+    });
+    expect(container.textContent).toContain("SECOND");
+    expect(container.childElementCount).toBe(1);
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("synchronously unmount"))).toBe(
+      false
+    );
+    errors.mockRestore();
+  });
+
   it("update re-renders the new snapshot (AC1)", () => {
     mount(container, EMPTY_SNAPSHOT);
     expect(container.textContent).toContain("Custom empty state text");

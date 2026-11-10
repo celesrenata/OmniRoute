@@ -31,10 +31,8 @@
  * pauses the scene (the animation primitives key off `paused`; R3F also
  * throttles hidden tabs), and it resumes on `visible`.
  *
- * **M6 — quality fallback.** The host-resolved quality tier (see
- * `quality.ts`) scales the `gl` antialias + `dpr` budgets via
- * {@link QUALITY_BUDGETS}; the 2D fallback decision itself is unchanged
- * (owned by the host, gated on the WebGL2 capability).
+ * **Fallback.** There are no quality tiers: full retina DPR and AA always. The
+ * 2D fallback decision is owned by the host, gated on the WebGL2 capability.
  *
  * Every position/color/state rendered comes from the pure
  * {@link AtomVisualDescriptor} / {@link LinkVisualDescriptor} computed by the
@@ -43,25 +41,58 @@
  * `@react-three/drei` to keep the 3D dependency surface at just `three` +
  * `@react-three/fiber`.
  */
-import { useLayoutEffect, useEffect, useRef, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import * as THREE from "three";
-import type { PerspectiveCamera } from "three";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { Vector3, type PerspectiveCamera } from "three";
+import {
+  detailLabelMask,
+  detailLabelMaskCss,
+  type MaskCircle,
+  type MaskLabel,
+  type MaskRect,
+} from "../overlays/detailLabelMask";
 
 import type { AtomicSceneProps } from "../AtomicTopologyRenderer";
 import { computeCameraFit, computeCameraFocus, isUsableCameraFit } from "../cameraFit";
-import { QUALITY_BUDGETS } from "../quality";
+import { resolveRenderDpr } from "../quality";
+import { clampRelax } from "./containerBounds";
+import {
+  detailGoalDistance,
+  detailFov,
+  detailComposition,
+  detailAtomGeometries,
+  detailSafeArea,
+  clearDetailSweep,
+  DETAIL_SWEEP_RAD,
+  viewOffsetPx,
+  DETAIL_FOV_DEG,
+  type DetailComposition,
+  type DetailRect,
+  driftYawRate,
+  flightOffset,
+  flightProgress,
+  DETAIL_FLIGHT_MS,
+} from "./detailFlight";
 
-import { Nucleus } from "./Nucleus";
-import { AtomNode } from "./AtomNode";
-import { EnergyLink } from "./EnergyLink";
 import { SceneOrbitControls } from "./SceneOrbitControls";
 import { ContextGuard } from "./ContextGuard";
-import { CanvasContextGuard, SceneClockDriver, useReducedMotionSync } from "./sceneState";
+import {
+  CanvasContextGuard,
+  SceneClockDriver,
+  sceneState,
+  useReducedMotionSync,
+} from "./sceneState";
+import { RtTopologyContent } from "./RtTopologyScene";
+import { TARGET_FPS, createFrameThrottle, getSyncRefresh, subscribeSyncRefresh } from "./frameRate";
+import { createRtCanvasRenderer } from "./rt/rendererFactory";
 import { AtomicSceneContext, type AtomicSceneContextValue } from "./sceneContext";
 
 /** The scene's vertical FOV — shared by the camera fit math and the camera. */
@@ -74,22 +105,43 @@ const SCENE_FOV_DEG = 50;
  * Pure with respect to props: re-rendering with the same descriptors is a
  * no-op visually (R3F diffs the tree).
  */
-export function AtomicScene({
-  descriptors,
-  linkDescriptors,
-  paused,
-  focusNodeId,
-  sceneContext,
-  bloomOverride,
-}: AtomicSceneProps) {
-  // A document-hidden pause: the scene freezes when the tab/page is hidden
-  // (bounded work, no GPU spend) and resumes when it is visible again.
+export function AtomicScene(props: AtomicSceneProps) {
+  // Dev A/B only (query params, never a production toggle): `?bloom=0`,
+  // `?backend=webgl`, `?restore-fail=1`.
+  const fx = useMemo(() => readDevFx(), []);
+  return <RtAtomicScene {...props} bloom={fx.bloom} />;
+}
+
+/** Dev-only query flags (`bloom=0`, `backend=webgl`, `restore-fail=1`). */
+function readDevFx(): {
+  bloom: boolean;
+  forceWebGL: boolean;
+  failRestore: boolean;
+} {
+  if (typeof window === "undefined") return { bloom: true, forceWebGL: false, failRestore: false };
+  const q = new URLSearchParams(window.location.search);
+  return {
+    bloom: q.get("bloom") !== "0",
+    forceWebGL: q.get("backend") === "webgl",
+    // Dev only: every renderer rebuild after the first fails (drives the 2D fallback).
+    failRestore: q.get("restore-fail") === "1" && process.env.NODE_ENV !== "production",
+  };
+}
+
+/** Fraction of the fit distance the camera keeps from a focused atom (close hero framing). */
+const FOCUS_DISTANCE_FACTOR = 0.38;
+
+/** Full retina: the device pixel ratio, uncapped (no quality tiers). */
+function deviceDpr(): number {
+  const d = typeof window !== "undefined" ? window.devicePixelRatio : 1;
+  return resolveRenderDpr(d);
+}
+
+/** Document-hidden pause. */
+function useDocumentHidden(): boolean {
   const [documentHidden, setDocumentHidden] = useState<boolean>(() =>
     typeof document !== "undefined" ? document.hidden : false
   );
-  // Track prefers-reduced-motion → static render (OR-ATOM-007, accessibility.md).
-  // Mirrors the media query into the shared scene state; a no-op under SSR.
-  useReducedMotionSync();
   useEffect(() => {
     if (typeof document === "undefined") return;
     const onVisibility = () => setDocumentHidden(document.hidden);
@@ -97,56 +149,255 @@ export function AtomicScene({
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
+  return documentHidden;
+}
 
+/** Restores attempted after a GPU device / context loss before giving up to 2D. */
+const MAX_RESTORE_FAILURES = 2;
+
+/**
+ * The ray-traced scene (Gate B): `WebGPURenderer` (WebGL2 backend fallback)
+ * inside the same R3F `<Canvas>` composition, so the camera rig, the label
+ * camera bridge and the orbit controls are the unchanged components below.
+ *
+ * Device / context loss: the clock freezes, the Canvas (renderer, pipeline,
+ * materials, environment) is torn down and rebuilt on a fresh canvas; after
+ * {@link MAX_RESTORE_FAILURES} failed rebuilds the host is told to fall back
+ * to the 2D renderer (`onRendererFatal`).
+ */
+function RtAtomicScene({
+  descriptors,
+  linkDescriptors,
+  paused,
+  focusNodeId,
+  sceneContext,
+  onRendererFatal,
+  bloom,
+}: AtomicSceneProps & { bloom: boolean }) {
+  const documentHidden = useDocumentHidden();
+  useReducedMotionSync();
   const effectivePaused = paused || documentHidden;
   const context = sceneContext;
-  const tier = QUALITY_BUDGETS[context.quality];
-  // Dev-probe override (iteration-e washout isolation): the bench page may
-  // force a bloom config independent of the tier. Production hosts never
-  // pass `bloomOverride`, so `bloom` here is the tier budget in production.
-  const budget = { ...tier, bloom: bloomOverride ?? tier.bloom };
-  const bloomBudget = budget.bloom;
+  const [epoch, setEpoch] = useState(0);
+  const failures = useRef(0);
+  const forceWebGL = useMemo(() => readDevFx().forceWebGL, []);
+  const failRestore = useMemo(() => readDevFx().failRestore, []);
+  const builds = useRef(0);
+  const dpr = useMemo(() => deviceDpr(), []);
+
+  const onLost = useCallback(() => {
+    sceneState.contextLost = true;
+    failures.current += 1;
+    if (failures.current > MAX_RESTORE_FAILURES) {
+      onRendererFatal?.();
+      return;
+    }
+    // Rebuild on a fresh canvas (a lost canvas can never be reused).
+    setEpoch((e) => e + 1);
+  }, [onRendererFatal]);
+
+  const glFactory = useCallback(
+    async (defaults: { canvas: HTMLCanvasElement | OffscreenCanvas }) => {
+      const disposed = { value: false };
+      builds.current += 1;
+      if (failRestore && builds.current > 1) throw new Error("dev: forced restore failure");
+      const { renderer, device } = await createRtCanvasRenderer(defaults.canvas, {
+        forceWebGL,
+        onDeviceLost: (reason) => {
+          // Our own teardown destroys the device too; only real losses rebuild.
+          if (disposed.value && !forcedLoss.value) return;
+          forcedLoss.value = false;
+          void reason;
+          onLost();
+        },
+      });
+      const dispose = renderer.dispose.bind(renderer);
+      (renderer as unknown as { dispose: () => void }).dispose = () => {
+        disposed.value = true;
+        dispose();
+      };
+      installLossHook(renderer, device);
+      return renderer as never;
+    },
+    [forceWebGL, failRestore, onLost]
+  );
 
   return (
-    <Canvas
-      gl={{ antialias: budget.antialias, powerPreference: "high-performance", alpha: true }}
-      dpr={[1, budget.dprMax]}
-    >
-      <AtomicSceneContext.Provider value={context}>
-        {/* OR-ATOM-007: pause-aware shared clock. Mounted FIRST so its useFrame
-            advances sceneClock before every scene component reads it. */}
-        <SceneClockDriver paused={effectivePaused} />
-        {/* OR-ATOM-010 T10.5: renderer-level color science (ACES tone map). */}
-        <ColorScience />
-        {/* OR-ATOM-010 T10.5e: quality-gated GPU bloom (RenderPass →
-            UnrealBloomPass → OutputPass). The parent gates the mount on the
-            live tier (disabled tiers keep the direct renderer path); the
-            tier-level numbers are passed as stable props. A dev-probe
-            override (`bloomOverride`) can replace the tier budget or disable
-            the chain entirely. */}
-        {bloomBudget.enabled && (
-          <BloomComposer
-            strength={bloomBudget.strength}
-            radius={bloomBudget.radius}
-            threshold={bloomBudget.threshold}
+    <CanvasErrorBoundary key={epoch} onError={onLost}>
+      <Canvas gl={glFactory} dpr={dpr} frameloop="never">
+        <AtomicSceneContext.Provider value={context}>
+          <SceneClockDriver paused={effectivePaused} />
+          <CanvasContextGuard />
+          <ContextGuard />
+          <RestoreWatch
+            onReady={() => {
+              failures.current = 0;
+              sceneState.contextLost = false;
+            }}
+            onLost={onLost}
           />
-        )}
-        {/* OR-ATOM-007: freeze the shared clock on WebGL2 context loss.
-            Complements ContextGuard (which re-invalidates the renderer on
-            restore) — together the scene holds a static frame and resumes. */}
-        <CanvasContextGuard />
-        <ContextGuard />
-        <CameraRig context={context} />
-        <CameraStateWriter context={context} />
-        <SceneContent
-          descriptors={descriptors}
-          linkDescriptors={linkDescriptors}
-          paused={effectivePaused}
-          focusNodeId={focusNodeId}
-        />
-      </AtomicSceneContext.Provider>
-    </Canvas>
+          <FrameDriver />
+          <CameraRig context={context} />
+          <CameraStateWriter context={context} />
+          <DetailFlight context={context} />
+          <SceneOrbitControls />
+          <RtTopologyContent
+            descriptors={descriptors}
+            linkDescriptors={linkDescriptors}
+            paused={effectivePaused}
+            focusNodeId={focusNodeId}
+            bloom={bloom}
+          />
+        </AtomicSceneContext.Provider>
+      </Canvas>
+    </CanvasErrorBoundary>
   );
+}
+
+/**
+ * The render loop (directives 19 + 45). R3F's own loop is off (`frameloop="never"`); this
+ * component runs one rAF loop and calls `advance()` only when a frame is due:
+ *   - default: the 30 fps throttle (`frameRate.ts`); a tick that is not due does nothing
+ *     (no useFrame subscriber runs, so no scene update and no GPU submit);
+ *   - "Sync to display refresh rate" (persisted): every rAF tick;
+ *   - hidden tab (`visibilitychange`) or canvas out of view (`IntersectionObserver`): the loop
+ *     stops entirely (0 fps) and restarts on return.
+ * The R3F clock is driven with the rAF timestamp, so every `useFrame` delta is the real elapsed
+ * time between rendered frames (motion speed is identical at 30 fps and at refresh rate).
+ */
+function FrameDriver() {
+  const gl = useThree((s) => s.gl);
+  const get = useThree((s) => s.get);
+  const advance = useThree((s) => s.advance);
+  const setFrameloop = useThree((s) => s.setFrameloop);
+  useEffect(() => {
+    const canvas = gl.domElement;
+    if (!canvas) return;
+    setFrameloop("never");
+    const throttle = createFrameThrottle(TARGET_FPS);
+    let sync = getSyncRefresh();
+    let inView = true;
+    let raf = 0;
+    let running = false;
+    const dev = process.env.NODE_ENV !== "production";
+    const tick = (now: number): void => {
+      raf = requestAnimationFrame(tick);
+      if (!sync && !throttle.due(now)) return;
+      advance(now / 1000, true);
+      if (dev) {
+        const w = window as unknown as { __atomicFrameTimes?: number[] };
+        const arr = (w.__atomicFrameTimes ??= []);
+        arr.push(now);
+        if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+      }
+    };
+    const start = (): void => {
+      if (running) return;
+      running = true;
+      throttle.reset();
+      // A resumed loop renders a normal-length first frame, not the time spent stopped.
+      const st = get();
+      st.clock.elapsedTime = performance.now() / 1000 - 1 / TARGET_FPS;
+      raf = requestAnimationFrame(tick);
+    };
+    const stop = (): void => {
+      running = false;
+      cancelAnimationFrame(raf);
+    };
+    const apply = (): void => {
+      if (inView && !document.hidden) start();
+      else stop();
+    };
+    const io =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver((entries) => {
+            const last = entries[entries.length - 1];
+            if (last) {
+              inView = last.isIntersecting;
+              apply();
+            }
+          })
+        : null;
+    io?.observe(canvas);
+    document.addEventListener("visibilitychange", apply);
+    const unsub = subscribeSyncRefresh((v) => {
+      sync = v;
+      throttle.reset();
+    });
+    if (dev) {
+      (window as unknown as { __atomicFrameRate?: () => string }).__atomicFrameRate = () =>
+        sync ? "sync" : `${TARGET_FPS}`;
+    }
+    apply();
+    return () => {
+      stop();
+      io?.disconnect();
+      document.removeEventListener("visibilitychange", apply);
+      unsub();
+    };
+  }, [gl, get, advance, setFrameloop]);
+  return null;
+}
+/** Set before a dev-forced `device.destroy()` so it counts as a real loss. */
+const forcedLoss = { value: false };
+
+/**
+ * Dev / test hook (non-production only): `window.__atomicForceContextLoss()`
+ * destroys the live WebGPU device (or loses the WebGL2 context) to exercise
+ * the recovery path end to end.
+ */
+function installLossHook(renderer: unknown, device: GPUDevice | null): void {
+  if (typeof window === "undefined" || process.env.NODE_ENV === "production") return;
+  (window as unknown as { __atomicForceContextLoss?: () => string }).__atomicForceContextLoss =
+    () => {
+      if (device) {
+        forcedLoss.value = true;
+        device.destroy();
+        return "webgpu:device.destroy";
+      }
+      const gl = (renderer as { backend?: { gl?: WebGL2RenderingContext } }).backend?.gl;
+      gl?.getExtension("WEBGL_lose_context")?.loseContext();
+      return "webgl:WEBGL_lose_context";
+    };
+}
+
+/**
+ * Inside the Canvas: marks the renderer healthy after the first frames, and
+ * turns a WebGL2-backend `webglcontextlost` into the same rebuild path as a
+ * WebGPU device loss.
+ */
+function RestoreWatch({ onReady, onLost }: { onReady: () => void; onLost: () => void }) {
+  const gl = useThree((s) => s.gl);
+  const frames = useRef(0);
+  useEffect(() => {
+    const canvas = gl.domElement;
+    if (!canvas) return;
+    const lost = () => onLost();
+    canvas.addEventListener("webglcontextlost", lost);
+    return () => canvas.removeEventListener("webglcontextlost", lost);
+  }, [gl, onLost]);
+  useFrame(() => {
+    frames.current += 1;
+    if (frames.current === 3) onReady();
+  });
+  return null;
+}
+
+/** Catches a failed renderer (re)initialisation so it counts as a failed restore. */
+class CanvasErrorBoundary extends Component<
+  { onError: () => void; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+  componentDidCatch(): void {
+    this.props.onError();
+  }
+  render(): ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
 }
 
 /**
@@ -177,23 +428,43 @@ function CameraRig({ context }: { context: AtomicSceneContextValue }) {
   const aspect = context.cameraAspect;
   const fitRadius = context.fitRadius;
   const resetToken = context.resetToken;
+  // Opt-in detail view (Step 11): `DetailFlight` owns the camera position while
+  // the viewer is inspecting an atom, so this rig must not snap it.
+  const detailActive = Boolean(context.detailAtomId) && focusPosition != null;
 
   useEffect(() => {
     const focused = focusPosition
       ? computeCameraFocus(focusPosition, { fovDeg: SCENE_FOV_DEG, aspect, radius: fitRadius })
       : null;
-    const fit =
+    let fit =
       focused && isUsableCameraFit(focused)
         ? focused
         : computeCameraFit({ fovDeg: SCENE_FOV_DEG, aspect, radius: fitRadius });
-    camera.position.set(fit.position[0], fit.position[1], fit.position[2]);
-    camera.lookAt(fit.lookAt[0], fit.lookAt[1], fit.lookAt[2]);
+    if (focused && fit === focused) {
+      // Focus view: fly in along the same viewing direction so the focused atom
+      // fills the frame (idea5 hero framing). Rotation is untouched; the orbit
+      // controls still own zoom (min distance 200) and the container clamp is soft.
+      const k = FOCUS_DISTANCE_FACTOR;
+      const [lx, ly, lz] = fit.lookAt;
+      fit = {
+        ...fit,
+        position: [
+          lx + (fit.position[0] - lx) * k,
+          ly + (fit.position[1] - ly) * k,
+          lz + (fit.position[2] - lz) * k,
+        ],
+      };
+    }
+    if (!detailActive) {
+      camera.position.set(fit.position[0], fit.position[1], fit.position[2]);
+      camera.lookAt(fit.lookAt[0], fit.lookAt[1], fit.lookAt[2]);
+    }
     // eslint-disable-next-line react-hooks/immutability -- the three.js PerspectiveCamera is imperative state: mutation is the R3F contract (React does not render it; frustum planes must track the fit — R3F's default far=1000 would clip the scene blank)
     camera.fov = SCENE_FOV_DEG;
     camera.near = fit.near;
     camera.far = fit.far;
     camera.updateProjectionMatrix();
-  }, [camera, focusPosition, aspect, fitRadius, resetToken]);
+  }, [camera, focusPosition, aspect, fitRadius, resetToken, detailActive]);
 
   return null;
 }
@@ -240,247 +511,402 @@ function CameraStateWriter({ context }: { context: AtomicSceneContextValue }) {
 }
 
 /**
-/**
- * OR-ATOM-010 T10.5 — renderer-level color science (NO postprocessing pass).
- *
- * Filmic ACES tone mapping + sRGB output + a modest exposure lift. This
- * gives the additive glow / env-map speculars the "bloom" roll-off the
- * spec asks for WITHOUT a second render target — the no-postFX path of the
- * quality ladder. One-time renderer state: zero per-frame cost, no effect
- * targets, no render-target leaks. Must sit INSIDE the `<Canvas>` so it
- * can read the live WebGL renderer via `useThree`.
+ * Opt-in detail view camera fly-in (Step 11). Active only while
+ * `context.detailAtomId` is set and the atom has a focus target. It eases the
+ * camera toward the inspected atom (pure pose math in `detailFlight.ts`) and
+ * releases control to the unchanged orbit controls when the flight ends or the
+ * viewer grabs the canvas (pointer / wheel). Mounted before
+ * `<SceneOrbitControls />` so its pose is what the controls' `update()` keeps.
+ * The default view never mounts any of this work: with no detail atom the
+ * component is inert.
  */
-function ColorScience() {
-  const gl = useThree((s) => s.gl);
-  useLayoutEffect(() => {
-    // eslint-disable-next-line react-hooks/immutability -- the three.js WebGLRenderer is imperative state, not React-managed: tone mapping / exposure / color space are set once on the live renderer (the same R3F contract as the camera mutation above), so mutating `gl` IS the contract
-    gl.toneMapping = THREE.ACESFilmicToneMapping;
-    // Exposure lift (OR-ATOM-010 T10.5 retune): the scene's per-atom radiance is
-    // low (emissive ≈0.25–1.2, additive glows ≈0.2–0.4 over near-black), so at
-    // exposure 1.1 ACES lands everything in the desaturated dark-mid band — the
-    // "muted, small, washed-blue" look. Lifting to 1.65 pushes the additive
-    // halos + fresnel rims into the luminous ACES roll-off region so the orbs
-    // read as neon light sources on the dark background, while ACES keeps the
-    // highlights controlled (no washout). Renderer-level only: no post-FX pass,
-    // no layout/camera/label change.
-    // OR-ATOM-010 T10.5d iteration-d: 1.65 → 1.9. The filament core + plasma
-    // ribbon now carry higher opacity/width (EnergyLink), and the atoms'
-    // emissive rims are unchanged — lifting the global exposure a notch
-    // pushes the additive halos into the ACES roll-off so the scene reads as
-    // luminous on the dark background without washing out (ACES keeps the
-    // highlight shoulder controlled). Renderer-level only.
-    gl.toneMappingExposure = 1.9;
-    gl.outputColorSpace = THREE.SRGBColorSpace;
-  }, [gl]);
-  return null;
+/**
+ * Imperative fov + lens-shift write (the three.js camera is R3F's mutable state, same
+ * as `CameraRig`). DOM labels follow the lens shift through two CSS variables on the
+ * host (see `detailLabelCss`), so they stay on their atoms.
+ */
+function applyDetailLens(
+  camera: PerspectiveCamera,
+  dom: HTMLCanvasElement | undefined,
+  host: HTMLElement | null,
+  fov: number,
+  shift: readonly [number, number]
+): void {
+  const w = dom?.clientWidth ?? 0;
+  const h = dom?.clientHeight ?? 0;
+  camera.fov = fov;
+  if (w > 0 && h > 0) {
+    const px = viewOffsetPx(shift, w, h);
+    camera.setViewOffset(w, h, px.x, px.y, w, h); // also updates the projection matrix
+    host?.style.setProperty("--atomic-lens-x", `${(-px.x).toFixed(2)}px`);
+    host?.style.setProperty("--atomic-lens-y", `${(-px.y).toFixed(2)}px`);
+  } else {
+    camera.updateProjectionMatrix();
+  }
 }
+/** DOM overlays inside the atomic host that the hero shot must stay clear of. */
+const DETAIL_OVERLAY_SELECTOR =
+  "[data-atomic-legend],[data-atomic-detail],[data-atomic-controls],[data-atomic-telemetry-status]";
+/** The host card's 2D/Atomic toggle sits over the canvas but outside the plugin host. */
+const DETAIL_HOST_OVERLAY_SELECTOR = '[role="group"][aria-label="Topology view mode"]';
+/** Overlay rectangles in canvas CSS px (only what actually covers the canvas). */
+function measureDetailOverlays(canvas: HTMLCanvasElement): {
+  width: number;
+  height: number;
+  rects: DetailRect[];
+  host: HTMLElement | null;
+} {
+  const c = canvas.getBoundingClientRect();
+  const host = canvas.closest<HTMLElement>("[data-atomic-host]");
+  const els: Element[] = host ? Array.from(host.querySelectorAll(DETAIL_OVERLAY_SELECTOR)) : [];
+  const fsEl = typeof document !== "undefined" ? document.fullscreenElement : null;
+  const hostFullscreen = Boolean(host && fsEl && (fsEl === host || fsEl.contains(host)));
+  if (host && !hostFullscreen) {
+    let up: HTMLElement | null = host.parentElement;
+    for (let i = 0; i < 4 && up; i += 1, up = up.parentElement) {
+      const found = up.querySelectorAll(DETAIL_HOST_OVERLAY_SELECTOR);
+      if (found.length > 0) {
+        els.push(...Array.from(found));
+        break;
+      }
+    }
+  }
+  const rects: DetailRect[] = [];
+  for (const el of els) {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
+    rects.push({ x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height });
+  }
+  return { width: c.width, height: c.height, rects, host };
+}
+/** How often the neighbour-label mask is re-measured (DOM reads, never per frame). */
+const DETAIL_MASK_INTERVAL_MS = 100;
+const maskA = new Vector3();
+const maskB = new Vector3();
+/**
+ * Projected silhouette (viewport px) of the inspected atom: its envelope radius taken
+ * along the camera's right axis at the drawn centre. Includes the lens shift, since
+ * the projection matrix carries the view offset.
+ */
+function projectSilhouette(
+  camera: PerspectiveCamera,
+  canvas: DOMRect,
+  center: readonly [number, number, number],
+  radius: number
+): MaskCircle | null {
+  maskA.set(center[0], center[1], center[2]);
+  maskB.setFromMatrixColumn(camera.matrixWorld, 0).multiplyScalar(radius).add(maskA);
+  maskA.project(camera);
+  maskB.project(camera);
+  if (maskA.z > 1 || maskA.z < -1) return null; // behind the camera / clipped
+  const sx = (v: Vector3): number => canvas.left + ((v.x + 1) / 2) * canvas.width;
+  const sy = (v: Vector3): number => canvas.top + ((1 - v.y) / 2) * canvas.height;
+  return {
+    x: sx(maskA),
+    y: sy(maskA),
+    r: Math.hypot(sx(maskB) - sx(maskA), sy(maskB) - sy(maskA)),
+  };
+}
+/** Viewport rect of an element, in the mask's shape. */
+function maskRect(el: Element): MaskRect {
+  const r = el.getBoundingClientRect();
+  return { x: r.left, y: r.top, w: r.width, h: r.height };
+}
+function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
+  const mask = useRef<{ el: HTMLStyleElement | null; ids: Set<string>; lastMs: number }>({
+    el: null,
+    ids: new Set(),
+    lastMs: -Infinity,
+  });
+  const camera = useThree((state) => state.camera) as PerspectiveCamera;
+  const gl = useThree((state) => state.gl);
+  const detailId = context.detailAtomId ?? null;
+  // The descriptors (and so `focusTarget`) are rebuilt on every snapshot; keep
+  // the latest values in a ref so a telemetry refresh never restarts the flight.
+  const live = useRef(context);
+  useEffect(() => {
+    live.current = context;
+  });
+  const flight = useRef<{
+    active: boolean;
+    elapsedMs: number;
+    o0: [number, number, number] | null;
+    goal: number;
+    /** Cinematic drift (settled shot) is running until the viewer grabs the camera. */
+    drift: boolean;
+    driftMs: number;
+    /** Last eased flight progress (drives the fov and the lens shift). */
+    e: number;
+    /** Hero field of view and lens shift (safe-area composition). */
+    goalFov: number;
+    goalShift: [number, number];
+    /** Shift / fov currently applied (eased toward the goal after a re-composition). */
+    shift: [number, number];
+    fov: number;
+    /** Yaw sweep that ends with a clear line of sight to the atom. */
+    sweep: number;
+    /** The overlays or the canvas changed size: recompose on the next frame. */
+    dirty: boolean;
+    composed: boolean;
+    host: HTMLElement | null;
+  }>({
+    active: false,
+    elapsedMs: 0,
+    o0: null,
+    goal: 0,
+    drift: false,
+    driftMs: 0,
+    e: 0,
+    goalFov: DETAIL_FOV_DEG,
+    goalShift: [0, 0],
+    shift: [0, 0],
+    fov: SCENE_FOV_DEG,
+    sweep: DETAIL_SWEEP_RAD,
+    dirty: false,
+    composed: false,
+    host: null,
+  });
 
-/**
- * The scene body: lighting + the hub nucleus + the provider/gpu atoms + the
- * route energy links + the orbit controls. Rendered inside the
- * `<AtomicSceneContext.Provider>` so the scene primitives read the ambient
- * context (event pool, focus, reduced motion, quality).
- *
- * Pure with respect to props — R3F diffs the tree, so re-rendering with the
- * same descriptors is a no-op visually.
- */
-/**
- * GPU bloom postprocessing chain — OR-ATOM-010 T10.5e.
- *
- * The per-tier `bloom` budget from {@link QUALITY_BUDGETS} drives a three-pass
- * `EffectComposer` (`RenderPass → UnrealBloomPass → OutputPass`). Disabled
- * tiers (`low` / `none`) keep the direct renderer path: the ACES tone map is
- * applied by the renderer itself on the canvas render (r186
- * `WebGLPrograms.js` tone-maps only when `currentRenderTarget === null`), so
- * `enabled: false` is the cheapest possible path — no composer allocation.
- *
- * **Render takeover (single pass).** The composer renders *instead of* R3F's
- * internal `gl.render()`: the `useFrame(..., 1)` positive render priority
- * increments the canvas store's `internal.priority` counter (r9.8.1
- * `events…esm.js:1159`), which suppresses the auto-render gate at
- * `…esm.js:17419` (`if (!state.internal.priority && state.gl.render)`).
- * Registering a positive-priority subscription is the documented R3F way to
- * "take rendering into your own hands" — so `composer.render()` is the sole
- * render per frame and the scene is never drawn twice. The positive priority
- * also *defends* the contract: any other positive-priority `useFrame` added
- * later to the scene would also take over rendering and double-render unless
- * it renders through the same composer.
- *
- * **Sizing / lifecycle.** `EffectComposer` is NOT auto-resized by R3F's
- * `Canvas` dpr / resize handling, so a `ResizeObserver` on the canvas syncs
- * the internal render-target buffers (DPR-aware: the canvas *drawing*
- * buffer is the physical size; logical width/height = physical / DPR).
- * Disposal mirrors the three r186 pass API: `EffectComposer.dispose()`
- * frees only `renderTarget1/2` + `copyPass`, so the `bloom` and `output`
- * passes are disposed explicitly (their `renderTargetBright` / mips /
- * materials leak otherwise).
- *
- * **Color pipeline.** `OutputPass` is the composer's last pass (the r186
- * tone-map/encoding equivalent of the renderer's built-in tone map) — it
- * re-reads `gl.toneMapping` (ACES), `gl.toneMappingExposure` (1.9) and
- * `gl.outputColorSpace` (sRGB) every frame, so the `ColorScience` retune is
- * honored through the postFX chain instead of being skipped (the renderer
- * tone-maps only on the direct canvas render, never on the composer's
- * HalfFloat render-target passes).
- *
- * **Pause.** `frameloop="always"` drives this `useFrame` regardless of the
- * scene's pause state — the same clock-advancing `SceneClockDriver`
- * subscription contract. The clock accumulates 0 while paused, so the scene
- * holds a static (but bloom-lit) frame, identical to the no-postFX pause
- * behavior.
- */
-function BloomComposer({
-  strength,
-  radius,
-  threshold,
-}: {
-  strength: number;
-  radius: number;
-  threshold: number;
-}) {
-  // Stable object references via selectors — each `useThree` subscription keys
-  // off one slice of the R3F store, so this component does NOT re-render on
-  // per-frame camera writes or unrelated state changes (a full `useThree()`
-  // destructure would). The tier-level numbers arrive as stable props, so the
-  // composer is built exactly once per mount (a quality-tier flip remounts the
-  // scene, which unmounts / remounts this component).
-  const gl = useThree((s) => s.gl);
-  const scene = useThree((s) => s.scene);
-  const camera = useThree((s) => s.camera);
-  const composerRef = useRef<EffectComposer | null>(null);
-  // Reusable temp for `getSize` / `getDrawingBufferSize` (avoids per-resize
-  // allocation). Kept in a ref so a second mounted instance cannot mutate it.
-  const tmpVec2Ref = useRef(new THREE.Vector2());
   useEffect(() => {
-    const composer = new EffectComposer(gl);
-    composer.addPass(new RenderPass(scene, camera));
-    const initSize = gl.getSize(tmpVec2Ref.current);
-    const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(Math.max(1, initSize.x), Math.max(1, initSize.y)),
-      strength,
-      radius,
-      threshold
-    );
-    composer.addPass(bloomPass);
-    const outputPass = new OutputPass();
-    composer.addPass(outputPass);
-    composerRef.current = composer;
-    return () => {
-      // Dispose the passes explicitly — the composer's own `dispose()`
-      // only frees its buffers and the built-in `copyPass`.
-      bloomPass.dispose();
-      outputPass.dispose();
-      composer.dispose();
-      composerRef.current = null;
-    };
-    // The pass parameters are tier-level constants (a
-    // quality change remounts
-    // this component, not this effect).
-  }, [gl, scene, camera, strength, radius, threshold]);
-  // Keep the composer buffers in step with the canvas drawing buffer
-  // (R3F manages the canvas size / DPR, not the composer — see the module
-  // doc above). The canvas *drawing* buffer is the physical size;
-  // `getPixelRatio` is the canvas DPR R3F sets from the `dpr` prop.
-  useEffect(() => {
-    const canvas = gl.domElement;
-    if (!canvas || typeof ResizeObserver === "undefined") return;
-    let raf = 0;
-    const observer = new ResizeObserver(() => {
-      // Defer to the next frame so the canvas `width` / `height` attributes
-      // (which R3F sets via the resize event) are current.
-      if (raf) cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const composer = composerRef.current;
-        if (!composer) return;
-        const physical = gl.getDrawingBufferSize(tmpVec2Ref.current);
-        const dpr = Math.max(0.0001, gl.getPixelRatio());
-        const w = Math.max(1, Math.floor(physical.x / dpr));
-        const h = Math.max(1, Math.floor(physical.y / dpr));
-        composer.setPixelRatio(dpr);
-        composer.setSize(w, h);
-      });
+    const f = flight.current;
+    if (!detailId) {
+      f.active = false;
+      f.drift = false;
+      f.o0 = null;
+      return;
+    }
+    const c = live.current;
+    const fit = computeCameraFit({
+      fovDeg: SCENE_FOV_DEG,
+      aspect: c.cameraAspect,
+      radius: c.fitRadius,
     });
-    observer.observe(canvas);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      observer.disconnect();
+    const fitDistance = Math.hypot(fit.position[0], fit.position[1], fit.position[2]);
+    f.goal = detailGoalDistance(fitDistance);
+    f.goalFov = DETAIL_FOV_DEG;
+    f.goalShift = [0, 0];
+    f.shift = [0, 0];
+    f.fov = SCENE_FOV_DEG;
+    f.composed = false;
+    f.dirty = true; // composed on the first frame (the detail panel has mounted by then)
+    f.elapsedMs = 0;
+    f.o0 = null; // captured on the first frame, from the live camera
+    f.active = true;
+    f.drift = false;
+    f.driftMs = 0;
+    f.e = 0;
+    clampRelax.detail = true; // low eye-level shot: shrink the soft wall band (still inside)
+    const dom = gl.domElement;
+    const stop = (): void => {
+      f.active = false;
+      f.drift = false; // the viewer owns the camera now
     };
-  }, [gl]);
-  // Sole render path (see the render-takeover note above).
-  useFrame((_, delta) => {
-    const composer = composerRef.current;
-    if (!composer) return;
-    composer.render(delta);
-  }, 1);
+    dom?.addEventListener("pointerdown", stop);
+    dom?.addEventListener("wheel", stop, { passive: true });
+    // Recompose when the canvas or an overlay changes size (card resize, fullscreen,
+    // the detail panel expanding). Debounced; never per frame.
+    const host = dom?.closest<HTMLElement>("[data-atomic-host]") ?? null;
+    f.host = host;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const markDirty = (): void => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        f.dirty = true;
+      }, 120);
+    };
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(markDirty) : null;
+    const observeAll = (): void => {
+      if (!ro || !dom) return;
+      ro.disconnect();
+      ro.observe(dom);
+      host?.querySelectorAll(DETAIL_OVERLAY_SELECTOR).forEach((el) => ro.observe(el));
+    };
+    observeAll();
+    const mo =
+      host && typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => {
+            observeAll();
+            markDirty();
+          })
+        : null;
+    mo?.observe(host as HTMLElement, { childList: true });
+    document.addEventListener("fullscreenchange", markDirty);
+    return () => {
+      dom?.removeEventListener("pointerdown", stop);
+      dom?.removeEventListener("wheel", stop);
+      document.removeEventListener("fullscreenchange", markDirty);
+      if (timer) clearTimeout(timer);
+      ro?.disconnect();
+      mo?.disconnect();
+      f.active = false;
+      f.drift = false;
+      f.composed = false;
+      clampRelax.detail = false;
+      // Neighbour labels come back on exit (the mask stylesheet is detail-only).
+      mask.current.el?.remove();
+      mask.current = { el: null, ids: new Set(), lastMs: -Infinity };
+      // Exact restore: no lens shift; CameraRig re-applies the scene fov on exit.
+      camera.clearViewOffset();
+      host?.style.removeProperty("--atomic-lens-x");
+      host?.style.removeProperty("--atomic-lens-y");
+    };
+  }, [detailId, gl, camera]);
+
+  useFrame((_s, delta) => {
+    const f = flight.current;
+    const c = live.current;
+    const target = c.focusTarget;
+    if (!target || !detailId) return;
+    if (f.dirty && gl.domElement) {
+      const geo = detailAtomGeometries.get(detailId);
+      if (geo) {
+        f.dirty = false;
+        const m = measureDetailOverlays(gl.domElement);
+        const safe = detailSafeArea(m.width, m.height, m.rects);
+        const tgt: [number, number, number] = [target.x, target.y, target.z];
+        let comp: DetailComposition;
+        if (!f.composed) {
+          comp = detailComposition(geo, tgt, { width: m.width, height: m.height }, safe);
+          f.goal = comp.distance;
+          f.composed = true;
+        } else {
+          // Re-composition (resize / panel change): keep the flight's goal distance
+          // while flying, the viewer's distance once settled.
+          const d = f.active
+            ? f.goal
+            : Math.hypot(
+                camera.position.x - target.x,
+                camera.position.y - target.y,
+                camera.position.z - target.z
+              );
+          comp = detailComposition(
+            geo,
+            tgt,
+            { width: m.width, height: m.height },
+            safe,
+            undefined,
+            d
+          );
+        }
+        f.goalFov = comp.fovDeg;
+        f.goalShift = comp.shift;
+        if (typeof window !== "undefined") {
+          (window as unknown as { __atomicDetailComposition?: unknown }).__atomicDetailComposition =
+            { safe, comp, canvas: { width: m.width, height: m.height }, overlays: m.rects };
+        }
+      }
+    }
+    // Lens: during the flight it follows the eased progress; afterwards it eases to
+    // the latest composition (frame-rate independent, instant in reduced motion).
+    const k = c.reducedMotion ? 1 : 1 - Math.exp(-8 * Math.min(delta, 0.1));
+    const goalFovNow = f.active ? detailFov(SCENE_FOV_DEG, f.e, f.goalFov) : f.goalFov;
+    const goalShiftNow: [number, number] = f.active
+      ? [f.goalShift[0] * f.e, f.goalShift[1] * f.e]
+      : f.goalShift;
+    if (f.e > 0) {
+      const nf = f.active ? goalFovNow : f.fov + (goalFovNow - f.fov) * k;
+      const ns: [number, number] = f.active
+        ? goalShiftNow
+        : [
+            f.shift[0] + (goalShiftNow[0] - f.shift[0]) * k,
+            f.shift[1] + (goalShiftNow[1] - f.shift[1]) * k,
+          ];
+      if (
+        Math.abs(nf - camera.fov) > 1e-4 ||
+        Math.abs(ns[0] - f.shift[0]) > 1e-5 ||
+        Math.abs(ns[1] - f.shift[1]) > 1e-5 ||
+        !camera.view?.enabled
+      ) {
+        f.fov = nf;
+        f.shift = ns;
+        applyDetailLens(camera, gl.domElement, f.host, nf, ns);
+      }
+    }
+    // Neighbour labels over the hero atom / panel fade out (directive 39.1).
+    const mk = mask.current;
+    const nowMs = performance.now();
+    if (f.host && gl.domElement && nowMs - mk.lastMs >= DETAIL_MASK_INTERVAL_MS) {
+      mk.lastMs = nowMs;
+      const geo = detailAtomGeometries.get(detailId);
+      camera.updateMatrixWorld();
+      const sil = geo
+        ? projectSilhouette(camera, gl.domElement.getBoundingClientRect(), geo.center, geo.envelope)
+        : null;
+      const labels: MaskLabel[] = [];
+      f.host.querySelectorAll<HTMLElement>(".atomic-labels [data-atom-id]").forEach((el) => {
+        labels.push({ id: el.getAttribute("data-atom-id") ?? "", rect: maskRect(el) });
+      });
+      const panels = Array.from(f.host.querySelectorAll("[data-atomic-detail]")).map(maskRect);
+      const ids = detailLabelMask(labels, detailId, sil, panels, mk.ids);
+      const same = ids.size === mk.ids.size && [...ids].every((id) => mk.ids.has(id));
+      if (!same) {
+        mk.ids = ids;
+        if (!mk.el) {
+          mk.el = document.createElement("style");
+          mk.el.setAttribute("data-atomic-detail-label-mask", "true");
+          // Inside the overlay layer, not the host: the host's childList observer
+          // recomposes the shot, and a label mask must never move the camera.
+          (f.host.querySelector(".atomic-overlays") ?? document.head).appendChild(mk.el);
+        }
+        mk.el.textContent = detailLabelMaskCss(ids);
+      }
+      if (typeof window !== "undefined") {
+        (window as unknown as { __atomicLabelMask?: unknown }).__atomicLabelMask = {
+          ids: [...ids],
+          silhouette: sil,
+        };
+      }
+    }
+    if (!f.active) {
+      // Settled hero shot: slow bounded yaw sway about the atom (off in reduced motion).
+      if (f.drift && !c.reducedMotion) {
+        f.driftMs += Math.min(delta, 0.1) * 1000;
+        const dyaw = driftYawRate(f.driftMs, false) * Math.min(delta, 0.1);
+        const ox = camera.position.x - target.x;
+        const oz = camera.position.z - target.z;
+        const cs = Math.cos(dyaw);
+        const sn = Math.sin(dyaw);
+        camera.position.set(
+          target.x + ox * cs + oz * sn,
+          camera.position.y,
+          target.z - ox * sn + oz * cs
+        );
+      }
+      return;
+    }
+    if (!f.composed) return; // wait one frame for the geometry + overlays
+    if (!f.o0) {
+      f.o0 = [
+        camera.position.x - target.x,
+        camera.position.y - target.y,
+        camera.position.z - target.z,
+      ];
+      // Never park the hero camera behind (or inside) a neighbouring atom.
+      const geo = detailAtomGeometries.get(detailId);
+      const others = [...detailAtomGeometries.entries()]
+        .filter(([id]) => id !== detailId)
+        .map(([, g]) => ({ center: g.center, radius: g.envelope }));
+      f.sweep = geo
+        ? clearDetailSweep(
+            [target.x, target.y, target.z],
+            geo.center,
+            Math.atan2(f.o0[0], f.o0[2]),
+            f.goal,
+            others
+          )
+        : DETAIL_SWEEP_RAD;
+    }
+    f.elapsedMs += Math.min(delta, 0.1) * 1000;
+    const e = flightProgress(f.elapsedMs, c.reducedMotion);
+    f.e = Math.max(e, 1e-6);
+    const o = flightOffset(f.o0, f.goal, e, f.sweep);
+    camera.position.set(target.x + o[0], target.y + o[1], target.z + o[2]);
+    if (f.elapsedMs >= DETAIL_FLIGHT_MS || c.reducedMotion) {
+      f.active = false;
+      f.drift = !c.reducedMotion;
+      f.driftMs = 0;
+    }
+  });
+
   return null;
-}
-
-function SceneContent({
-  descriptors,
-  linkDescriptors,
-  paused,
-  focusNodeId,
-}: {
-  descriptors: AtomicSceneProps["descriptors"];
-  linkDescriptors: AtomicSceneProps["linkDescriptors"];
-  paused: boolean;
-  focusNodeId: string | null;
-}) {
-  const hub = descriptors.find((d) => d.kind === "hub") ?? null;
-  const ringAtoms = descriptors.filter((d) => d.kind !== "hub");
-
-  return (
-    <>
-      <ambientLight intensity={0.4} />
-      {/* A point light at the nucleus gives the atoms a soft core highlight. */}
-      <pointLight
-        position={[0, 0, 0]}
-        intensity={2.4}
-        distance={2600}
-        decay={1.2}
-        color="#dbeafe"
-      />
-      <directionalLight position={[400, 600, 400]} intensity={0.5} />
-      {/* OR-ATOM-010 T10.5d iteration-d — cinematic rim/backlight: a cool
-       *  directional from behind-and-above the nucleus reads as an in-scene
-       *  rim/atmosphere term (lighting only — no post pass, screen-space
-       *  independent, zero render-target cost). It gives the nucleon shells
-       *  and orbital trails a directional falloff the flat ambient key
-       *  cannot, so the scene reads as "lit from behind" like the neon
-       *  references without claiming unavailable bloom postprocessing. */}
-      <directionalLight position={[-380, 260, -420]} intensity={0.7} color="#4f7cff" />
-      {/* OR-ATOM-010 T10.5 — depth cue: exponential fog matched to the host
-       *  canvas background (#05060f) so outer-ring atoms recede into a
-       *  deep-navy atmosphere instead of floating on flat black. Dense
-       *  enough to read as "depth" at the default camera distance
-       *  (~1500–2500 world units from the nucleus) but light enough that
-       *  the hub nucleus and first two rings stay crisp. Fog is a
-       *  scene-level state (three `scene.fog`), not a post pass — zero
-       *  render-target cost, SSR-safe (the fog element is a no-op outside
-       *  a Canvas), and frozen automatically under pause/reduced-motion
-       *  because it is a static material parameter, not a per-frame
-       *  animation. */}
-      <fogExp2 attach="fog" args={["#05060f", 0.00018]} />
-
-      {/* Interactive orbit/zoom/pan around the nucleus. SSR-safe: renders no
-       *  R3F primitive; the three OrbitControls attach to gl.domElement in an
-       *  effect (never during server render). */}
-      <SceneOrbitControls />
-
-      {hub && <Nucleus descriptor={hub} paused={paused} focused={focusNodeId === hub.id} />}
-
-      {ringAtoms.map((atom) => (
-        <AtomNode
-          key={atom.id}
-          descriptor={atom}
-          paused={paused}
-          focused={focusNodeId === atom.id}
-        />
-      ))}
-
-      {linkDescriptors.map((link) => (
-        <EnergyLink key={link.id} descriptor={link} atoms={ringAtoms} paused={paused} />
-      ))}
-    </>
-  );
 }

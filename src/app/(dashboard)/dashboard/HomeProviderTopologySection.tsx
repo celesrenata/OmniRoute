@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 
 import { Card } from "@/shared/components";
 import { useLiveRequests } from "@/hooks/useLiveDashboard";
+import { useRecentCallLogs } from "@/hooks/useRecentCallLogs";
 import { selectActiveRequests } from "../home/topologyUtils";
 
 const ProviderTopology = dynamic(() => import("../home/ProviderTopology"), { ssr: false });
@@ -38,6 +39,8 @@ export function HomeProviderTopologySection({
   // M4: `lifecycleEvents` rides the SAME gated socket (no second WS) — it is
   // a bounded, deduped view over the request started/completed/failed stream.
   const { activeRequests: liveActiveRequests, lifecycleEvents } = useLiveRequests({ enabled });
+  // Shared call-log poll (one poll for this and Recent Requests; no new socket).
+  const { rows: recentCallLogs } = useRecentCallLogs(enabled);
   const activeRequests = selectActiveRequests(liveActiveRequests);
   const activeProviderCount = new Set(activeRequests.map(({ provider }) => provider)).size;
 
@@ -69,6 +72,7 @@ export function HomeProviderTopologySection({
         providers={providers}
         activeRequests={activeRequests}
         lifecycleEvents={lifecycleEvents}
+        recentCallLogs={recentCallLogs}
         lastProvider={lastProvider}
         errorProvider={errorProvider}
         enabled={enabled}

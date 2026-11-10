@@ -285,16 +285,19 @@ test("device atoms appended in the outer band with proven facts", () => {
   const snapshot = makeSnapshot({ fleetTelemetry: makeReconciliation() });
   const descriptors = resolveAtomDescriptors(snapshot);
 
-  assert.equal(descriptors.length, 5, "3 + 1 gpu + 1 runtime");
+  assert.equal(descriptors.length, 4, "3 + 1 merged gpu (its runtime has no atom of its own)");
   const gpu = descriptors.find((d) => d.id === "gpu:h1:uuid-1");
-  const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0");
   assert.ok(gpu, "gpu device atom present");
-  assert.ok(runtime, "runtime device atom present");
+  assert.equal(
+    descriptors.find((d) => d.id === "runtime:h1:cuda-0"),
+    undefined,
+    "a runtime proven on exactly one GPU is merged into the GPU atom"
+  );
 
   // Devices are beyond every provider ring.
   const providerRings = descriptors.filter((d) => d.kind === "provider").map((d) => d.ringIndex);
   assert.ok(
-    Math.max(gpu!.ringIndex, runtime!.ringIndex) > Math.max(...providerRings, 0) ||
+    gpu!.ringIndex > Math.max(...providerRings, 0) ||
       (Math.min(...providerRings) === 0 && gpu!.ringIndex === 0),
     "device ring is at least the max provider ring"
   );
@@ -312,19 +315,12 @@ test("device atoms appended in the outer band with proven facts", () => {
     queuedJobs: 3,
     activeJobs: 2,
     modelId: "llama-3-70b",
+    hostedRuntimeIds: ["runtime:h1:cuda-0"],
   });
-  // Proven runtime facts + model color.
-  assert.equal(runtime!.deviceFacts?.kind, "runtime");
-  assert.equal(runtime!.deviceFacts?.queuedJobs, 3);
-  assert.equal(runtime!.deviceFacts?.activeJobs, 2);
-  assert.equal(runtime!.deviceFacts?.modelId, "llama-3-70b");
-  assert.ok(runtime!.modelColors.length === 1, "runtime nucleus colored by its model");
 
-  // W2 / S9.1 proven linkage: the runtime carries its proven
-  // provider_runtime edge; the GPU stays provider-unattached (its provider
-  // connection is only transitive through its runtime — never drawn directly).
-  assert.equal(runtime!.providerId, "openai", "runtime proven to provider:openai");
-  assert.equal(gpu!.providerId, undefined, "gpu stays provider-unattached");
+  // Proven linkage (directive 16): the merged GPU atom IS its runtime's atom, so
+  // it carries the runtime's proven provider_runtime edge.
+  assert.equal(gpu!.providerId, "openai", "merged gpu carries the hosted runtime's provider");
   // W2 / S9.3: the gpu's model identity comes from the proven on-GPU
   // runtime; an unclassifiable model id keeps the honest "unknown" lane.
   assert.deepEqual(gpu!.observedModelIds, ["llama-3-70b"], "gpu models from proven residency");
@@ -333,7 +329,7 @@ test("device atoms appended in the outer band with proven facts", () => {
 
   // Device spin/vibration bound to their own measured facts.
   assert.equal(gpu!.spin.mode, "measured", "gpu spin from its measured TPS");
-  assert.equal(runtime!.vibration.mode, "measured", "runtime vibration from its pending queue");
+  assert.equal(gpu!.vibration.mode, "measured", "gpu vibration from its hosted runtime queue");
 
   // Fleet sample anchor on every descriptor.
   assert.ok(descriptors.every((d) => d.fleetSampledAt === T + 1000));
@@ -349,10 +345,10 @@ test("stale device node → spin/vibration 'unavailable' and facts null (never d
   assert.equal(gpu.deviceFacts?.utilizationPercent, null, "stale → fact is null, not a value");
   assert.equal(gpu.deviceFacts?.vramUsedBytes, null);
   assert.equal(gpu.deviceFacts?.temperatureC, null);
-  // The runtime is fresh: it keeps its measured queue.
-  const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0")!;
-  assert.equal(runtime.vibration.mode, "measured");
-  assert.equal(runtime.deviceFacts?.queuedJobs, 3);
+  // A stale device reads unavailable as a whole (its hosted runtime's queue
+  // is not shown on a decayed device).
+  assert.equal(gpu.vibration.mode, "unavailable");
+  assert.equal(gpu.deviceFacts?.queuedJobs, null);
 });
 
 test("device facts with null Observed values → null (absent facts are not 0)", () => {
@@ -406,20 +402,15 @@ test("W2: classifiable on-GPU model -> gpu + runtime carry the lane and the mode
   const snapshot = makeSnapshot({ fleetTelemetry: recon });
   const descriptors = resolveAtomDescriptors(snapshot);
   const gpu = descriptors.find((d) => d.id === "gpu:h1:uuid-1")!;
-  const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0")!;
 
   assert.deepEqual(gpu.observedModelIds, ["text-embedding-3-small"]);
-  assert.deepEqual(runtime.observedModelIds, ["text-embedding-3-small"]);
   assert.equal(gpu.lane, "embedding", "lane derived from the proven on-GPU model");
   assert.equal(gpu.laneHue, "#A78BFA", "embedding lane hue (pinned palette)");
-  assert.equal(runtime.lane, "embedding", "runtime lane from its own model");
   assert.equal(gpu.deviceFacts?.modelId, "text-embedding-3-small");
-  // Both nuclei share the single proven model color.
-  assert.deepEqual(gpu.modelColors, runtime.modelColors);
   assert.equal(gpu.modelColors.length, 1);
 });
 
-test("W2: multi-runtime gpu -> no even split (proven model union, own facts only)", () => {
+test("merge: multi-runtime gpu -> union of models, sum of distinct measured runtime signals", () => {
   const recon = makeReconciliation({ gpuTps: null });
   const rt2: ReconciledRuntimeNode = {
     resourceId: "runtime:h1:cuda-1",
@@ -448,13 +439,14 @@ test("W2: multi-runtime gpu -> no even split (proven model union, own facts only
   // Models: the proven union of both runtimes (sorted; capped at 3 elsewhere).
   assert.deepEqual(gpu.observedModelIds, ["gpt-4o-mini", "llama-3-70b"]);
   assert.equal(gpu.modelColors.length, 2, "nucleus shows both proven models");
-  // Queue/jobs: NOT split across the two runtimes — the gpu has no own
-  // measurement, so it shows null (unavailable), never an averaged value.
-  assert.equal(gpu.deviceFacts?.queuedJobs, null, "multi-runtime -> no queue split");
-  assert.equal(gpu.deviceFacts?.activeJobs, null, "multi-runtime -> no active-job split");
-  // Spin/vibration: no own TPS + ambiguous attribution -> unavailable (never a split).
-  assert.equal(gpu.spin.mode, "unavailable", "multi-runtime -> no spin split");
-  assert.equal(gpu.vibration.mode, "unavailable", "multi-runtime -> no vibration split");
+  // Each runtime is a distinct proven process on this one GPU: their measured
+  // queue/jobs/TPS aggregate (3+4, 2+1, 9+15). Nothing is split or averaged.
+  assert.equal(gpu.deviceFacts?.queuedJobs, 7);
+  assert.equal(gpu.deviceFacts?.activeJobs, 3);
+  assert.equal(gpu.measuredTps, 24);
+  assert.equal(gpu.spin.mode, "measured");
+  assert.equal(gpu.vibration.mode, "measured");
+  assert.deepEqual(gpu.deviceFacts?.hostedRuntimeIds, ["runtime:h1:cuda-0", "runtime:h1:cuda-1"]);
 });
 
 test("W2: unproven joins -> no attribution (absent edges are never invented)", () => {
@@ -464,6 +456,7 @@ test("W2: unproven joins -> no attribution (absent edges are never invented)", (
   const descriptors = resolveAtomDescriptors(snapshot);
   const gpu = descriptors.find((d) => d.id === "gpu:h1:uuid-1")!;
   const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0")!;
+  assert.ok(runtime, "an unproven runtime keeps its own atom (never guess a GPU)");
 
   // No runtime_device edge -> the runtime's model/queue is NOT attributed
   // to the gpu, even though the runtime itself still shows its own facts.
@@ -495,11 +488,12 @@ test("W2: stale runtime -> its attribution to the gpu is never shown (stale -> u
   assert.equal(gpu.deviceFacts?.activeJobs, null);
   assert.equal(gpu.deviceFacts?.modelId, null);
   assert.equal(gpu.vibration.mode, "unavailable");
-  // The stale runtime itself also reads unavailable.
-  const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0")!;
-  assert.equal(runtime.spin.mode, "unavailable");
-  assert.equal(runtime.deviceFacts?.queuedJobs, null);
-  assert.equal(runtime.deviceFacts?.modelId, null);
+  // The stale runtime is still merged (membership follows proof), but shows nothing.
+  assert.equal(
+    descriptors.find((d) => d.id === "runtime:h1:cuda-0"),
+    undefined
+  );
+  assert.deepEqual(gpu.deviceFacts?.hostedRuntimeIds, ["runtime:h1:cuda-0"]);
 });
 
 /* ------------------------------------------------------------------ */
@@ -524,8 +518,12 @@ test("S9.2: measuredTps carries the raw measured TPS — the value the scene smo
   // GPU: its own per-device measured TPS (unambiguous own attribution).
   const gpu = descriptors.find((d) => d.id === "gpu:h1:uuid-1")!;
   assert.equal(gpu.measuredTps, 12, "gpu measuredTps = own measured TPS");
-  // Runtime: its own measured TPS.
-  const runtime = descriptors.find((d) => d.id === "runtime:h1:cuda-0")!;
+  // An unmerged runtime (no proof) keeps its own measured TPS.
+  const loose = makeReconciliation();
+  loose.edges = [];
+  const runtime = resolveAtomDescriptors(makeSnapshot({ fleetTelemetry: loose })).find(
+    (d) => d.id === "runtime:h1:cuda-0"
+  )!;
   assert.equal(runtime.measuredTps, 9, "runtime measuredTps = own measured TPS");
 });
 
@@ -545,7 +543,7 @@ test("S9.2: measuredTps is null when nothing fresh is attributable", () => {
   assert.equal(gpuSingle.measuredTps, 9, "single-runtime gpu inherits the runtime's TPS");
   assert.equal(gpuSingle.spin.mode, "measured");
 
-  // Multi-runtime GPU: attribution is ambiguous → no measuredTps (no split).
+  // Multi-runtime GPU: the hosted runtimes' measured TPS aggregate (no split).
   const recon = makeReconciliation({ gpuTps: null });
   recon.runtimeNodes.push({
     resourceId: "runtime:h1:cuda-1",
@@ -568,8 +566,8 @@ test("S9.2: measuredTps is null when nothing fresh is attributable", () => {
   const gpuMulti = resolveAtomDescriptors(makeSnapshot({ fleetTelemetry: recon })).find(
     (d) => d.id === "gpu:h1:uuid-1"
   )!;
-  assert.equal(gpuMulti.measuredTps, null, "multi-runtime gpu → no measuredTps (no split)");
-  assert.equal(gpuMulti.spin.mode, "unavailable");
+  assert.equal(gpuMulti.measuredTps, 24, "multi-runtime gpu → sum of hosted measured TPS");
+  assert.equal(gpuMulti.spin.mode, "measured");
 });
 
 test("S9.2: a stale device sample decays to null (the nucleus spins down, never holds a fake speed)", () => {
@@ -578,6 +576,52 @@ test("S9.2: a stale device sample decays to null (the nucleus spins down, never 
   ).find((d) => d.id === "gpu:h1:uuid-1")!;
   assert.equal(gpu.measuredTps, null, "stale gpu sample → null");
   assert.equal(gpu.spin.mode, "unavailable", "stale → the spin mode decays too");
+});
+
+/* ------------------------------------------------------------------ */
+/* OR-ATOM-010 directive 16 — GPU + runtime merge                      */
+/* ------------------------------------------------------------------ */
+
+test("merge: a runtime proven on TWO gpus keeps its own atom and is not double-counted", () => {
+  const recon = makeReconciliation({ gpuTps: null });
+  const gpu2 = { ...recon.gpuNodes[0], resourceId: "gpu:h1:uuid-2", deviceUuid: "uuid-2" };
+  recon.gpuNodes.push(gpu2);
+  recon.edges.push({
+    source: "runtime:h1:cuda-0",
+    target: "gpu:h1:uuid-2",
+    relation: "runtime_device",
+    basis: "metrics-join",
+    sampledAt: T,
+  });
+  const ds = resolveAtomDescriptors(makeSnapshot({ fleetTelemetry: recon }));
+  assert.ok(
+    ds.find((d) => d.id === "runtime:h1:cuda-0"),
+    "ambiguous runtime stays separate"
+  );
+  for (const id of ["gpu:h1:uuid-1", "gpu:h1:uuid-2"]) {
+    const g = ds.find((d) => d.id === id)!;
+    assert.equal(g.measuredTps, null, `${id}: ambiguous runtime throughput is not attributed`);
+    assert.deepEqual(g.observedModelIds, []);
+    assert.equal(g.deviceFacts?.hostedRuntimeIds, undefined);
+  }
+});
+
+test("merge: unknown device edge target never merges (never guess a gpu)", () => {
+  const recon = makeReconciliation();
+  recon.edges = recon.edges.map((e) =>
+    e.relation === "runtime_device" ? { ...e, target: "gpu:h9:nope" } : e
+  );
+  const ds = resolveAtomDescriptors(makeSnapshot({ fleetTelemetry: recon }));
+  assert.ok(ds.find((d) => d.id === "runtime:h1:cuda-0"));
+});
+
+test("merge: node membership only - provider atoms and rings are unchanged", () => {
+  const merged = resolveAtomDescriptors(makeSnapshot({ fleetTelemetry: makeReconciliation() }));
+  const base = resolveAtomDescriptors(makeSnapshot());
+  for (const b of base) {
+    const m = merged.find((d) => d.id === b.id)!;
+    assert.deepEqual(m.position, b.position, `${b.id} did not move`);
+  }
 });
 
 /* ------------------------------------------------------------------ */
