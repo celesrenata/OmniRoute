@@ -294,10 +294,10 @@ export function viewOffsetPx(
 export const DETAIL_FLIGHT_MS = 1700;
 /** Total yaw swing (radians) accumulated over the flight. */
 export const DETAIL_SWEEP_RAD = 0.55;
-/** Peak yaw sway of the settled cinematic drift (radians, each side). */
-export const DETAIL_DRIFT_AMPLITUDE_RAD = 0.2;
-/** Drift period (ms): slow, one full sway every ~38 s. */
-export const DETAIL_DRIFT_PERIOD_MS = 38_000;
+/** Peak yaw sway of the settled cinematic drift (radians, each side): a gentle hint (~3.4°). */
+export const DETAIL_DRIFT_AMPLITUDE_RAD = 0.06;
+/** Drift period (ms): very slow, one full sway every ~60 s. */
+export const DETAIL_DRIFT_PERIOD_MS = 60_000;
 /** Goal camera distance from the inspected atom for a given base fit distance. */
 export function detailGoalDistance(fitDistance: number): number {
   if (!Number.isFinite(fitDistance) || fitDistance <= 0) return DETAIL_MIN_DISTANCE;

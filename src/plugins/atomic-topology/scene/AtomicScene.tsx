@@ -424,15 +424,22 @@ class CanvasErrorBoundary extends Component<
  */
 function CameraRig({ context }: { context: AtomicSceneContextValue }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
-  const focusPosition = context.focusTarget;
   const aspect = context.cameraAspect;
   const fitRadius = context.fitRadius;
   const resetToken = context.resetToken;
+  // Descriptors (and so `focusTarget`) are rebuilt on every telemetry snapshot.
+  // Key the rig on the focus *coordinates*, not the object identity, so a poll
+  // never snaps the camera back over the viewer's own orbit / zoom / pan.
+  const fx = context.focusTarget?.x ?? null;
+  const fy = context.focusTarget?.y ?? null;
+  const fz = context.focusTarget?.z ?? null;
+  const hasFocus = fx != null && fy != null && fz != null;
   // Opt-in detail view (Step 11): `DetailFlight` owns the camera position while
   // the viewer is inspecting an atom, so this rig must not snap it.
-  const detailActive = Boolean(context.detailAtomId) && focusPosition != null;
+  const detailActive = Boolean(context.detailAtomId) && hasFocus;
 
   useEffect(() => {
+    const focusPosition = hasFocus ? { x: fx, y: fy, z: fz } : null;
     const focused = focusPosition
       ? computeCameraFocus(focusPosition, { fovDeg: SCENE_FOV_DEG, aspect, radius: fitRadius })
       : null;
@@ -464,7 +471,7 @@ function CameraRig({ context }: { context: AtomicSceneContextValue }) {
     camera.near = fit.near;
     camera.far = fit.far;
     camera.updateProjectionMatrix();
-  }, [camera, focusPosition, aspect, fitRadius, resetToken, detailActive]);
+  }, [camera, hasFocus, fx, fy, fz, aspect, fitRadius, resetToken, detailActive]);
 
   return null;
 }
@@ -703,6 +710,7 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     };
     dom?.addEventListener("pointerdown", stop);
     dom?.addEventListener("wheel", stop, { passive: true });
+    window.addEventListener("keydown", stop);
     // Recompose when the canvas or an overlay changes size (card resize, fullscreen,
     // the detail panel expanding). Debounced; never per frame.
     const host = dom?.closest<HTMLElement>("[data-atomic-host]") ?? null;
@@ -734,6 +742,7 @@ function DetailFlight({ context }: { context: AtomicSceneContextValue }) {
     return () => {
       dom?.removeEventListener("pointerdown", stop);
       dom?.removeEventListener("wheel", stop);
+      window.removeEventListener("keydown", stop);
       document.removeEventListener("fullscreenchange", markDirty);
       if (timer) clearTimeout(timer);
       ro?.disconnect();

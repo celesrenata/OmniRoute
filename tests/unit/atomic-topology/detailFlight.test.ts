@@ -9,6 +9,7 @@ import {
   DETAIL_FOV_DEG,
   DETAIL_HERO_DISTANCE,
   DETAIL_DRIFT_AMPLITUDE_RAD,
+  DETAIL_DRIFT_PERIOD_MS,
   detailFov,
   detailAtomGeometry,
   detailComposition,
@@ -48,7 +49,7 @@ test("drift is a bounded sway and off in reduced motion", () => {
   // integrate the rate over a full period: net yaw ~ 0 and the excursion stays within the amplitude
   let yaw = 0;
   let max = 0;
-  for (let t = 0; t < 38_000; t += 10) {
+  for (let t = 0; t < DETAIL_DRIFT_PERIOD_MS; t += 10) {
     yaw += driftYawRate(t, false) * 0.01;
     max = Math.max(max, Math.abs(yaw));
   }
@@ -249,7 +250,7 @@ test("the hero camera never ends behind or inside a neighbouring atom", () => {
   const sweep = clearDetailSweep(target, target, az0, D, [blocker]);
   assert.notEqual(sweep, DETAIL_SWEEP_RAD);
   // Over the whole drift sway the segment camera->atom clears the blocker.
-  for (const sway of [-0.2, 0, 0.2]) {
+  for (const sway of [-DETAIL_DRIFT_AMPLITUDE_RAD, 0, DETAIL_DRIFT_AMPLITUDE_RAD]) {
     const b = az0 + sweep + sway;
     const cam = [Math.sin(b) * Math.cos(el) * D, Math.sin(el) * D, Math.cos(b) * Math.cos(el) * D];
     let min = Infinity;
