@@ -22,7 +22,7 @@ import { purgeExpired } from "@/lib/db/skillSnapshots";
 import { skillsServiceDisabled, skillServiceDisabledResponse } from "@/lib/skills/serviceGate";
 
 export async function POST(request: NextRequest) {
-  const authError = await requireManagementAuth(request);
+  const authError = await requireManagementAuth(request, { acceptSkillsScope: "write" });
   if (authError) return authError;
 
   if (await skillsServiceDisabled()) return skillServiceDisabledResponse();

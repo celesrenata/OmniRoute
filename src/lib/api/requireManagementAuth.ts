@@ -9,8 +9,12 @@ import { AUTHZ_HEADER_AUTH_KIND, AUTHZ_HEADER_AUTH_LABEL } from "@/server/authz/
 import {
   MANAGE_SCOPE,
   MCP_CONNECT_SCOPE,
+  SKILLS_READ_SCOPE,
+  SKILLS_WRITE_SCOPE,
   hasManageScope as hasManageScopeShared,
   hasMcpConnectOrManageScope,
+  hasSkillsHubScope,
+  type SkillsHubLevel,
 } from "@/shared/constants/managementScopes";
 
 export { MANAGE_SCOPE };
@@ -35,6 +39,12 @@ interface RequireManagementAuthOptions {
    * this — every other management route stays manage/admin-only.
    */
   acceptMcpConnectScope?: boolean;
+  /**
+   * Accept the narrow Skill Hub scopes in the API-key branch: `read:catalog`
+   * for "read", `write:skills` for "write" (manage/admin always pass). Only the
+   * allowlisted Skill Hub routes (see `resolveSkillsHubRouteLevel`) may set this.
+   */
+  acceptSkillsScope?: SkillsHubLevel;
 }
 
 function invalidManagementTokenResponse(options: RequireManagementAuthOptions): Response {
@@ -142,7 +152,9 @@ export async function requireManagementAuth(
       meta &&
       (options.acceptMcpConnectScope
         ? hasMcpConnectOrManageScope(meta.scopes)
-        : hasManageScope(meta.scopes))
+        : options.acceptSkillsScope
+          ? hasSkillsHubScope(meta.scopes, options.acceptSkillsScope)
+          : hasManageScope(meta.scopes))
     ) {
       return null;
     }
@@ -151,7 +163,9 @@ export async function requireManagementAuth(
       status: 403,
       message: options.acceptMcpConnectScope
         ? `API key lacks '${MCP_CONNECT_SCOPE}' (or 'manage') scope. Enable it in the API Keys dashboard.`
-        : "API key lacks 'manage' scope. Enable it in the API Keys dashboard.",
+        : options.acceptSkillsScope
+          ? `API key lacks '${options.acceptSkillsScope === "read" ? SKILLS_READ_SCOPE : SKILLS_WRITE_SCOPE}' (or 'manage') scope. Enable it in the API Keys dashboard.`
+          : "API key lacks 'manage' scope. Enable it in the API Keys dashboard.",
       type: "invalid_request",
     });
   }

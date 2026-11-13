@@ -44,6 +44,45 @@ export function hasMcpConnectOrManageScope(scopes: readonly string[] = []): bool
 }
 
 /**
+ * Narrow, additive Skill Hub scopes. These are the same names the MCP tools
+ * already use (`omr_skill_*`: `read:catalog`, `write:skills`). They authorize ONLY
+ * the explicit REST allowlist in `resolveSkillsHubRouteLevel` — never any other
+ * management route — and are deliberately kept OUT of `MANAGEMENT_API_KEY_SCOPES`
+ * (same precedent as `MCP_CONNECT_SCOPE`).
+ *
+ * Secondary (least-privilege) Skill Hub management key =
+ *   [`mcp:connect`, `read:catalog`, `write:skills`].
+ */
+export const SKILLS_READ_SCOPE = "read:catalog";
+export const SKILLS_WRITE_SCOPE = "write:skills";
+export type SkillsHubLevel = "read" | "write";
+/**
+ * Whether the scopes authorize the given Skill Hub level. `manage`/`admin`
+ * always pass. `write:skills` does NOT imply `read:catalog` (and vice versa).
+ */
+export function hasSkillsHubScope(scopes: readonly string[] = [], level: SkillsHubLevel): boolean {
+  if (hasManageScope(scopes)) return true;
+  return scopes.includes(level === "read" ? SKILLS_READ_SCOPE : SKILLS_WRITE_SCOPE);
+}
+/**
+ * Explicit REST allowlist for the Skill Hub scopes. Returns the level a request
+ * needs, or `null` when the route is NOT carved out (it then needs manage/admin).
+ *
+ * `POST /api/skills/catalog` is listed as `read` because the policy layer cannot
+ * see the body; the route handler re-checks `action: "execute"` against
+ * manage/admin. `/api/skills/install`, `/api/skills/[id]`, `/api/skills/executions`
+ * and `/api/skills/collect/` are intentionally absent.
+ */
+export function resolveSkillsHubRouteLevel(method: string, path: string): SkillsHubLevel | null {
+  const m = method.toUpperCase();
+  const p = path.length > 1 ? path.replace(/\/+$/, "") : path;
+  if (p === "/api/skills/catalog") return m === "GET" || m === "POST" ? "read" : null;
+  if (p === "/api/skills/hub") return m === "POST" || m === "DELETE" ? "write" : null;
+  if (p === "/api/skills/catalog/refresh") return m === "POST" ? "write" : null;
+  if (m === "POST" && /^\/api\/skills\/catalog\/[^/]+\/toggle$/.test(p)) return "write";
+  return null;
+}
+/**
  * Check whether any of the given scopes authorizes management API access.
  */
 export function hasManageScope(scopes: readonly string[] = []): boolean {

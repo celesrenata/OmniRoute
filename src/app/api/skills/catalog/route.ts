@@ -30,7 +30,7 @@ const MAX_RESOURCE_BYTES = 1_000_000;
 // ── GET: search ──────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
-  const authError = await requireManagementAuth(request);
+  const authError = await requireManagementAuth(request, { acceptSkillsScope: "read" });
   if (authError) return authError;
 
   const { searchParams } = new URL(request.url);
@@ -70,7 +70,9 @@ export async function GET(request: NextRequest) {
 // ── POST: load / resource / execute ─────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  const authError = await requireManagementAuth(request);
+  // `read:catalog` covers search/load/resource. `execute` runs skill handlers and is
+  // re-checked below against manage/admin only.
+  const authError = await requireManagementAuth(request, { acceptSkillsScope: "read" });
   if (authError) return authError;
 
   let body: Record<string, unknown>;
@@ -81,6 +83,10 @@ export async function POST(request: NextRequest) {
   }
 
   const action = body.action;
+  if (action === "execute") {
+    const strictAuthError = await requireManagementAuth(request);
+    if (strictAuthError) return strictAuthError;
+  }
   const id = typeof body.id === "string" ? body.id : undefined;
   if (!id) {
     return NextResponse.json({ error: "Missing required 'id' field" }, { status: 400 });

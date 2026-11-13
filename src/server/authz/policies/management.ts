@@ -8,6 +8,8 @@ import { getApiKeyMetadata } from "../../../lib/db/apiKeys";
 import { hasManageScope } from "../../../lib/api/requireManagementAuth";
 import {
   hasMcpConnectOrManageScope,
+  hasSkillsHubScope,
+  resolveSkillsHubRouteLevel,
   MCP_CONNECT_SCOPE,
 } from "../../../shared/constants/managementScopes";
 import { evaluateAccessTokenAuth } from "../accessTokenAuth";
@@ -250,6 +252,30 @@ export const managementPolicy: RoutePolicy = {
       }
     }
 
+    // Skill Hub carve-out: a key holding ONLY `read:catalog` / `write:skills` may
+    // reach the explicit Skill Hub REST allowlist (resolveSkillsHubRouteLevel) and
+    // nothing else. Anything off the allowlist falls through to the generic
+    // manage/admin check below, so these scopes never widen general management access.
+    const skillsLevel = resolveSkillsHubRouteLevel(ctx.request?.method ?? "GET", path);
+    if (skillsLevel) {
+      const apiKey = extractApiKey(ctx.request as unknown as Request, { allowUrl: false });
+      if (apiKey) {
+        try {
+          if (await isValidApiKey(apiKey)) {
+            const meta = await getApiKeyMetadata(apiKey);
+            if (meta && hasSkillsHubScope(meta.scopes, skillsLevel)) {
+              return allow({
+                kind: "management_key",
+                id: meta.id,
+                label: `api-key-skills-${skillsLevel}-scope-carve-out`,
+              });
+            }
+          }
+        } catch {
+          return reject(503, "AUTH_BACKEND_UNAVAILABLE", "Service temporarily unavailable");
+        }
+      }
+    }
     // Tier 2: always-protected routes skip the requireLogin=false bypass.
     //
     // The fresh-install bootstrap branch inside isAuthRequired() is loopback-only.

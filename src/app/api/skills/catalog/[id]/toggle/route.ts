@@ -25,7 +25,7 @@ const toggleSchema = z.object({
 });
 
 export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
-  const authError = await requireManagementAuth(request);
+  const authError = await requireManagementAuth(request, { acceptSkillsScope: "write" });
   if (authError) return authError;
 
   if (await skillsServiceDisabled()) return skillServiceDisabledResponse();
