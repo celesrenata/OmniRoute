@@ -12078,6 +12078,23 @@ paths:
       responses:
         "200":
           description: OK
+  /api/skills/hub:
+    post:
+      tags:
+        - Skills
+      summary: "POST skills › hub (install an instruction-only SKILL.md skill)"
+      description: "Requires `write:skills` (or manage/admin). Secondary key scopes: mcp:connect, read:catalog, write:skills. Never executable; body {name, description, content, domain?, version?, tags?, overwrite?}."
+      responses:
+        "200":
+          description: OK
+    delete:
+      tags:
+        - Skills
+      summary: "DELETE skills › hub (remove an imported skill, ?id=imported:<domain>/<slug>)"
+      description: "Requires `write:skills` (or manage/admin)."
+      responses:
+        "200":
+          description: OK
   /api/skills/install:
     post:
       tags:

@@ -240,6 +240,22 @@ Defined in `open-sse/mcp-server/tools/agentSkillTools.ts`. Backed by `src/lib/ag
 | `omniroute_agent_skills_get`      | `read:catalog` | Get full metadata + SKILL.md content for a single skill by canonical `id`                                                  |
 | `omniroute_agent_skills_coverage` | `read:catalog` | Coverage stats: how many of the 23 API, 21 CLI and 1 config skills have SKILL.md files on the filesystem vs catalog totals |
 
+## Skill Hub Tools (7)
+
+Defined in `open-sse/mcp-server/tools/skillDiscoveryTools.ts`. Discovery tools need `read:catalog`; management tools need `write:skills`. The management tools share `src/lib/skills/skillAdmin.ts` with the REST route `/api/skills/hub`. They write instruction-only SKILL.md skills under `OMNIROUTE_SKILL_ROOT` (never executable; no handler code is accepted).
+
+| Tool                    | Scopes         | Description                                                                                   |
+| :---------------------- | :------------- | :-------------------------------------------------------------------------------------------- |
+| `omr_skill_search`      | `read:catalog` | Full-text search over the skill catalog                                                       |
+| `omr_skill_get`         | `read:catalog` | One skill's metadata + SKILL.md                                                               |
+| `omr_skill_list`        | `read:catalog` | Browse by domain / skillset / tag                                                             |
+| `omr_catalog_refresh`   | `write:skills` | Re-scan skill roots and snapshot                                                              |
+| `omr_skill_install`     | `write:skills` | Install a SKILL.md skill `{name, description, content, domain?, version?, tags?, overwrite?}` |
+| `omr_skill_remove`      | `write:skills` | Remove an imported skill by catalog id                                                        |
+| `omr_skill_set_enabled` | `write:skills` | Show/hide a catalog skill in discovery `{id, enabled}`                                        |
+
+**Secondary management key:** create an API key in the API Keys dashboard with scopes `mcp:connect`, `read:catalog`, `write:skills` (no `manage`). See "Secondary (least-privilege) Skill Hub management key" in `docs/reference/API_REFERENCE.md`.
+
 See [AGENT-SKILLS.md](./AGENT-SKILLS.md) for the full catalog and how external agents consume it.
 
 ## Related Frameworks (v3.8.0)
@@ -359,7 +375,13 @@ beyond the trailing `*`.
 
 Enforcement is off unless `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (default
 `false`). While it is off, `evaluateToolScopes` allows the call and skips the
-catalog. While it is on, HTTP uses the Bearer key's `api_keys.scopes` as
+catalog. Exception: tools requiring `write:skills` (`omr_skill_install`,
+`omr_skill_remove`, `omr_skill_set_enabled`, `omr_catalog_refresh`,
+`omniroute_skills_enable`, `omniroute_github_skills_install`) are always
+checked, regardless of the flag; `manage`/`admin` satisfy every scope those tools
+list, and `write:skills` also satisfies a listed `read:skills`. Callers with
+no resolvable scopes (for example stdio without `OMNIROUTE_MCP_SCOPES`) are denied
+on those tools. While it is on, HTTP uses the Bearer key's `api_keys.scopes` as
 `authInfo` (see [Per-key HTTP scope binding](#per-key-http-scope-binding-7895)).
 When no key scopes resolve, the granted set falls through to MCP `_meta`, then
 `OMNIROUTE_MCP_SCOPES`.

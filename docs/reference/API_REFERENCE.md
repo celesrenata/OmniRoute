@@ -1357,18 +1357,20 @@ Full conceptual reference and breaker defaults: see [`CLAUDE.md`](../../CLAUDE.m
 
 Skill framework for extending OmniRoute with custom executable handlers, plus marketplace integrations.
 
-| Method | Path                              | Description                                                                                                                |
-| ------ | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/skills`                     | List installed skills — filterable by `?q=`, `?mode=on\|off\|auto`, `?source=skillsmp\|skillssh\|local`, paginated         |
-| GET    | `/api/skills/[id]`                | Retrieve one skill                                                                                                         |
-| PUT    | `/api/skills/[id]`                | Update skill (name, description, mode, schema, handler, tags)                                                              |
-| DELETE | `/api/skills/[id]`                | Uninstall a skill                                                                                                          |
-| POST   | `/api/skills/install`             | Install a skill from a raw manifest — body: `{name, version, description, schema:{input, output}, handlerCode, apiKeyId?}` |
-| GET    | `/api/skills/executions`          | List recent skill executions (audit trail with inputs/outputs/duration)                                                    |
-| GET    | `/api/skills/marketplace?q=...`   | Search/popular list from the SkillsMP marketplace (requires `skillsmpApiKey` setting)                                      |
-| POST   | `/api/skills/marketplace/install` | Install a skill by id from SkillsMP                                                                                        |
-| GET    | `/api/skills/skillssh?q=&limit=`  | Search the skills.sh registry                                                                                              |
-| POST   | `/api/skills/skillssh/install`    | Install a skill by id from skills.sh                                                                                       |
+| Method | Path                              | Description                                                                                                                                                |
+| ------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/skills`                     | List installed skills — filterable by `?q=`, `?mode=on\|off\|auto`, `?source=skillsmp\|skillssh\|local`, paginated                                         |
+| GET    | `/api/skills/[id]`                | Retrieve one skill                                                                                                                                         |
+| PUT    | `/api/skills/[id]`                | Update skill (name, description, mode, schema, handler, tags)                                                                                              |
+| DELETE | `/api/skills/[id]`                | Uninstall a skill                                                                                                                                          |
+| POST   | `/api/skills/install`             | Install a skill from a raw manifest — body: `{name, version, description, schema:{input, output}, handlerCode, apiKeyId?}`                                 |
+| POST   | `/api/skills/hub`                 | Skill Hub install of an instruction-only SKILL.md skill — body: `{name, description, content, domain?, version?, tags?, overwrite?}`. Scope `write:skills` |
+| DELETE | `/api/skills/hub?id=`             | Remove an imported Skill Hub skill (`imported:<domain>/<slug>`). Scope `write:skills`                                                                      |
+| GET    | `/api/skills/executions`          | List recent skill executions (audit trail with inputs/outputs/duration)                                                                                    |
+| GET    | `/api/skills/marketplace?q=...`   | Search/popular list from the SkillsMP marketplace (requires `skillsmpApiKey` setting)                                                                      |
+| POST   | `/api/skills/marketplace/install` | Install a skill by id from SkillsMP                                                                                                                        |
+| GET    | `/api/skills/skillssh?q=&limit=`  | Search the skills.sh registry                                                                                                                              |
+| POST   | `/api/skills/skillssh/install`    | Install a skill by id from skills.sh                                                                                                                       |
 
 **Auth:** management session/API key. Marketplace search routes accept either management auth or a Bearer API key (`isAuthenticated`).
 
@@ -1745,6 +1747,18 @@ Manage Skills (the agentic extensions framework).
 | PUT    | `/api/skills/[id]`       | Enable or disable a skill — body: `{enabled?: boolean, mode?: "on" \| "off" \| "auto"}` |
 | POST   | `/api/skills/executions` | Execute a skill — body: `{skillName, apiKeyId, input?, sessionId?}`                     |
 | GET    | `/api/skills/executions` | List execution history for all skills (filter by `?apiKeyId=`)                          |
+
+#### Secondary (least-privilege) Skill Hub management key
+
+Create an API key in **Dashboard → API Keys** with exactly these scopes: `mcp:connect`, `read:catalog`, `write:skills`. It is separate from the normal inference key and does **not** carry `manage`.
+
+| Scope          | Grants                                                                                                                                                                     |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read:catalog` | `GET`/`POST /api/skills/catalog` (search, `load`, `resource`); `omr_skill_search/get/list`                                                                                 |
+| `write:skills` | `POST`/`DELETE /api/skills/hub`, `POST /api/skills/catalog/refresh`, `POST /api/skills/catalog/[id]/toggle`; `omr_skill_install/remove/set_enabled`, `omr_catalog_refresh` |
+| `mcp:connect`  | the `/api/mcp/*` transport (so the key can drive the MCP tools above)                                                                                                      |
+
+Everything else still needs `manage`/`admin`: catalog `execute`, `/api/skills/install`, `/api/skills/[id]`, `/api/skills/executions`, `/api/skills/collect/*`, `/api/keys`.
 
 **Auth:** Requires management session or management-scoped API key.
 
