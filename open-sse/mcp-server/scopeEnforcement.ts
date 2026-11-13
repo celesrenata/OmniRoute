@@ -96,6 +96,19 @@ export function resolveCallerScopeContext(
   return { callerId, scopes: [], source: "none" };
 }
 
+/**
+ * Scopes whose tools are write operations that must be checked even when the
+ * global OMNIROUTE_MCP_ENFORCE_SCOPES flag is off (Skill Hub management).
+ */
+const UNCONDITIONAL_SCOPES = ["write:skills"] as const;
+const MANAGEMENT_SCOPES = ["manage", "admin"] as const;
+
+export function requiresUnconditionalScopeCheck(toolScopes?: readonly string[]): boolean {
+  return (
+    Array.isArray(toolScopes) && toolScopes.some((s) => UNCONDITIONAL_SCOPES.some((u) => u === s))
+  );
+}
+
 export function evaluateToolScopes(
   toolName: string,
   callerScopes: readonly string[],
@@ -104,7 +117,10 @@ export function evaluateToolScopes(
 ): ScopeCheckResult {
   const provided = normalizeScopeList(callerScopes);
 
-  if (!enforceScopes) {
+  if (
+    !enforceScopes &&
+    !requiresUnconditionalScopeCheck(inlineScopes ?? MCP_TOOL_MAP[toolName]?.scopes)
+  ) {
     return { allowed: true, required: [], provided, missing: [] };
   }
 
@@ -121,8 +137,19 @@ export function evaluateToolScopes(
     };
   }
 
+  // Unconditionally gated tools: manage/admin satisfy every scope the tool lists,
+  // and write:skills implies read:skills (a write key must not be denied by a
+  // tool that also lists the read scope).
+  const unconditional = requiresUnconditionalScopeCheck(toolScopes);
   const missing = required.filter(
-    (requiredScope) => !provided.some((grantedScope) => scopeMatches(grantedScope, requiredScope))
+    (requiredScope) =>
+      !provided.some(
+        (grantedScope) =>
+          scopeMatches(grantedScope, requiredScope) ||
+          (unconditional &&
+            (MANAGEMENT_SCOPES.some((m) => m === grantedScope) ||
+              (grantedScope === "write:skills" && requiredScope === "read:skills")))
+      )
   );
 
   return {
