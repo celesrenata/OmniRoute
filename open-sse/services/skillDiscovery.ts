@@ -182,7 +182,7 @@ const DEFAULT_SKILL_ROOT = path.join(os.homedir(), ".opencode", "skills");
  * (`~/.opencode/skills`). Read lazily (at cache-build time, not module load)
  * so the value is picked up per process and tests can override it.
  */
-function resolveImportedSkillRoot(): string {
+export function resolveImportedSkillRoot(): string {
   const override = process.env.OMNIROUTE_SKILL_ROOT?.trim();
   return override ? path.resolve(override) : DEFAULT_SKILL_ROOT;
 }
