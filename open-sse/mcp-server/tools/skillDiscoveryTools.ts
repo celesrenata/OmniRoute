@@ -75,6 +75,11 @@ export const SkillGetSchema = z.object({
     .string()
     .min(1)
     .describe("Catalog skill id, e.g. 'builtin:omni-inference' or 'imported:devops/CI-CD'"),
+  includeCompanions: z
+    .boolean()
+    .optional()
+    .describe("Include bounded content for required companion skills"),
+  maxCompanions: z.number().int().min(0).max(10).optional(),
 });
 
 export const SkillListSchema = z.object({
@@ -110,6 +115,9 @@ function summarize(results: SearchResult[]) {
     domain: r.domain,
     source: r.source,
     executable: r.executable,
+    reviewStatus: r.reviewStatus,
+    requiredCompanions: r.requiredCompanions,
+    externalPrerequisites: r.externalPrerequisites,
     score: r.score,
   }));
 }
@@ -178,9 +186,12 @@ export const skillDiscoveryTools = {
           return { found: false, error: "Skill not in an accessible skillset for this agent" };
         }
       }
-      const loaded = loadSkill(args.id);
+      const loaded = loadSkill(args.id, {
+        includeCompanions: args.includeCompanions,
+        maxCompanions: args.maxCompanions,
+      });
       if (!loaded) return { found: false, error: `Skill not found: ${args.id}` };
-      const { skill, content } = loaded;
+      const { skill, content, companions } = loaded;
       return {
         found: true,
         id: skill.id,
@@ -191,6 +202,11 @@ export const skillDiscoveryTools = {
         source: skill.source,
         executable: skill.executable,
         revision: skill.revision,
+        reviewStatus: skill.reviewStatus,
+        reviewReason: skill.reviewReason,
+        requiredCompanions: skill.requiredCompanions,
+        externalPrerequisites: skill.externalPrerequisites,
+        companions,
         markdown: content,
       };
     },
