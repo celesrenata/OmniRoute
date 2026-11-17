@@ -8,6 +8,11 @@ test("AUTOINCREMENT integer primary key becomes BIGSERIAL", () => {
   assert.doesNotMatch(out, /AUTOINCREMENT/i);
 });
 
+test("SQLite BEGIN lock modes become plain BEGIN", () => {
+  assert.equal(translateSqliteSql("BEGIN IMMEDIATE"), "BEGIN");
+  assert.equal(translateSqliteSql("begin exclusive transaction;"), "BEGIN TRANSACTION;");
+  assert.equal(translateSqliteSql("BEGIN"), "BEGIN");
+});
 test("stray AUTOINCREMENT keyword is dropped", () => {
   const out = translateSqliteSql("CREATE TABLE t (id INTEGER AUTOINCREMENT)");
   assert.doesNotMatch(out, /AUTOINCREMENT/i);

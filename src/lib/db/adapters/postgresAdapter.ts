@@ -294,6 +294,15 @@ function translateStrftimeCall(fmt: string, timeArg: string, modifier?: string):
 export function translateSqliteSql(sql: string): string {
   let out = sql;
 
+  // --- transactions ---
+  // SQLite lock modes (BEGIN IMMEDIATE/EXCLUSIVE/DEFERRED) are a syntax error on
+  // PostgreSQL; its plain BEGIN already isolates the read-then-write callers
+  // (api key scope updates) on the single sync client.
+  out = out.replace(
+    /^\s*BEGIN\s+(?:IMMEDIATE|EXCLUSIVE|DEFERRED)(\s+TRANSACTION)?\s*(;?)\s*$/i,
+    (_m, txn: string | undefined, semi: string) => `BEGIN${txn ? " TRANSACTION" : ""}${semi}`
+  );
+
   // --- DDL (CREATE TABLE) ---
   // INTEGER PRIMARY KEY AUTOINCREMENT  ->  BIGSERIAL PRIMARY KEY (auto id).
   out = out.replace(
