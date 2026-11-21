@@ -89,6 +89,14 @@ export function getCodexFastCostMultiplier(
 ): number {
   const providerKey = normalizeServiceTier(provider);
   const tier = normalizeServiceTier(serviceTier);
+
+  // AWS Bedrock flex tier is billed at a 50% token discount to Standard
+  // (https://aws.amazon.com/bedrock/pricing/). Bedrock has no model-specific
+  // priority/premium tiers, so the discount is flat and model-independent.
+  if (providerKey === "bedrock") {
+    return tier === "flex" ? 0.5 : 1;
+  }
+
   if (providerKey !== "codex" && providerKey !== "cx") {
     return 1;
   }

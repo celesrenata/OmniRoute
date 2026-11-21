@@ -69,6 +69,53 @@ test("openAIToBedrockConverse maps OpenAI chat messages and tools to Bedrock Con
   assert.deepEqual(payload.inferenceConfig, { maxTokens: 64, temperature: 0.2 });
 });
 
+test("openAIToBedrockConverse maps the Bedrock ServiceTier onto the Converse payload", () => {
+  const base = {
+    model: "anthropic.claude-sonnet-4-6",
+    messages: [{ role: "user", content: "Hi" }],
+  };
+
+  // Bedrock ServiceTierType = default | flex | priority | reserved
+  // (node_modules/@aws-sdk/client-bedrock-runtime enums.d.ts:598). OmniRoute only
+  // routes "flex" and "default" — the two tiers the cost calculator knows about.
+  assert.equal(
+    openAIToBedrockConverse(base.model, { ...base, service_tier: "flex" }).serviceTier,
+    "flex"
+  );
+  assert.equal(
+    openAIToBedrockConverse(base.model, { ...base, service_tier: "default" }).serviceTier,
+    "default"
+  );
+  // Normalization is case-insensitive (clients may send "Flex" / "DEFAULT").
+  assert.equal(
+    openAIToBedrockConverse(base.model, { ...base, service_tier: "Flex" }).serviceTier,
+    "flex"
+  );
+  assert.equal(
+    openAIToBedrockConverse(base.model, { ...base, service_tier: "DEFAULT" }).serviceTier,
+    "default"
+  );
+
+  // "priority" is a Codex tier, not a Bedrock ServiceTierType we route — it must
+  // NOT leak into the Converse payload (it would either 400 upstream or, worse,
+  // silently opt the request into a tier we did not price).
+  const codexPriority = openAIToBedrockConverse(base.model, { ...base, service_tier: "priority" });
+  assert.equal("serviceTier" in codexPriority, false);
+  // Same for "fast" (Codex alias) and "reserved" (Bedrock has it, we don't route it).
+  assert.equal(
+    "serviceTier" in openAIToBedrockConverse(base.model, { ...base, service_tier: "fast" }),
+    false
+  );
+  assert.equal(
+    "serviceTier" in openAIToBedrockConverse(base.model, { ...base, service_tier: "reserved" }),
+    false
+  );
+
+  // No service_tier → no serviceTier field at all (Bedrock applies the default tier).
+  const plain = openAIToBedrockConverse(base.model, base);
+  assert.equal("serviceTier" in plain, false);
+});
+
 test("openAIToBedrockConverse avoids duplicate Bedrock toolUse ids from mixed tool formats", () => {
   const payload = openAIToBedrockConverse("anthropic.claude-sonnet-4-6", {
     messages: [
@@ -328,6 +375,42 @@ test("BedrockExecutor converts non-streaming Converse output to OpenAI chat comp
   assert.equal(body.model, "anthropic.claude-sonnet-4-6");
   assert.equal(body.choices[0].message.content, "Hallo");
   assert.equal(body.usage.total_tokens, 5);
+});
+
+test("BedrockExecutor echoes the reported Bedrock service tier onto the non-stream response", async () => {
+  const run = (sdkResponse) => {
+    const executor = new BedrockExecutor(() => ({
+      send: async () => sdkResponse,
+    }));
+    return executor
+      .execute({
+        model: "anthropic.claude-sonnet-4-6",
+        body: { messages: [{ role: "user", content: "Hi" }], service_tier: "flex" },
+        stream: false,
+        credentials: credentials(),
+      })
+      .then((result) => result.response.json());
+  };
+
+  // AWS SDK deserializes ServiceTierType.FLEX → "flex" (lowercase).
+  const flexBody = await run({
+    output: { message: { content: [{ text: "Hallo" }] } },
+    stopReason: "end_turn",
+    usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+    serviceTier: { type: "flex" },
+  });
+  // The OpenAI-completion body must expose the provider-reported tier so the
+  // reported tier can be captured into effectiveServiceTier for cost/telemetry.
+  assert.equal(flexBody.service_tier, "flex");
+  assert.equal(flexBody.choices[0].message.content, "Hallo");
+
+  // When the SDK omits serviceTier the field must not appear (no fabricated tier).
+  const plainBody = await run({
+    output: { message: { content: [{ text: "Hallo" }] } },
+    stopReason: "end_turn",
+    usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+  });
+  assert.equal("service_tier" in plainBody, false);
 });
 
 test("BedrockExecutor configures the AWS SDK to use Bedrock bearer API keys", async () => {

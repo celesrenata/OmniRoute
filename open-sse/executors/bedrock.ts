@@ -371,6 +371,15 @@ export function openAIToBedrockConverse(model, body) {
     payload.additionalModelRequestFields = request.additionalModelRequestFields;
   }
 
+  // Bedrock ServiceTierType = default | flex | priority | reserved.
+  // We only route "flex" and "default" — the two tiers the cost calculator knows about.
+  // Case-insensitive so clients sending "Flex"/"DEFAULT" still work.
+  const rawTier =
+    typeof request.service_tier === "string" ? request.service_tier.trim().toLowerCase() : "";
+  if (rawTier === "flex" || rawTier === "default") {
+    payload.serviceTier = rawTier;
+  }
+
   return payload;
 }
 
@@ -431,7 +440,7 @@ function contentBlocksToOpenAIMessage(blocks) {
 
 function openAICompletionFromConverse(output, model) {
   const message = contentBlocksToOpenAIMessage(output?.output?.message?.content || []);
-  return {
+  const body = {
     id: `chatcmpl-bedrock-${randomUUID()}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
@@ -445,6 +454,11 @@ function openAICompletionFromConverse(output, model) {
     ],
     usage: usageFromBedrock(output?.usage),
   };
+  // Echo the provider-reported ServiceTierType (e.g. "flex") so the reported
+  // tier can be captured into effectiveServiceTier for cost/telemetry.
+  const reportedTier = typeof output?.serviceTier?.type === "string" ? output.serviceTier.type : "";
+  if (reportedTier) body.service_tier = reportedTier.toLowerCase();
+  return body;
 }
 
 function sse(data) {
