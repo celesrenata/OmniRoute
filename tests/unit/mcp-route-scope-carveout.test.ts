@@ -104,6 +104,48 @@ test("mcp:connect-only key passes the guard on the sse and tools transport route
   }
 });
 
+// ─── 2026-11-27 — any VALID key may reach the transport routes (stream/sse) ──
+
+test("acceptAnyApiKey: a plain inference key (no mcp:connect/manage/admin) passes the transport guard", async () => {
+  await seedAuthRequired();
+  // Plain key: no manage/admin, no mcp:connect, not even chat — just scoped.
+  const key = await seedKey(["read:health"], "machine-route-any-key");
+  const err = await requireManagementAuth(mcpRequest(key, "/api/mcp/stream", "POST"), {
+    acceptAnyApiKey: true,
+  });
+  assert.equal(err, null, "any valid key must pass the transport guard");
+});
+
+test("acceptAnyApiKey: a scopeless key passes too (scope-agnostic at the guard level)", async () => {
+  await seedAuthRequired();
+  const key = await seedKey([], "machine-route-any-key-scopeless");
+  const err = await requireManagementAuth(mcpRequest(key, "/api/mcp/sse", "GET"), {
+    acceptAnyApiKey: true,
+  });
+  assert.equal(err, null, "scopeless valid key must pass the transport guard");
+});
+
+test("without acceptAnyApiKey, a plain inference key is still rejected (403) on the transport path", async () => {
+  await seedAuthRequired();
+  const key = await seedKey(["read:health"], "machine-route-any-key-deny");
+  // The bare manage-only guard must NOT pass a plain key — fail closed.
+  const err = await requireManagementAuth(mcpRequest(key, "/api/mcp/stream", "POST"));
+  assert.ok(
+    err !== null && err instanceof Response,
+    "plain key must be rejected without the option"
+  );
+  assert.equal(err.status, 403);
+});
+
+test("a manage-scope key still passes with acceptAnyApiKey (option is additive, not exclusive)", async () => {
+  await seedAuthRequired();
+  const key = await seedKey(["manage"], "machine-route-any-key-manage");
+  const err = await requireManagementAuth(mcpRequest(key, "/api/mcp/stream", "POST"), {
+    acceptAnyApiKey: true,
+  });
+  assert.equal(err, null, "manage key must still pass");
+});
+
 test("manage-only routes keep the historical 403 message for insufficient scope", async () => {
   await seedAuthRequired();
   const key = await seedKey(["execute:search"], "machine-route-manage-msg");

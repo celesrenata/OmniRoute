@@ -54,15 +54,26 @@ The MCP server exposes three transports, all backed by the same `createMcpServer
 
 The active HTTP transport (`sse` or `streamable-http`) is selected by the `mcpTransport` setting. Switching transports closes existing sessions on the other transport.
 
-### Remote access (manage-scope bypass)
+### Remote access (manage-scope + any-key transport bypass)
 
-`/api/mcp/*` is in the LOCAL_ONLY tier (`src/server/authz/routeGuard.ts`) — by default only loopback hosts (`localhost`, `127.0.0.1`, `::1`) can reach it. Since v3.8.2, non-loopback clients may connect if they present an `Authorization: Bearer <api-key>` whose key carries the `manage` scope. This is the only way to reach the remote MCP server through a tunnel, reverse proxy, or public hostname.
+`/api/mcp/*` is in the LOCAL_ONLY tier (`src/server/authz/routeGuard.ts`) — by default only loopback hosts (`localhost`, `127.0.0.1`, `::1`) can reach it. Two tiers of non-loopback bypass apply:
+
+1. **Any valid API key → transport routes only** (`/api/mcp/stream`, `/api/mcp/sse`).
+   Since 2026-11-27, the route-layer guard (`acceptAnyApiKey`) accepts any valid
+   key for these two endpoints, regardless of scopes. This lets a leaked inference
+   key (no `manage`, no `mcp:connect`) still reach the MCP transport. Per-tool
+   scope enforcement (`OMNIROUTE_MCP_ENFORCE_SCOPES`, default off) remains the
+   second gate — when enabled, a scopeless caller is denied on any scoped tool.
+   The `DELETE /api/mcp/stream` (session teardown) keeps the narrower
+   `acceptMcpConnectScope` guard: a plain key can open a session but not tear
+   down another caller's.
+
+2. **`manage`/`admin`/`mcp:connect` → all `/api/mcp/*` sub-routes** (status,
+   tools, audit, audit/stats, stream DELETE). This is the v3.8.2 manage-scope
+   bypass extended with the #9159 `mcp:connect` scope.
 
 ```bash
-# Grant manage scope: open the dashboard API Keys page and toggle
-# "Management Access" on the key, or POST scopes:["manage"] when creating.
-
-# Then connect from a remote MCP client:
+# Any valid API key (scopeless or scoped) connects to the transport:
 curl -i \
   -H "Host: your-public-host.example" \
   -H "Authorization: Bearer sk-…" \
@@ -70,9 +81,15 @@ curl -i \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"my-client","version":"0"}}}' \
   https://your-public-host.example/api/mcp/stream
+
+# Management sub-routes (status, tools, audit) still require manage/admin/mcp:connect:
+curl -i -H "Authorization: Bearer sk-…" https://your-public-host.example/api/mcp/status
 ```
 
-A non-manage key (or no Bearer) returns `403 LOCAL_ONLY`. The sibling prefix `/api/cli-tools/runtime/*` is intentionally NOT bypassable — see [Route Guard Tiers — Manage-scope carve-out](../security/ROUTE_GUARD_TIERS.md#manage-scope-carve-out).
+A key with **no valid credentials** (not a key at all) still returns
+`403 LOCAL_ONLY` on every `/api/mcp/*` route. The sibling prefix
+`/api/cli-tools/runtime/*` is intentionally NOT bypassable — see
+[Route Guard Tiers — Manage-scope carve-out](../security/ROUTE_GUARD_TIERS.md#manage-scope-carve-out).
 
 ## IDE Configuration
 
@@ -292,14 +309,14 @@ a guardrail **before** it ever reaches the MCP scope enforcement layer.
 
 ## REST API Endpoints
 
-| Endpoint               | Method                | Description                                                                                         | Auth                       |
-| :--------------------- | :-------------------- | :-------------------------------------------------------------------------------------------------- | :------------------------- |
-| `/api/mcp/status`      | `GET`                 | Server status: heartbeat, HTTP transport state, audit activity summary                              | Management (session/admin) |
-| `/api/mcp/tools`       | `GET`                 | Tool catalog (name, description, scopes, phase, source endpoints)                                   | Management                 |
-| `/api/mcp/sse`         | `GET` / `POST`        | SSE transport endpoint (gated by `mcpEnabled` + `mcpTransport === "sse"`)                           | API key + scopes           |
-| `/api/mcp/stream`      | `POST`/`GET`/`DELETE` | Streamable HTTP transport (uses `mcp-session-id` header; `DELETE` ends the session)                 | API key + scopes           |
-| `/api/mcp/audit`       | `GET`                 | Audit log entries from `mcp_tool_audit` (filters: `limit`, `offset`, `tool`, `success`, `apiKeyId`) | Management                 |
-| `/api/mcp/audit/stats` | `GET`                 | Aggregated audit stats (`totalCalls`, `successRate`, `avgDurationMs`, top tools)                    | Management                 |
+| Endpoint               | Method                | Description                                                                                         | Auth                                                                           |
+| :--------------------- | :-------------------- | :-------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------- |
+| `/api/mcp/status`      | `GET`                 | Server status: heartbeat, HTTP transport state, audit activity summary                              | `manage`/`admin`/`mcp:connect`                                                 |
+| `/api/mcp/tools`       | `GET`                 | Tool catalog (name, description, scopes, phase, source endpoints)                                   | `manage`/`admin`/`mcp:connect`                                                 |
+| `/api/mcp/sse`         | `GET` / `POST`        | SSE transport endpoint (gated by `mcpEnabled` + `mcpTransport === "sse"`)                           | **any valid API key** (operator opt-in)                                        |
+| `/api/mcp/stream`      | `POST`/`GET`/`DELETE` | Streamable HTTP transport (`mcp-session-id` header; `DELETE` ends the session)                      | `POST`/`GET`: **any valid API key** · `DELETE`: `manage`/`admin`/`mcp:connect` |
+| `/api/mcp/audit`       | `GET`                 | Audit log entries from `mcp_tool_audit` (filters: `limit`, `offset`, `tool`, `success`, `apiKeyId`) | `manage`/`admin`                                                               |
+| `/api/mcp/audit/stats` | `GET`                 | Aggregated audit stats (`totalCalls`, `successRate`, `avgDurationMs`, top tools)                    | `manage`/`admin`                                                               |
 
 Source files: `src/app/api/mcp/{status,tools,sse,stream,audit,audit/stats}/route.ts`.
 

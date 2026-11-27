@@ -33,7 +33,7 @@ async function guardEnabled(): Promise<NextResponse | null> {
 }
 
 export async function POST(request: NextRequest) {
-  const authError = await requireManagementAuth(request, { acceptMcpConnectScope: true });
+  const authError = await requireManagementAuth(request, { acceptAnyApiKey: true });
   if (authError) return authError;
   const blocked = await guardEnabled();
   if (blocked) return blocked;
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const authError = await requireManagementAuth(request, { acceptMcpConnectScope: true });
+  const authError = await requireManagementAuth(request, { acceptAnyApiKey: true });
   if (authError) return authError;
   const blocked = await guardEnabled();
   if (blocked) return blocked;
@@ -49,6 +49,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  // Session teardown stays scoped: any valid key may OPEN a stream/sse
+  // session (operator opt-in, acceptAnyApiKey on POST/GET) but only a
+  // manage/admin/mcp:connect key may tear one down — otherwise a leaked
+  // inference key could drop another caller's live session.
   const authError = await requireManagementAuth(request, { acceptMcpConnectScope: true });
   if (authError) return authError;
   const blocked = await guardEnabled();

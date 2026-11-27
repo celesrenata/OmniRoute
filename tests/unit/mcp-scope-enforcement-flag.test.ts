@@ -60,6 +60,12 @@ test("nothing set leaves scope enforcement off, as shipped", async () => {
   });
 });
 
+test("an env OFF override keeps enforcement off (opt-in only)", async () => {
+  await withFlag("false", undefined, async () => {
+    assert.equal(await isEnforced(), false, "OMNIROUTE_MCP_ENFORCE_SCOPES=false must stay off");
+  });
+});
+
 test("the scope gate follows the flag, and the advertised default matches it", async () => {
   const { evaluateToolScopes } = await import("../../open-sse/mcp-server/scopeEnforcement.ts");
   const { FEATURE_FLAG_DEFINITIONS } =
