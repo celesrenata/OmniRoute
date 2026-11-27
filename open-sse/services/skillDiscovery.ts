@@ -34,6 +34,7 @@ import {
   disabledCatalogSkillIds,
 } from "@/lib/db/skillHub.ts";
 import { snapshotFromCatalog } from "@/lib/db/skillSnapshots.ts";
+import { getSkillReviewPolicy, type SkillReviewStatus } from "./skillContentPolicy.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,18 @@ export interface CatalogSkill {
    * License if known.
    */
   license: string | null;
+  /** Content-review disposition and composition hints. */
+  reviewStatus: SkillReviewStatus;
+  reviewReason?: string;
+  requiredCompanions: string[];
+  externalPrerequisites: string[];
+}
+
+export interface SkillCompanion {
+  id: string;
+  status: "loaded" | "missing" | "quarantined";
+  content?: string;
+  reason?: string;
 }
 
 export interface SearchResult {
@@ -95,6 +108,9 @@ export interface SearchResult {
    * `true`. Exposed so consumers can read the claim instead of guessing.
    */
   executable: boolean;
+  reviewStatus: SkillReviewStatus;
+  requiredCompanions: string[];
+  externalPrerequisites: string[];
   /** Total composite score (0–1). 0 for browse-all results (no ranking). */
   score: number;
   /** Explainable component scores. `null` for browse-all (no query) results. */
@@ -215,6 +231,9 @@ function loadBuiltInSkills(): CatalogSkill[] {
     skillMdPath: "", // loaded from URL or generated
     quarantined: false,
     license: null,
+    reviewStatus: "approved",
+    requiredCompanions: [],
+    externalPrerequisites: [],
   }));
 }
 
@@ -259,8 +278,10 @@ function loadImportedSkills(root: string): CatalogSkill[] {
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "");
 
+        const id = `imported:${skillDomain}/${slug}`;
+        const review = getSkillReviewPolicy(id);
         results.push({
-          id: `imported:${skillDomain}/${slug}`,
+          id,
           name,
           description,
           domain: skillDomain,
@@ -269,8 +290,12 @@ function loadImportedSkills(root: string): CatalogSkill[] {
           revision: version,
           executable: false, // imported skills are instruction-only until registered
           skillMdPath: skillMd,
-          quarantined: false,
+          quarantined: review.status === "quarantine",
           license,
+          reviewStatus: review.status,
+          reviewReason: review.reason,
+          requiredCompanions: review.requiredCompanions ?? [],
+          externalPrerequisites: review.externalPrerequisites ?? [],
         });
       } catch {
         // Skip unparseable skills
@@ -456,6 +481,9 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
         tags: skill.tags,
         source: skill.source,
         executable: skill.executable,
+        reviewStatus: skill.reviewStatus,
+        requiredCompanions: skill.requiredCompanions,
+        externalPrerequisites: skill.externalPrerequisites,
         score: 0,
         reason: null,
       }));
@@ -480,6 +508,9 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
       tags: skill.tags,
       source: skill.source,
       executable: skill.executable,
+      reviewStatus: skill.reviewStatus,
+      requiredCompanions: skill.requiredCompanions,
+      externalPrerequisites: skill.externalPrerequisites,
       score: Math.min(1, total),
       reason: {
         nameMatch: Math.round(nameMatch * 100) / 100,
@@ -498,7 +529,10 @@ export function searchCatalog(query: string, options: SearchOptions = {}): Searc
  * Load a skill's full content by ID. Returns the full SKILL.md text and
  * metadata. Bounded to ~50KB to avoid context bloat.
  */
-export function loadSkill(id: string): { content: string; skill: CatalogSkill } | null {
+export function loadSkill(
+  id: string,
+  options: { includeCompanions?: boolean; maxCompanions?: number } = {}
+): { content: string; skill: CatalogSkill; companions: SkillCompanion[] } | null {
   const catalog = visibleCatalog();
   const skill = catalog.find((s) => s.id === id);
   if (!skill) return null;
@@ -521,7 +555,41 @@ export function loadSkill(id: string): { content: string; skill: CatalogSkill } 
     content = content.slice(0, 50_000) + "\n\n[truncated at 50KB]";
   }
 
-  return { content, skill };
+  const companions: SkillCompanion[] = [];
+  if (options.includeCompanions && skill.requiredCompanions.length > 0) {
+    const maxCompanions = Math.min(Math.max(options.maxCompanions ?? 5, 0), 10);
+    for (const companionId of skill.requiredCompanions.slice(0, maxCompanions)) {
+      const companion = visibleCatalog().find(
+        (candidate) =>
+          candidate.id === companionId ||
+          candidate.id === `imported:${companionId}` ||
+          candidate.id.endsWith(`/${companionId}`)
+      );
+      if (!companion) {
+        companions.push({ id: companionId, status: "missing" });
+        continue;
+      }
+      if (companion.quarantined) {
+        companions.push({
+          id: companion.id,
+          status: "quarantined",
+          reason: companion.reviewReason,
+        });
+        continue;
+      }
+      const companionContent = fs.readFileSync(companion.skillMdPath, "utf8");
+      companions.push({
+        id: companion.id,
+        status: "loaded",
+        content:
+          companionContent.length > 20_000
+            ? `${companionContent.slice(0, 20_000)}\\n\\n[companion truncated at 20KB]`
+            : companionContent,
+      });
+    }
+  }
+
+  return { content, skill, companions };
 }
 
 /**

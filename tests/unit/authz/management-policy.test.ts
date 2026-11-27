@@ -361,15 +361,18 @@ test("LOCAL_ONLY manage-scope bypass: no Bearer + non-loopback → 403 (regressi
   }
 });
 
-test("LOCAL_ONLY manage-scope bypass: non-manage key + non-loopback → 403", async () => {
+test("LOCAL_ONLY manage-scope bypass: non-manage key + non-loopback → 403 (non-transport MCP route)", async () => {
   process.env.JWT_SECRET = "test-jwt-secret-for-mgmt-policy";
   process.env.INITIAL_PASSWORD = "initial-pass";
   await settingsDb.updateSettings({ requireLogin: true });
   const created = await apiKeysDb.createApiKey("chat-only", "machine-chat-only", ["chat"]);
 
+  // The 2026-11-27 any-key carve-out covers only the transport routes
+  // (/api/mcp/stream, /api/mcp/sse). Non-transport /api/mcp/* routes still
+  // require manage/admin/mcp:connect — a plain key is denied here.
   const policy = await loadPolicy();
   const out = await policy.evaluate(
-    ctx(new Headers({ authorization: `Bearer ${created.key}` }), "GET", "/api/mcp/stream")
+    ctx(new Headers({ authorization: `Bearer ${created.key}` }), "GET", "/api/mcp/tools")
   );
 
   assert.equal(out.allow, false);

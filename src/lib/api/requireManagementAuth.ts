@@ -40,6 +40,18 @@ interface RequireManagementAuthOptions {
    */
   acceptMcpConnectScope?: boolean;
   /**
+   * Accept ANY valid API key in the API-key branch, regardless of scope — the
+   * operator opted in to letting normal (inference-only) keys use this surface
+   * (e.g. the /api/mcp/* transport routes) from any host. A VALID key is still
+   * required: no key / invalid key / missing metadata fails closed with the
+   * same 401/403 contract as before. Only the MCP transport routes
+   * (stream/sse/status/tools/restart) may enable this — every other management
+   * route keeps its scope gate. The policy layer (managementPolicy) applies the
+   * matching /api/mcp/ carve-out so remote peers with a plain key pass the
+   * loopback gate.
+   */
+  acceptAnyApiKey?: boolean;
+  /**
    * Accept the narrow Skill Hub scopes in the API-key branch: `read:catalog`
    * for "read", `write:skills` for "write" (manage/admin always pass). Only the
    * allowlisted Skill Hub routes (see `resolveSkillsHubRouteLevel`) may set this.
@@ -142,12 +154,18 @@ export async function requireManagementAuth(
       });
     }
 
-    // API-key branch: with acceptMcpConnectScope (MCP transport routes) the
-    // #9159 carve-out applies — hasMcpConnectOrManageScope accepts manage,
-    // admin, and mcp:connect. Without it, the guard stays manage-only. A null
-    // meta (valid key, metadata unavailable — deleted mid-request) falls
-    // through to the same 403 as the default path for every caller, keeping
-    // the error contract uniform.
+    // API-key branch: with acceptAnyApiKey (operator opt-in — the route's
+    // surface is reachable with ANY valid key from any host) a valid key
+    // passes unconditionally, regardless of scope. With acceptMcpConnectScope
+    // (MCP transport routes) the #9159 carve-out applies —
+    // hasMcpConnectOrManageScope accepts manage, admin, and mcp:connect.
+    // Without it, the guard stays manage-only. A null meta (valid key,
+    // metadata unavailable — deleted mid-request) falls through to the same
+    // 403 as the default path for every caller, keeping the error contract
+    // uniform.
+    if (options.acceptAnyApiKey) {
+      return null;
+    }
     if (
       meta &&
       (options.acceptMcpConnectScope

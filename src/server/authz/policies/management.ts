@@ -44,6 +44,20 @@ function isInternalModelSyncRequest(ctx: PolicyContext): boolean {
 }
 
 const WS_BRIDGE_INTERNAL_PATH = "/api/internal/codex-responses-ws";
+
+// Operator opt-in (2026-11-27): ANY valid API key — including plain
+// inference-only keys without manage/admin/mcp:connect scopes — may reach the
+// MCP *transport* routes (/api/mcp/stream, /api/mcp/sse) from ANY host. The
+// Tier-1 loopback gate below grants the LOCAL_ONLY bypass to any VALID key
+// (header-only auth; a URL-borne token never satisfies it) for those exact
+// paths, scope-agnostic. This intentionally widens the #7895 carve-out
+// (mcp:connect scope) for the connection surface only: the status/tools
+// catalog, restart, and audit sub-routes keep the manage/admin/mcp:connect
+// requirement. The route handlers mirror this via
+// requireManagementAuth({ acceptAnyApiKey: true }) on exactly those two
+// routes. No key / invalid key / missing key still fails closed
+// (403 LOCAL_ONLY).
+const MCP_ANY_KEY_TRANSPORT_PATHS: ReadonlyArray<string> = ["/api/mcp/stream", "/api/mcp/sse"];
 const WS_BRIDGE_SECRET_HEADER = "x-omniroute-ws-bridge-secret";
 
 // The in-process codex Responses-over-WebSocket proxy authenticates its internal
@@ -111,6 +125,13 @@ export const managementPolicy: RoutePolicy = {
           try {
             if (await isValidApiKey(apiKey)) {
               const meta = await getApiKeyMetadata(apiKey);
+              // Operator opt-in (2026-11-27): ANY valid key reaches the MCP
+              // transport routes (stream/sse) from any host — no scope check.
+              // Deliberately scoped to those exact paths; the status/tools,
+              // restart, and audit sub-routes still require
+              // manage/admin/mcp:connect below, as does every other LOCAL_ONLY
+              // bypass prefix.
+              const anyKeyMcp = MCP_ANY_KEY_TRANSPORT_PATHS.includes(path);
               // #7895: the `/api/mcp/` carve-out ALSO accepts the narrow
               // `mcp:connect` scope, so remote MCP-only callers don't need
               // broad `manage`/`admin` just to reach the transport routes.
@@ -120,6 +141,19 @@ export const managementPolicy: RoutePolicy = {
                 path.startsWith("/api/mcp/") && meta
                   ? hasMcpConnectOrManageScope(meta.scopes)
                   : Boolean(meta && hasManageScope(meta.scopes));
+              if (anyKeyMcp && !(meta && hasMcpConnectOrManageScope(meta.scopes))) {
+                // Any VALID key is enough — scope-agnostic. Reached only when
+                // the key does NOT hold mcp:connect/manage/admin, so scoped
+                // keys below keep their precise audit label. meta may be null
+                // (valid key, metadata row deleted mid-request); the key
+                // itself was just verified above, so fail open on scope but
+                // never put raw key material in the audit subject.
+                return allow({
+                  kind: "management_key",
+                  id: meta?.id ?? "any-scope-key",
+                  label: "api-key-any-scope-mcp-transport",
+                });
+              }
               if (meta && scopeGranted) {
                 // Distinguish admin vs manage vs the narrow mcp:connect scope in
                 // the audit label so log review can tell which privilege

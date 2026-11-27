@@ -105,14 +105,32 @@ test("key with neither manage/admin nor mcp:connect is rejected for /api/mcp/ (4
   await seedAuthRequired();
   const created = await apiKeysDb.createApiKey("chat-only-mcp", "machine-chat-only-mcp", ["chat"]);
 
+  // The 2026-11-27 any-key carve-out covers only the *transport* routes
+  // (stream/sse). Every other /api/mcp/* sub-route (status, tools, audit,
+  // restart) still requires manage/admin/mcp:connect — a plain key is denied.
   const out = await managementPolicy.evaluate(
-    mgmtCtx(new Headers({ authorization: `Bearer ${created.key}` }), "GET", "/api/mcp/stream")
+    mgmtCtx(new Headers({ authorization: `Bearer ${created.key}` }), "GET", "/api/mcp/status")
   );
 
   assert.equal(out.allow, false);
   if (!out.allow) {
     assert.equal(out.status, 403);
     assert.equal(out.code, "LOCAL_ONLY");
+  }
+});
+
+test("ANY valid key (even scopeless) passes the MCP transport carve-out (stream/sse)", async () => {
+  await seedAuthRequired();
+  // Plain inference key — no manage/admin/mcp:connect, not even mcp:connect.
+  const created = await apiKeysDb.createApiKey("any-key-transport", "machine-any-key-transport", [
+    "chat",
+  ]);
+
+  for (const p of ["/api/mcp/stream", "/api/mcp/sse"]) {
+    const out = await managementPolicy.evaluate(
+      mgmtCtx(new Headers({ authorization: `Bearer ${created.key}` }), "GET", p)
+    );
+    assert.equal(out.allow, true, `expected any valid key to pass ${p}`);
   }
 });
 

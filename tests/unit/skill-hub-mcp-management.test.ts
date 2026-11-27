@@ -70,6 +70,55 @@ test("new tools require the write:skills scope and deny callers without it", () 
   }
 });
 
+test("review policy hides quarantined skills and exposes chain metadata", async () => {
+  fs.mkdirSync(path.join(TEST_SKILL_ROOT, "security", "zeroize-audit"), { recursive: true });
+  fs.writeFileSync(
+    path.join(TEST_SKILL_ROOT, "security", "zeroize-audit", "SKILL.md"),
+    "---\nname: zeroize-audit\ndomain: security\ndescription: Quarantined audit skill\n---\n# Zeroize audit\n"
+  );
+  fs.mkdirSync(path.join(TEST_SKILL_ROOT, "security", "panel-review"), { recursive: true });
+  fs.writeFileSync(
+    path.join(TEST_SKILL_ROOT, "security", "panel-review", "SKILL.md"),
+    "---\nname: panel-review\ndomain: security\ndescription: Requires review panel companions\n---\n# Panel review\n"
+  );
+  discovery.invalidateCatalog();
+
+  const search = (await skillDiscoveryTools.omr_skill_search.handler(
+    skillDiscoveryTools.omr_skill_search.inputSchema.parse({ query: "zeroize audit" })
+  )) as { results: Array<{ id: string }> };
+  assert.equal(
+    search.results.some((r) => r.id === "imported:security/zeroize-audit"),
+    false
+  );
+
+  const got = (await skillDiscoveryTools.omr_skill_get.handler(
+    skillDiscoveryTools.omr_skill_get.inputSchema.parse({ id: "imported:security/zeroize-audit" })
+  )) as { found: boolean };
+  assert.equal(got.found, false);
+
+  const chain = (await skillDiscoveryTools.omr_skill_get.handler(
+    skillDiscoveryTools.omr_skill_get.inputSchema.parse({
+      id: "imported:security/panel-review",
+      includeCompanions: true,
+    })
+  )) as {
+    found: boolean;
+    reviewStatus: string;
+    requiredCompanions: string[];
+    companions: Array<{ id: string; status: string }>;
+  };
+  assert.equal(chain.found, true);
+  assert.equal(chain.reviewStatus, "chain");
+  assert.deepEqual(chain.requiredCompanions, [
+    "review-panel/naming-auditor",
+    "review-panel/todo-auditor",
+  ]);
+  assert.deepEqual(chain.companions, [
+    { id: "review-panel/naming-auditor", status: "missing" },
+    { id: "review-panel/todo-auditor", status: "missing" },
+  ]);
+});
+
 test("install -> omr_skill_search finds it -> omr_skill_get returns markdown", async () => {
   const result = await install();
   assert.equal(result.success, true);

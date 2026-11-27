@@ -1408,7 +1408,7 @@ OmniRoute ships an embedded Model Context Protocol server with 3 transports (std
 | GET | `/api/mcp/audit` | Query audit log — `?limit=`, `?offset=`, `?tool=`, `?success=true                                | false`, `?apiKeyId=` |
 | GET | `/api/mcp/audit/stats` | Aggregate audit stats (totals, success rate, avg duration, top tools) |
 
-**Auth:** the `sse`/`stream` transports honor the MCP-specific auth surface (Bearer API key with `mcp` scope); the `status`/`tools`/`audit*` routes are readable from the dashboard (no extra auth required beyond reaching the dashboard host).
+**Auth:** the `sse`/`stream` transport endpoints (GET/POST) accept **any valid API key** — scope-agnostic (operator opt-in, 2026-11-27). `DELETE /api/mcp/stream` and the `status`/`tools` routes accept `manage`/`admin`/`mcp:connect` keys; `audit`/`audit/stats` accept `manage`/`admin` only. All routes are behind the LOCAL_ONLY gate: non-loopback peers need a valid Bearer key, loopback additionally accepts the CLI machine token and dashboard session.
 
 > Both HTTP transports are gated by `settings.mcpEnabled` and `settings.mcpTransport` — a transport mismatch returns `400`, an MCP disabled state returns `503`.
 

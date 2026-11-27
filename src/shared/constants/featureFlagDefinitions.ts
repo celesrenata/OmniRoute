@@ -487,6 +487,9 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     category: "runtime",
     // Ships off: the gate rejects a caller that sends no scopes at all, so turning it on
     // is an operator decision (.env.example has shipped `=false` since the gate landed).
+    // Deliberately NOT coupled to the any-key transport carve-out on /api/mcp/stream +
+    // /api/mcp/sse (acceptAnyApiKey, 2026-11-27): a scopeless/valid key must still be able
+    // to call tools, so enabling enforcement stays an explicit opt-in.
     defaultValue: "false",
     type: "boolean",
     requiresRestart: false,
